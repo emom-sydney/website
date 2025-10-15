@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ siteName }} | {{ pageTitle }}</title>
+  <link rel="stylesheet" type="text/css" href="/assets/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <p align="center"><a href="/"><img src="/assets/img/logo.png" align="center" width="400" height="400" alt="{{ siteName }}"></a></p>
+
+    <h3>{{ pageTitle }}</h3>
+
+    {{ content | safe }}    
+
+  <div id="footer"><p align="center">&copy; 2025 {{ siteName }} | visit <a href="https://electronicmusicopenmic.com">EMOM Global</a></p></div>
+  </div>
+</body>
+</html>

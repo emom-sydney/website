@@ -1,0 +1,106 @@
+name: Build and deploy to S3 bucket
+
+on: workflow_dispatch
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install Dependencies
+        run: npm install
+      - name: Build and Output to _site
+        run: npm run build
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: _site
+
+  quality:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+          path: _site
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - name: Run localhost server
+        run: |
+          cd _site ; ls -la ;
+          python -m http.server 8080 &
+      - name: Wait for Local Server to Start
+        run: sleep 3
+      - name: Check homepage status in localhost
+        run: |
+          URLs=("http://localhost:8080/" "http://localhost:8080/en/" "http://localhost:8080/es/" "http://localhost:8080/fr/")
+          for url in "${URLs[@]}"; do
+              response_code=$(curl -w "%{http_code}" -I "$url" -o /dev/null)
+              echo -e "e HTTP Status Code for $url: $response_code"
+              echo "HTTP Status Code for $url: $response_code"
+
+              if [ "$response_code" -ne 200 ]; then
+                  echo -e "::error::Error: Unexpected status code for $url"
+                  exit 1
+              fi
+          done
+
+  aws_deploy:
+    runs-on: ubuntu-latest
+    needs: [build, quality]
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+          path: _site
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Empty S3 Bucket
+        run: aws s3 rm s3://${{ secrets.AWS_S3_BUCKET }} --recursive
+      - name: Upload to S3 bucket
+        run: |
+          ls -la _site/
+          aws s3 cp _site/. s3://${{ secrets.AWS_S3_BUCKET }} --recursive
+      - name: Clean CloudFront Cache
+        run: aws cloudfront create-invalidation --distribution-id ${{ secrets.AWS_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+
+  healthcheck:
+    runs-on: ubuntu-latest
+    needs: aws_deploy
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Check homepage status @ https://sydney.emom.me
+        run: |
+          URLs=("https://sydney.emom.me")
+          for url in "${URLs[@]}"; do
+              response_code=$(curl -w "%{http_code}" -I "$url" -o /dev/null)
+              echo -e "e HTTP Status Code for $url: $response_code"
+              echo "HTTP Status Code for $url: $response_code"
+
+              if [ "$response_code" -ne 200 ]; then
+                  echo -e "::error::Error: Unexpected status code for $url"
+                  exit 1
+              fi
+          done

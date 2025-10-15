@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DynamoDB Query Example</title>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.7.16.min.js"></script>
+</head>
+<body>
+    <h1>DynamoDB Query Example</h1>
+    <button id="queryButton">Query DynamoDB</button>
+    <div id="results"></div>
+
+    <script>
+        AWS.config.region = 'YOUR_REGION';
+        AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+            IdentityPoolId: 'YOUR_IDENTITY_POOL_ID'
+        });
+
+        var dynamodb = new AWS.DynamoDB();
+        var docClient = new AWS.DynamoDB.DocumentClient();
+
+        document.getElementById('queryButton').onclick = function() {
+            var params = {
+                TableName: 'YOUR_TABLE_NAME',
+                KeyConditionExpression: 'YOUR_KEY_CONDITION',
+                FilterExpression: 'YOUR_FILTER_CONDITION'
+            };
+
+            docClient.query(params, function(err, data) {
+                if (err) {
+                    document.getElementById('results').innerHTML = "Error: " + JSON.stringify(err);
+                } else {
+                    var count = data.Items.length;
+                    document.getElementById('results').innerHTML = "Found " + count + " items";
+                    document.getElementById('queryButton').disabled = count > 7;
+                }
+            });
+        };
+    </script>
+</body>
+</html>
+/**
+Set up Amazon S3 and DynamoDB
+
+Ensure you have an S3 bucket set up to host your static website.
+Create a DynamoDB table with the data you want to query. [1] 
+
+Create an IAM Role for Browser-based Access
+Navigate to the IAM console (https://console.aws.amazon.com/iam/ ).
+Create a new role for Web Identity Federation.
+Attach a policy that allows querying your specific DynamoDB table.
+
+Set up Amazon Cognito
+Go to the Amazon Cognito console (https://console.aws.amazon.com/cognito/ ).
+Create a new Identity Pool.
+Configure it to use your IAM role for unauthenticated identities.
+
+Create the HTML File
+Create an HTML file with a form for user input and a submit button.
+Add a div to display the query results.
+
+Add JavaScript to Query DynamoDB
+Include the AWS SDK for JavaScript in your HTML file.
+Write a function to query DynamoDB using the SDK. [2] 
+Update the page with the query results.
+Disable the submit button if the result count exceeds 7.
+
+Upload to S3 and Configure for Static Website Hosting
+Upload your HTML file to your S3 bucket.
+Enable static website hosting for your bucket.
+Test and Verify
+
+Access your S3-hosted website and test the functionality.
+**/
