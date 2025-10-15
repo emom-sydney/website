@@ -37,8 +37,10 @@ export default async function(prefix) {
   const data = await s3.send(command);
   return (data.Contents || []).map(obj => {
     const ext = obj.Key.split('.').pop().toLowerCase();
+    const name = obj.Key.split('/').pop();
     return {
       key: obj.Key,
+      name,
       size: obj.Size,
       sizeFormatted: formatSize(obj.Size),
       lastModified: obj.LastModified,
