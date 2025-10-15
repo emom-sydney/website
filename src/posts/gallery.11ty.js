@@ -19,16 +19,42 @@ export const data = {
 };
 
 export default async function render(data) {
+
   const gallery = Array.isArray(data.gallery) ? data.gallery[0] : data.gallery;
   const files = await s3files(gallery);
-  return `
-    <h2>Gallery: ${gallery}</h2>
-    <ul>
-      ${files.map(file => `
-        <li>
-          ${file.icon} <a href="${file.url}">${file.name}</a> (${file.sizeFormatted})
-        </li>
-      `).join('')}
-    </ul>
-  `;
-}
+
+  // Group files by subfolder (or root)
+  const rootFiles = [];
+  const subfolders = {};
+  for (const file of files) {
+    // Remove the gallery prefix from the key
+    const relPath = file.key.replace(/^gallery\/[\w-]+\/?/, "");
+    if (!relPath.includes("/")) {
+      rootFiles.push(file);
+    } else {
+      const [sub, ...rest] = relPath.split("/");
+      if (!subfolders[sub]) subfolders[sub] = [];
+      subfolders[sub].push({ ...file, subPath: rest.join("/") });
+    }
+  }
+
+  // Render root files
+  let html = `<h2>Gallery: ${gallery}</h2>\n<ul>`;
+  html += rootFiles.map(file => `
+    <li>
+    ${file.icon} <a href="${file.url}">${file.name}</a> (${file.sizeFormatted})
+    </li>
+    `).join("");
+    html += `</ul>`;
+    
+    // Render subfolder links
+    if (Object.keys(subfolders).length > 0) {
+      html += `<h3>Subfolders</h3>\n<ul>`;
+      html += Object.keys(subfolders).map(sub => `
+        <li><a href="/gallery/${gallery}/${sub}/index.html">${sub}</a></li>
+      `).join("");
+      html += `</ul>`;
+    }
+  
+  return html;
+  }
