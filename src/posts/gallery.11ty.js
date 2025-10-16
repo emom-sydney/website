@@ -30,6 +30,7 @@ export default async function render(data) {
     // Remove the gallery prefix from the key
     const relPath = file.key.replace(/^gallery\/[\w-]+\/?/, "");
     if (!relPath.includes("/")) {
+      console
       rootFiles.push(file);
     } else {
       const [sub, ...rest] = relPath.split("/");
