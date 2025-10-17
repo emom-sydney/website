@@ -18,16 +18,20 @@ body {
 }
 
 .page_body {
-  max-width: 500px;
   margin: 0 auto;
   padding: 20px;
+  flex: 1;
+  max-width: 700px;
 }
 
-.page_body.footer {
-  padding: 20px;  
-} 
+.page_footer {
+  max-width: 700px;
+  margin: 20px auto;
+  padding: 20px;
+  text-align: center;
+}
 
- .galleryList {
+.galleryList {
   max-width: 800px;
   margin: 0 auto;
 }
@@ -83,13 +87,6 @@ body {
   flex-direction: column;
   align-items: flex-start;
   flex-shrink: 0;
-}
-
-.page_body {
-  flex: 1;
-  max-width: 700px;
-  margin: 0;
-  padding: 20px;
 }
 
 ul {
