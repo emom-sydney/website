@@ -6,7 +6,15 @@ export const data = async () => {
   const pages = [];
 
   for (const gallery of galleries) {
+    console.log('Gallery-Subfolder: Processing gallery:', gallery);
     const files = await s3files(gallery);
+    console.log('Gallery-Subfolder: Got files:', {
+      gallery,
+      isArray: Array.isArray(files),
+      count: Array.isArray(files) ? files.length : 'N/A',
+      files: Array.isArray(files) ? files.slice(0, 2) : files
+    });
+    if (!Array.isArray(files)) continue;
 
     // Group files by subfolder
     const subfolders = {};
@@ -52,12 +60,15 @@ export default function render(data) {
   let html = `<h2>Gallery: ${gallery} / ${sub}</h2>`;
   html += `<p><a href="/gallery/${safeGallery}/index.html">Back to gallery index</a></p>`;
 
-  html += `<ul>`;
-  html += files.map(file => `
+  html += `<ul class="gallery-files">`;
+  html += files.map(file => {
+    const displayName = file.subPath || file.name || 'Unnamed file';
+    return `
     <li>
-      ${file.icon || ''} <a href="${file.url}">${file.name}</a> (${file.sizeFormatted})
+      ${file.icon || ''} <a href="${file.url}">${displayName}</a> ${file.sizeFormatted ? `(${file.sizeFormatted})` : ''}
     </li>
-  `).join('');
+    `;
+  }).join('');
   html += `</ul>`;
 
   return html;

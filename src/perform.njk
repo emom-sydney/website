@@ -1,9 +1,13 @@
 ---
 layout: "main.njk"
+pageTitle: "Performer Registration"
 ---
 <h2>Performer Registration</h2>
-<p>If you wish to play at our event, you just need to show up on the night. That's what "open mic" means after all :) 
-<p>Having said that, we realise it's a bit different when you've got a boot load of gear to wrangle, so you can pre-register your intention to play by filling out this form. 
+<p>If you wish to play at our event, you just need to show up on the night. That's what "open mic" means after all :)</p>
+<p>Having said that, we realise it's a bit different when you've got a boot load of gear to wrangle, so you can pre-register your intention to play by filling out this form.</p>
+
+{% if performerCount.count < performerCount.maxSubmissions %}
+<p>Currently {{ performerCount.count }} of {{ performerCount.maxSubmissions }} pre-registration slots are taken.</p>
 <form id="web-form">
       <input type="hidden" id="formtype" name="formtype" value="preregistration">
 
@@ -25,3 +29,9 @@ layout: "main.njk"
       <button type="submit">Submit</button> 
 </form>
 <script src="/assets/scripts/process_forms.js"></script>
+{% else %}
+<div class="notice">
+    <p>We apologize, but we have reached our maximum capacity of {{ performerCount.maxSubmissions }} pre-registrations for this event.</p>
+    <p>You are still welcome to come and perform on the night - that's what open mic is all about! Just be aware that the pre-registered performers will get priority in the running order.</p>
+</div>
+{% endif %}

@@ -1,7 +1,10 @@
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
-const s3 = new S3Client({ region: "ap-southeast-2" });
-const BUCKET = "sydney.emom.me";
+import siteConfig from './siteConfig.js';
+
+const s3 = new S3Client({ 
+  region: process.env.AWS_REGION || siteConfig.aws.region
+});
 
 // Globs to exclude from listings (case-insensitive). Patterns are matched
 // against the full S3 key, the filename, and the extension.
@@ -61,40 +64,102 @@ function formatSize(bytes) {
   }
 }
 
-export default async function(prefix) {
-  const params = {
-    Bucket: BUCKET,
-    Prefix: `gallery/${prefix}`,
-  };
-  const command = new ListObjectsV2Command(params);
-  const data = await s3.send(command);
-  return (data.Contents || [])
-    .filter(obj => {
-      const parts = obj.Key.split('/');
-      const filename = parts[parts.length - 1];
-      const ext = (filename.includes('.') ? filename.split('.').pop().toLowerCase() : '');
-
-      // Exclude if any glob regex matches the full key, the filename, or the extension
-      for (const rx of excludeRegexes) {
-        if (rx.test(obj.Key)) return false;
-        if (rx.test(filename)) return false;
-        if (ext && rx.test(ext)) return false;
-      }
-
-      return true;
-    })
-    .map(obj => {
-      const ext = obj.Key.split('.').pop().toLowerCase();
-      const name = obj.Key.split('/').pop();
-      return {
-        key: obj.Key,
-        name,
-        size: obj.Size,
-        sizeFormatted: formatSize(obj.Size),
-        lastModified: obj.LastModified,
-        url: `https://${BUCKET}.s3.amazonaws.com/${obj.Key}`,
-        ext,
-        icon: typeMapping[ext] || ''
-      };
-    });
+export async function getActiveGalleries() {
+  const allFiles = await s3filesMain();
+  // Log the structure we're working with
+  console.log('getActiveGalleries: Got files structure:', 
+    Object.entries(allFiles).map(([prefix, files]) => 
+      `${prefix}: ${files?.length || 0} files`
+    )
+  );
+  // Filter for non-empty galleries and return just their prefixes
+  const activeGalleries = Object.entries(allFiles)
+    .filter(([prefix, files]) => files && files.length > 0)
+    .map(([prefix]) => prefix);
+  console.log('getActiveGalleries: Found active galleries:', activeGalleries);
+  return activeGalleries;
 }
+
+async function s3filesMain(prefix = null) {
+  const prefixes = prefix ? [prefix] : (await import("./galleries.js")).default;
+  let allFiles = {};
+
+  // Initialize result with empty arrays for all prefixes
+  if (!prefix) {
+    for (const p of prefixes) {
+      allFiles[p] = [];
+    }
+  }
+
+  console.log('S3Files: Processing prefixes:', prefixes);
+  console.log('S3Files: Called with prefix:', prefix);
+
+  for (const prefix of prefixes) {
+    console.log('S3Files: Processing prefix:', prefix);
+    const command = new ListObjectsV2Command({
+      Bucket: siteConfig.aws.s3.buckets.gallery,
+      Prefix: `gallery/${prefix}`,
+      MaxKeys: 1000
+    });
+
+    try {
+      const response = await s3.send(command);
+      
+      if (!response.Contents) continue;
+
+      console.log('S3Files: Got response:', {
+        prefix,
+        count: response.Contents?.length || 0
+      });
+      
+      const contents = response.Contents || [];
+      console.log('S3Files: Got contents for prefix:', prefix, 'count:', contents.length);
+
+      const processedFiles = contents
+        .filter(obj => !isExcluded(obj.Key))
+        .map(obj => ({
+          key: obj.Key,
+          name: obj.Key.split('/').pop(),
+          url: `https://${siteConfig.aws.s3.buckets.gallery}/${obj.Key}`,
+          size: obj.Size,
+          sizeFormatted: formatSize(obj.Size),
+          lastModified: obj.LastModified,
+          type: obj.Key.split('.').pop().toLowerCase(),
+          icon: typeMapping[obj.Key.split('.').pop().toLowerCase()] || '&#x1F4C4;'
+        }));
+      
+      console.log('S3Files: Processed files:', {
+        prefix,
+        count: processedFiles.length,
+        sample: processedFiles[0]
+      });
+        
+      if (prefix) {
+        return processedFiles;
+      } else {
+        // When called without a specific prefix, use the current prefix from the loop
+        allFiles[prefix] = processedFiles;
+      }
+    } catch (error) {
+      console.error(`Error fetching S3 objects for prefix ${prefix}:`, error);
+      if (prefix) {
+        return [];
+      } else {
+        // Keep the empty array we initialized earlier
+        console.log('S3Files: Error handled for prefix:', prefix);
+      }
+    }
+  }
+
+  // For single prefix requests, return empty array if nothing was found
+  if (prefix) {
+    return [];
+  }
+
+  // Return the complete object if no specific prefix was requested
+  console.log('S3Files: Final result:', Object.keys(allFiles).map(k => `${k}: ${allFiles[k].length} files`));
+  return allFiles;
+}
+
+// Export the main function as default and the helper function separately
+export default s3filesMain;
