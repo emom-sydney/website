@@ -5,15 +5,15 @@
 }
 
 .page_header a {
-  color: #222;
+  color: #1b1b1b;
   text-decoration: none;
 }
 .page_header a:hover {
   text-decoration: underline;
 }
 body {
-  background-color: #ead1a3;
-  color: #333;
+  background-color: #1b1b1b;
+  color: #DDD;
   font-family: "Lucida Console", "Courier New", monospace;    
 }
 
@@ -22,9 +22,10 @@ body {
   padding: 20px;
   flex: 1;
   max-width: 700px;
-  background: #fff3e0;
+  color: #333;
+  background: #FFF;
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+/*  box-shadow: 0 2px 8px rgba(210, 12, 12, 20); */
 }
 
 .page_footer {
@@ -43,7 +44,7 @@ body {
   width: 220px;
   margin: 0 auto 30px auto;
   padding: 20px 10px;
-  background: #fff3e0;
+  background: #777;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
   display: flex;
