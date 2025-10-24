@@ -41,7 +41,7 @@ export default async function render(data) {
 
   // Render root files
   let html = `<h2>Gallery: ${gallery}</h2>`;
-  html += `<p><a href="/gallery/index.html">Back to galleries index</a></p>\n<ul>`;
+  html += `<p><a href="/gallery/index.html">Back to galleries index</a></p>\n<ul class="galleryList">`;
   html += rootFiles.map(file => `
     <li>
     ${file.icon} <a href="${file.url}">${file.name}</a> (${file.sizeFormatted})
