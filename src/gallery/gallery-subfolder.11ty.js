@@ -54,7 +54,7 @@ export default function render(data) {
 
   html += `<ul>`;
   html += files.map(file => `
-    <li>
+    <li class="galleryList">
       ${file.icon || ''} <a href="${file.url}">${file.name}</a> (${file.sizeFormatted})
     </li>
   `).join('');
