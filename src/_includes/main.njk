@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ siteName }} | {{ pageTitle }}</title>
+  <link rel="stylesheet" type="text/css" href="/assets/css/style.css">
+</head>
+<body>
+  {% include "page_header.njk" %}
+  <div class="main_content">
+    {% include "page_sidebar.njk" %}
+    <div class="page_body">
+      <h3>{{ pageTitle }}</h3>
+      {{ content | safe }}    
+    </div>
+  </div>
+  {% include "page_footer.njk" %}
+</body>
+</html>
