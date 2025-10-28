@@ -11,3 +11,4 @@ To add a gallery for an event:
 
  TODO:
   - media uploads page for gallery
+  - finish the TODO list

@@ -109,3 +109,12 @@ form button {
 form button:hover {
   background-color: #0069d9;
 }
+
+.AINotice {
+  font-size: 0.5em;
+  color: #555;
+  margin-top: 10px;
+  width: 50%;
+  margin-left: auto;
+  text-align: center;
+}
