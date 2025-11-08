@@ -110,11 +110,11 @@ form button:hover {
   background-color: #0069d9;
 }
 
-.AINotice {
+.AINotice p {
   font-size: 0.5em;
-  color: #555;
+  color: #666;
   margin-top: 10px;
   width: 50%;
-  margin-left: auto;
-  text-align: center;
+  margin-left: 25%;
+  text-align: justify;
 }
