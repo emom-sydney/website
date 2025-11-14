@@ -22,6 +22,6 @@ To add a gallery for an event:
   - finish the TODO list
 
 # Thoughts
-The idea of using text files as the database for this project intrigues me. A website for a small community organisation has different resource needs compared to most social and/or groupware kind of sites. If you're not chasing user numbers, if the website is run by a small subset of a small group of eager volunteers, I think there's an opportunity to build something quite effective yet simple and transferable. 
+A website for a small community organisation has different resource needs compared to most social and/or groupware kind of sites. If you're not chasing user numbers, if the website is run by a small subset of a small group of eager volunteers, I think there's an opportunity to build something quite effective yet simple and transferable. 
 
 My theory is that an emom event will likely only ever have a handful of volunteers running it at any one time, usually out of a google spreadsheet which is basically just lists of text information anyway. So what if the backend was just a text document that anyone could understand and edit? Obviously you'd put that behind secure authentication etc but again, we don't have to neccessarily spin up an entire MFA infrastructure when everyone involved actually physically knows each other from having met at the music nights. Does that make sense? 

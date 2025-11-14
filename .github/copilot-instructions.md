@@ -8,15 +8,14 @@
 
 ## Developer Workflows
 - **Build locally:** Run `npx @11ty/eleventy` from the project root. Output goes to `_site/`.
-- **Deploy:** See `.github/workflows/build-deploy.yml` for CI/CD details. Deployment is automated via GitHub Actions.
-- **Custom scripts:** Python scripts (e.g., `src/_scripts/s3_bucket_listing.py`) are used for generating HTML listings from S3 buckets. These are not part of the 11ty build and must be run manually.
-- **DynamoDB Example:** See `assets/scripts/querydb-example.html` for a browser-based AWS DynamoDB query example (requires AWS Cognito setup).
+- **Deploy:** See `.github/workflows/build-deploy.yml` for CI/CD details of the planned deployment automation process, but this has not yet been set up as we are now in the process of looking at alternative hosting options.
+- **Custom Scripts:** Script directory `src/_scripts/` contained some now deprecated scripts for S3 HTML generation and can be ignored for now.
 
 ## Project Conventions
 - Use Nunjucks (`.njk`) for layouts and includes.
 - All site content and posts should be placed in `src/` (e.g., `src/posts/`).
 - Use absolute URLs for assets in templates and HTML.
-- CSS is customized for a dark theme with orange background (`assets/css/style.css`).
+- CSS is customized for a dark theme with black background (`assets/css/style.css`).
 - The site name is injected from `src/_data/siteName.json`.
 
 ## Integration Points
