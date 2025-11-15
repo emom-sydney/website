@@ -1,7 +1,12 @@
 body {
   background-color: #1b1b1b;
   color: #DDD;
-  font-family: "Lucida Console", "Courier New", monospace;    
+  font-family: "Lucida Console", "Courier New", monospace;
+  background-image: var(--bg-image-url);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transition: background-image 200ms ease-in-out;
 }
 
 .page_body {
@@ -93,7 +98,7 @@ form textarea {
   width: calc(100% - 20px); /* Account for padding */
   padding: 10px;
   margin-bottom: 15px;
-  border: 1px solid #ccc;
+  border: 1px solid #ccc; 
   border-radius: 4px;
   background: #fff;
 }
