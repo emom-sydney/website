@@ -33,4 +33,14 @@ export default function (eleventyConfig) {
       return A.localeCompare(B);
     });
   });
+
+  // add a slugify filter to convert names to URL-safe slugs
+  eleventyConfig.addNunjucksFilter("slugify", (str) => {
+    return String(str)
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  });
 }

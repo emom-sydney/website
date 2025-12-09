@@ -9,35 +9,9 @@ pageTitle: "Artists"
 {% if sorted and sorted.length %}
 <ul class="artist-list">
   {% for artist in sorted %}
+    {% set slug = artist.stageName | slugify %}
     <li>
-      {{ artist.stageName }}
-      {% set artistPerfs = [] %}
-      {% for perf in performances %}
-        {% if perf.ArtistID == artist.ID %}
-          {% set _ = artistPerfs.push(perf) %}
-        {% endif %}
-      {% endfor %}
-      {% if artistPerfs.length %}
-        <ul class="artist-events">
-          {% for perf in artistPerfs %}
-            {% set event = [] %}
-            {% for e in events %}
-              {% if e.ID == perf.EventID %}
-                {% set event = e %}
-              {% endif %}
-            {% endfor %}
-            {% if event.EventName %}
-              <li>
-                {% if event.GalleryURL %}
-                  <a href="/gallery/{{ event.GalleryURL }}/index.html">{{ event.EventName }}</a>
-                {% else %}
-                  {{ event.EventName }}
-                {% endif %}
-              </li>
-            {% endif %}
-          {% endfor %}
-        </ul>
-      {% endif %}
+      <a href="/artists/{{ slug }}/index.html">{{ artist.stageName }}</a>
     </li>
   {% endfor %}
 </ul>
