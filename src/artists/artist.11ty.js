@@ -17,7 +17,7 @@ export const data = {
 };
 
 export default function render(data) {
-  const { artist, performances, events } = data;
+  const { artist, performances, events, artistsocialpprofiles, socialplatforms } = data;
 
   // Find all performances for this artist
   const artistPerfs = [];
@@ -27,10 +27,39 @@ export default function render(data) {
     }
   }
 
-  // Build event list with links
+  // Find all social profiles for this artist
+  const artistProfiles = [];
+  for (const profile of artistsocialpprofiles) {
+    if (profile.artistID == artist.ID) {
+      artistProfiles.push(profile);
+    }
+  }
+
+  // Build profile page content
   let html = `<p><a href="/artists/index.html">Back to all artists</a></p>\n`;
   html += `<h2>${artist.stageName}</h2>\n`;
 
+  // Social media links
+  if (artistProfiles.length) {
+    html += `<h3>Follow</h3>\n<ul class="social-links">\n`;
+    for (const profile of artistProfiles) {
+      let platform = null;
+      for (const p of socialplatforms) {
+        if (p.ID == profile.socialPlatformID) {
+          platform = p;
+          break;
+        }
+      }
+      if (platform && profile.profileName) {
+        // Replace {profileName} template with actual profile name
+        const url = platform.URLFormat.replace('{profileName}', profile.profileName);
+        html += `<li><a href="${url}" target="_blank" rel="noopener">${platform.platformName}</a></li>\n`;
+      }
+    }
+    html += `</ul>\n`;
+  }
+
+  // Performances
   if (artistPerfs.length) {
     html += `<h3>Performances</h3>\n<ul>\n`;
     for (const perf of artistPerfs) {

@@ -3,5 +3,5 @@ package-lock.json
 .DS_Store
 _site
 .vscode
-_data/csv/*
-_data/*.csv
+src/_data/csv/*
+src/_data/*.csv
