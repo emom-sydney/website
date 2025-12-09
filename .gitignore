@@ -5,3 +5,4 @@ _site
 .vscode
 src/_data/csv/*
 src/_data/*.csv
+.cache

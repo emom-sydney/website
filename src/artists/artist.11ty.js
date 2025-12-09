@@ -1,3 +1,5 @@
+import { getArtistThumbnail } from "../_data/imageHelpers.js";
+
 export const data = {
   layout: "main.njk",
   pagination: {
@@ -16,8 +18,8 @@ export const data = {
   }
 };
 
-export default function render(data) {
-  const { artist, performances, events, artistsocialpprofiles, socialplatforms } = data;
+export default async function render(data) {
+  const { artist, performances, events, artistsocialpprofiles, socialplatforms, artistimages } = data;
 
   // Find all performances for this artist
   const artistPerfs = [];
@@ -35,9 +37,25 @@ export default function render(data) {
     }
   }
 
+  // Get artist thumbnail image
+  let originalUrl = null;
+  let thmUrl = null;
+
+  if (artistimages) {
+    const imgRow = artistimages.find(img => img.artistID === artist.ID);
+    if (imgRow && imgRow.imageURL) {
+      originalUrl = String(imgRow.imageURL).trim();
+      thmUrl = await getArtistThumbnail(imgRow.imageURL, artist.ID);
+    }
+  }
+
   // Build profile page content
-  let html = `<p><a href="/artists/index.html">Back to all artists</a></p>\n`;
-  html += `<h2>${artist.stageName}</h2>\n`;
+  let html = `<h2>${artist.stageName}</h2>\n`;
+
+  // Artist thumbnail
+  if (thmUrl) {
+    html += `<a href="${originalUrl}"><img src="${thmUrl}" alt="${artist.stageName} thumbnail" class="artist-thumb" /></a>\n`;
+  }
 
   // Social media links
   if (artistProfiles.length) {
@@ -80,7 +98,7 @@ export default function render(data) {
         html += `</li>\n`;
       }
     }
-    html += `</ul>\n`;
+    html += `</ul>\n<p><a href="/artists/index.html">&lt;&lt; Back to all artists</a></p>\n`;
   } else {
     html += `<p>No performances recorded.</p>\n`;
   }

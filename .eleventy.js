@@ -7,12 +7,13 @@ export default function (eleventyConfig) {
   eleventyConfig.setIncludesDirectory("_includes");
   eleventyConfig.setOutputDirectory("_site");
   
+  // csv handling: parse CSV files into arrays of objects
   eleventyConfig.addDataExtension("csv", (contents) => {
     const records = parse(contents, {
       columns: true,
       skip_empty_lines: true,
     });
-    // Convert ID and *ID columns to integers
+    // the parser returns strings, so we convert 'ID' columns to integers
     return records.map(record => {
       const converted = { ...record };
       for (const key in converted) {
@@ -34,7 +35,7 @@ export default function (eleventyConfig) {
     });
   });
 
-  // add a slugify filter to convert names to URL-safe slugs
+  // add a slugify filter to convert artist names to URL-safe slugs
   eleventyConfig.addNunjucksFilter("slugify", (str) => {
     return String(str)
       .toLowerCase()

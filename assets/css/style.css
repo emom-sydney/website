@@ -123,3 +123,12 @@ form button:hover {
   margin-left: 25%;
   text-align: justify;
 }
+
+.artist-thumb {
+  float: right;
+  width: 250px;
+  height: 250px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin: 0px;
+}
