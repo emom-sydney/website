@@ -1,8 +1,29 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>{{ siteName }} | {{ pageTitle }}</title>
   <link rel="stylesheet" type="text/css" href="/assets/css/style.css">
+  <style>
+    /* fallback and variable used for background image */
+    :root {
+      --bg-image-url: none;
+    }
+  </style>
+  <script>
+    // Read 11ty data: bgimages (array of relative paths) and bgBase (base URL string).
+    const _bgImages = {{ bgimages | dump | safe }};
+    const _bgBase = {{ media_baseurl | dump | safe }};
+    (function () {
+      if (!Array.isArray(_bgImages) || !_bgImages.length) return;
+      const base = (typeof _bgBase === 'string') ? _bgBase.replace(/\/+$/, '') : '';
+      const chosenRel = String(_bgImages[Math.floor(Math.random() * _bgImages.length)] || "");
+      const rel = chosenRel.replace(/^\/+/, '');
+      const full = base ? `${base}/${rel}` : rel;
+      const encoded = encodeURI(full);
+      document.documentElement.style.setProperty('--bg-image-url', `url("${encoded}")`);
+    })();
+  </script>
 </head>
 <body>
   {% include "page_header.njk" %}

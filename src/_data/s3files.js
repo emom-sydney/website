@@ -41,6 +41,7 @@ const typeMapping = {
   mp4: "&#x1F3A5;", // Movie camera emoji
   mov: "&#x1F3A5;",
   mkv: "&#x1F3A5;",
+  lrf: "&#x1F3A5;",
   mp3: "&#x1F508;", // Loudspeaker emoji
   wav: "&#x1F508;",
   flac: "&#x1F508;",

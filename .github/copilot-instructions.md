@@ -1,36 +1,61 @@
 # Copilot Instructions for sydney.emom.me Website
 
 ## Overview
-- This site is built with [11ty (Eleventy)](https://www.11ty.dev), a static site generator. Source files are in `src/`, output is in `_site/`.
-- Main layout: `src/_includes/main.njk` (Nunjucks template). Pages use frontmatter to specify layout and metadata.
+- This site is built with 11ty (Eleventy). Source files are in `src/`, output is in `_site/`.
+- Main layout: `src/_includes/main.njk`. Pages use frontmatter to specify layout and metadata.
 - Static assets (CSS, images) are in `assets/` and referenced with absolute paths (e.g., `/assets/css/style.css`).
-- Data files (e.g., `siteName.json`) are in `src/_data/` and injected into templates.
+- Data files are in `src/_data/` and are injected into templates.
 
 ## Developer Workflows
-- **Build locally:** Run `npx @11ty/eleventy` from the project root. Output goes to `_site/`.
-- **Deploy:** See `.github/workflows/build-deploy.yml` for CI/CD details of the planned deployment automation process, but this has not yet been set up as we are now in the process of looking at alternative hosting options.
-- **Custom Scripts:** Script directory `src/_scripts/` contained some now deprecated scripts for S3 HTML generation and can be ignored for now.
+- Build locally: `npx @11ty/eleventy` from the project root. Output goes to `_site/`.
+- Deploy: See `.github/workflows/build-deploy.yml` for CI/CD details (not fully set up yet).
+- Custom scripts: `src/_scripts/` contains deprecated helper scripts; they can be ignored for routine tasks.
 
 ## Project Conventions
 - Use Nunjucks (`.njk`) for layouts and includes.
-- All site content and posts should be placed in `src/` (e.g., `src/posts/`).
+- Place site content in `src/` (e.g., `src/posts/`).
 - Use absolute URLs for assets in templates and HTML.
-- CSS is customized for a dark theme with black background (`assets/css/style.css`).
-- The site name is injected from `src/_data/siteName.json`.
+- CSS is customised for a dark theme (`assets/css/style.css`).
+- The site name comes from `src/_data/siteName.json`.
 
-## Integration Points
-- AWS S3: Used for static hosting and media file storage. See `src/_scripts/s3_bucket_listing.py` for HTML generation from S3.
-- AWS DynamoDB: Example integration in `assets/scripts/querydb-example.html` (requires AWS credentials and Cognito setup).
+## Dynamic background images (updated)
+A lightweight client-side implementation is used to randomly select a background image on each page load. This keeps the site build simple while allowing per-load randomness.
+
+- Data files:
+  - `src/_data/bgimages.js` — array of image paths (relative to storage root). Keep entries short (relative paths) to reduce template payload.
+  - `src/_data/bgBase.js` — string base URL for media storage (CDN, S3 bucket, etc.). This separates the base host from the image paths.
+
+- Template:
+  - `src/_includes/main.njk` reads `bgimages` and `bgBase` and sets a CSS variable `--bg-image-url` with a randomly chosen image URL at page load. This allows the stylesheet to reference `var(--bg-image-url)` without embedding large inline styles.
+
+- Styles:
+  - `assets/css/style.css` uses `background-image: var(--bg-image-url);` and provides fallback/background-color and sizing.
+
+- Approaches explained:
+  - Client-side (current): fast to change (new image each load), no rebuild required, minimal JS added. Use when images are static assets and per-load variation is desired.
+  - Build-time: pick one image during the Eleventy build and inject its URL into templates. Use when you want deterministic background until next build and to avoid client-side JS.
+
+- To change the media root:
+  - Edit `src/_data/bgBase.js` and set the appropriate base URL for the environment (CDN, S3, or empty for site-relative paths).
+
+## Integration & Notes
+- AWS S3: used for static hosting and media file storage in this project. See `src/_scripts/s3_bucket_listing.py` for S3 helpers.
+- DynamoDB: example in `assets/scripts/querydb-example.html` (requires credentials/Cognito).
+- Keep the white `.page_body` container (or add an overlay) so content remains readable over photos.
 
 ## Key Files & Directories
-- `src/_includes/main.njk`: Main HTML layout
-- `src/index.html`: Example page using the layout
-- `src/_scripts/s3_bucket_listing.py`: S3 HTML listing generator
-- `assets/scripts/querydb-example.html`: DynamoDB browser query example
-- `assets/css/style.css`: Main stylesheet
-- `.github/workflows/build-deploy.yml`: CI/CD pipeline
+- `src/_includes/main.njk` — Main HTML layout (reads `bgimages` + `bgBase`).
+- `src/_data/bgimages.js` — List of relative image paths.
+- `src/_data/bgBase.js` — Media base URL string.
+- `assets/css/style.css` — Main stylesheet using `--bg-image-url`.
+- `src/index.njk` — Example page using the layout.
+- `src/_scripts/s3_bucket_listing.py` — S3 HTML listing helper.
 
 ## Notes
-- No test suite or build script is present by default; all builds are static via 11ty.
-- Posts directory (`src/posts/`) is currently empty but intended for future content.
+- No test suite is present by default; builds are static via 11ty.
 - For new pages, use frontmatter to specify layout and metadata.
+- To preview changes locally after edits, run: `npx @11ty/eleventy` and open `_site/` output in a browser.
+
+## CSV Data & ID Conversion
+- The `.eleventy.js` config automatically converts all columns ending in `ID` to integers during CSV import.
+- Use `event.GalleryURL` to link to gallery pages: `/gallery/{{ event.GalleryURL }}/index.html`
