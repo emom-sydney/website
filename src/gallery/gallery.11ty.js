@@ -117,7 +117,7 @@ export default function render(data) {
   const { gallery, safeGallery, pathParts = [], files = [], children = [] } = page;
 
   // human readable heading
-  const heading = pathParts.length ? `${gallery} / ${pathParts.join(' / ')}` : gallery;
+  const heading = pathParts.length ? pathParts[pathParts.length - 1] : gallery;
 
   // Build breadcrumb trail:
   // - "Galleries" -> /gallery/index.html
@@ -151,7 +151,6 @@ export default function render(data) {
   // If there are image files, render lightbox gallery
   if (imageFiles.length) {
     const lightboxData = {
-      title: heading,
       imgPath: imageFiles.map(f => f.url),
       caption: imageFiles.map(f => `${f.name} (${f.sizeFormatted})`)
     };
