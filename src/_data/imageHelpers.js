@@ -34,10 +34,10 @@ function slugifyFromGallery(src) {
   }
 }
 
-export async function getArtistThumbnail(imageUrl, artistID) {
+export async function getImageThumbnail(imageUrl, context) {
   if (!imageUrl) return null;
 
-  const slugBase = slugifyFromGallery(imageUrl) || `artist-${artistID}`;
+  const slugBase = slugifyFromGallery(imageUrl) || `image-${context}`;
   const thumbDir = "./assets/img/th/";
   const thumbFilename = `${slugBase}-250.jpeg`;
   const thumbPath = path.join(thumbDir, thumbFilename);
