@@ -7,6 +7,11 @@ body {
   background-position: center;
   background-repeat: no-repeat;
   transition: background-image 200ms ease-in-out;
+  
+  /* Lightbox thumbnail configuration */
+  --lightbox-thumbnail-width: 150px;
+  --lightbox-columns: 4;
+  --lightbox-thumbnail-height: 125px;
 }
 
 .page_body {
