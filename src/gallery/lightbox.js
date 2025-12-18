@@ -1,8 +1,13 @@
+// adapted from https://github.com/StarfallProjects/11ty-plugin-lightbox
+
 export default function(lightbox){
+    // Use thumbnail paths if available, otherwise fall back to original image paths
+    const thumbPaths = lightbox.thumbPath || lightbox.imgPath;
+    
     return(`
     <div class="sp-lightbox-container">
       <div class="sp-lightbox-row">
-        ${lightbox.imgPath.map((path, index) => `<div class="sp-lightbox-column">
+        ${thumbPaths.map((path, index) => `<div class="sp-lightbox-column">
         <img tabindex=0 class="sp-lightbox-thumbnail sp-lightbox-hover-shadow" src="${path}" onclick="openmodal();currentSlide(${index + 1})">
         <div class="sp-lightbox-caption-container sp-lightbox-thumbnail-caption">${lightbox.caption[index]}</div>
         </div>`).join('')}
