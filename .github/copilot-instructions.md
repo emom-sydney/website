@@ -55,3 +55,7 @@ A lightweight client-side implementation is used to randomly select a background
 - No test suite is present by default; builds are static via 11ty.
 - For new pages, use frontmatter to specify layout and metadata.
 - To preview changes locally after edits, run: `npx @11ty/eleventy` and open `_site/` output in a browser.
+
+## CSV Data & ID Conversion
+- The `.eleventy.js` config automatically converts all columns ending in `ID` to integers during CSV import.
+- Use `event.GalleryURL` to link to gallery pages: `/gallery/{{ event.GalleryURL }}/index.html`

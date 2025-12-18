@@ -10,6 +10,7 @@ export default [
   "11.png",
   "20.png",
   "28.png",
+  "31.jpg",
   "DSCF3355.png",
   "DSCF3381.png",
   "DSCF3390.png",

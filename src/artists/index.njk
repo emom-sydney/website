@@ -1,0 +1,20 @@
+---
+layout: "main.njk"
+pageTitle: "Artists"
+---
+
+{% set items = artists %}
+{% set sorted = items | sortBy('stageName') %}
+
+{% if sorted and sorted.length %}
+<ul class="artist-list">
+  {% for artist in sorted %}
+    {% set slug = artist.stageName | slugify %}
+    <li>
+      <a href="/artists/{{ slug }}/index.html">{{ artist.stageName }}</a>
+    </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p>No artists found.</p>
+{% endif %}
