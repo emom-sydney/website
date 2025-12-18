@@ -1,5 +1,23 @@
 ---
 layout: "main.njk"
+permalink: /blog/index.html
 ---
 
-<p align="center"><a href="/"><img src="/assets/img/uc.gif" align="center" width="200" height="150"></a></p>
+<h2>Blog</h2>
+
+<p>Blog posts are listed below. Check back regularly for updates on EMOM events, artist spotlights, and the Sydney electronic music scene.</p>
+
+{% if collections.posts.length === 0 %}
+  <p><em>No posts yet. Check back soon!</em></p>
+{% else %}
+  <div class="posts-list">
+    {% for post in collections.posts %}
+    <article class="post-preview">
+      <h3><a href="{{ post.url }}">{{ post.data.title }}</a></h3>
+      <p class="post-date">{{ post.date | dateFilter }}</p>
+      <p class="post-excerpt">{{ post.data.excerpt }}</p>
+      <a href="{{ post.url }}" class="read-more">Read more →</a>
+    </article>
+    {% endfor %}
+  </div>
+{% endif %}

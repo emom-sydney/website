@@ -7,6 +7,20 @@ layout: "main.njk"
 <hr>
 <p>Upcoming events: Friday January 7, Friday February 13, Thursday March 12. <a href="mailto:emom.sydney@gmail.com">Send us an email</a> if you'd like to play, otherwise <a href="https://events.humanitix.com/sydney-electronic-music-open-mic-night/tickets"  target="_blank" rel="noopener">get your tickets here!</a></p>
 <hr>
+
+{% set latestPost = collections.posts[0] %}
+{% if latestPost %}
+<section class="latest-post">
+  <h3>Latest from the Blog</h3>
+  <h4><a href="{{ latestPost.url }}">{{ latestPost.data.title }}</a></h4>
+  <p class="post-meta"><em>{{ latestPost.date | dateFilter }}</em></p>
+  <p>{{ latestPost.data.excerpt }}</p>
+  <a href="{{ latestPost.url }}" class="read-more">Read more →</a>
+  <p><a href="/blog/">View all posts →</a></p>
+</section>
+<hr>
+{% endif %}
+
 <p>Please bear with as we build this site to be the central point of contact for all things EMOM in Sydney. Our 90s style gif is an important part of the development process, of course!
 <br><br>
 <p align="center"><a href="/"><img src="/assets/img/uc.gif" align="center" width="200" height="150"></a></p>

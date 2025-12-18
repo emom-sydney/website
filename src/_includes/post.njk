@@ -1,0 +1,55 @@
+---
+layout: "main.njk"
+---
+
+<article class="post">
+  <h2>{{ title }}</h2>
+  <p class="post-meta"><em>{{ page.date | dateFilter }}</em></p>
+
+  <div class="post-content">
+    {{ content | safe }}
+  </div>
+</article>
+
+{% set allPosts = collections.posts %}
+{% set currentUrl = page.url %}
+
+{% set prevPost = null %}
+{% set nextPost = null %}
+{% set currentIndex = -1 %}
+
+{% for post in allPosts %}
+  {% if post.url == currentUrl %}
+    {% set currentIndex = loop.index0 %}
+  {% endif %}
+{% endfor %}
+
+{% if currentIndex > 0 %}
+  {% set prevPost = allPosts[currentIndex - 1] %}
+{% endif %}
+
+{% if currentIndex < (allPosts.length - 1) %}
+  {% set nextPost = allPosts[currentIndex + 1] %}
+{% endif %}
+
+<nav class="post-navigation">
+  <div class="nav-links">
+    {% if prevPost %}
+      <div class="prev-post">
+        <strong>← Previous Post</strong>
+        <a href="{{ prevPost.url }}">{{ prevPost.data.title }}</a>
+      </div>
+    {% endif %}
+
+    {% if nextPost %}
+      <div class="next-post">
+        <strong>Next Post →</strong>
+        <a href="{{ nextPost.url }}">{{ nextPost.data.title }}</a>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="back-to-blog">
+    <a href="/blog/">← Back to Blog</a>
+  </div>
+</nav>

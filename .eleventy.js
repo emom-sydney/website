@@ -44,4 +44,22 @@ export default function (eleventyConfig) {
       .replace(/[\s_]+/g, '-')
       .replace(/^-+|-+$/g, '');
   });
+
+  // add a dateFilter for formatting blog post dates
+  eleventyConfig.addNunjucksFilter("dateFilter", (date) => {
+    if (!date) return "";
+    const d = new Date(date);
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  });
+
+  // create a collection for blog posts (sorted by date, newest first)
+  eleventyConfig.addCollection("posts", (collection) => {
+    return collection.getFilteredByGlob("src/posts/*.md").sort((a, b) => b.date - a.date);
+  });
+
+  return {
+    markdownTemplateEngine: "njk",
+    htmlTemplateEngine: "njk",
+    templateFormats: ["md", "njk", "html", "js"]
+  };
 }
