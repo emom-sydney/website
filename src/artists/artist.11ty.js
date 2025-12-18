@@ -1,4 +1,4 @@
-import { getArtistThumbnail } from "../_data/imageHelpers.js";
+import { getImageThumbnail } from "../_data/imageHelpers.js";
 
 export const data = {
   layout: "main.njk",
@@ -45,7 +45,7 @@ export default async function render(data) {
     const imgRow = artistimages.find(img => img.artistID === artist.ID);
     if (imgRow && imgRow.imageURL) {
       originalUrl = String(imgRow.imageURL).trim();
-      thmUrl = await getArtistThumbnail(imgRow.imageURL, artist.ID);
+      thmUrl = await getImageThumbnail(imgRow.imageURL);
     }
   }
 
