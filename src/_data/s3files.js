@@ -93,7 +93,7 @@ export default async function(prefix) {
         size: obj.Size,
         sizeFormatted: formatSize(obj.Size),
         lastModified: obj.LastModified,
-        url: `http://${BUCKET}.s3.amazonaws.com/${obj.Key}`,
+        url: `https://s3.ap-southeast-2.amazonaws.com/${BUCKET}/${obj.Key}`,
         ext,
         icon: typeMapping[ext] || ''
       };
