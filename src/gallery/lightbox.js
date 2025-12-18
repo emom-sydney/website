@@ -1,7 +1,6 @@
 export default function(lightbox){
     return(`
     <div class="sp-lightbox-container">
-      <h2 style="text-align:center">${lightbox.title}</h2>
       <div class="sp-lightbox-row">
         ${lightbox.imgPath.map((path, index) => `<div class="sp-lightbox-column">
         <img tabindex=0 class="sp-lightbox-thumbnail sp-lightbox-hover-shadow" src="${path}" onclick="openmodal();currentSlide(${index + 1})">
