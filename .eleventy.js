@@ -44,4 +44,31 @@ export default function (eleventyConfig) {
       .replace(/[\s_]+/g, '-')
       .replace(/^-+|-+$/g, '');
   });
+
+  // add a getYear filter to extract year from date string or Date object
+  eleventyConfig.addNunjucksFilter("getYear", (input) => {
+    // Normalize input to a Date (or null)
+    let d = null;
+
+    // Treat 'now' or empty/undefined/null as current date
+    if (input === 'now' || input === undefined || input === null || input === '') {
+      d = new Date();
+    } else if (input instanceof Date) {
+      d = input;
+    } else if (typeof input === 'string') {
+      const parsed = new Date(input);
+      if (!Number.isNaN(parsed.getTime())) {
+        d = parsed;
+      }
+    }
+
+    // If we have a valid Date, return the year
+    if (d) {
+      return String(d.getFullYear());
+    }
+
+    // Fallback: try to pull a 4-digit year out of the string
+    const match = String(input).match(/\b(\d{4})\b/);
+    return match ? match[1] : "";
+  });
 }
