@@ -137,6 +137,28 @@ export default async function render(data) {
   // human readable heading
   const heading = pathParts.length ? pathParts[pathParts.length - 1] : gallery;
 
+  // Try to find the event for this gallery (only for root gallery pages, not subfolders)
+  let eventArtists = [];
+  if (!pathParts.length && data.events && data.performances && data.artists) {
+    // Find event by GalleryURL matching gallery name
+    for (const event of data.events) {
+      if (event.GalleryURL && event.GalleryURL === gallery) {
+        // Found matching event, now get all artists who performed
+        for (const perf of data.performances) {
+          if (perf.EventID === event.ID) {
+            const artist = data.artists.find(a => a.ID === perf.ArtistID);
+            if (artist) {
+              eventArtists.push(artist);
+            }
+          }
+        }
+        break;
+      }
+    }
+    // Sort artists by stage name
+    eventArtists.sort((a, b) => String(a.stageName).localeCompare(String(b.stageName)));
+  }
+
   // Build breadcrumb trail:
   // - "Galleries" -> /gallery/index.html
   // - gallery -> /gallery/<safeGallery>/index.html
@@ -161,6 +183,21 @@ export default async function render(data) {
 
   let html = `<p class="breadcrumbs">${bcHtml}</p>\n`;
   html += `<h2>Gallery: ${heading}</h2>\n`;
+
+  // If this is a root gallery page and there are artists, list them
+  if (!pathParts.length && eventArtists.length) {
+    html += `<h3>Artists</h3>\n<ul class="event-artists">\n`;
+    for (const artist of eventArtists) {
+      const slug = String(artist.stageName)
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\s_]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      html += `<li><a href="/artists/${slug}/index.html">${artist.stageName}</a></li>\n`;
+    }
+    html += `</ul>\n`;
+  }
 
   // Separate image files from non-image files
   const imageFiles = (files || []).filter(f => IMAGE_EXTENSIONS.has(f.ext));
