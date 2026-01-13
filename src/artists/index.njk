@@ -3,66 +3,27 @@ layout: "main.njk"
 pageTitle: "Artists we've hosted"
 ---
 
-{% set items = artists %}
-{% set sorted = items | sortBy('stageName') %}
-{% set currentYear =  'now' | getYear %}
-{% set todayDate = 'now' %}
+{% set sorted = artists | sortBy('stageName') %}
+{% set currentYear = 'now' | getYear %}
+{% set todayTime = now.getTime() %}
 
 {% if sorted and sorted.length %}
 <h3>{{ currentYear }}</h3>
 <ul class="artist-list">
-  {% for artist in sorted %}
-    {% set hasPerformanceInCurrentYear = false %}
-    
-    {# Check if artist has any performances in current year #}
-    {% for perf in performances %}
-      {% if perf.ArtistID == artist.ID %}
-        {# Find the corresponding event #}
-        {% for event in events %}
-          {% if event.ID == perf.EventID %}
-            {% if event.Date and (currentYear in event.Date) and event.Date.getTime <= todayDate.getTime %}
-              {% set hasPerformanceInCurrentYear = true %}
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-      {% endif %}
-    {% endfor %}
-    
-    {% if hasPerformanceInCurrentYear %}
-      {% set slug = artist.stageName | slugify %}
-      <li>
-        <a href="/artists/{{ slug }}/index.html">{{ artist.stageName }}</a>
-      </li>
-    {% endif %}
-  {% endfor %}
+{% for artist in sorted %}
+{% if helpers.artistHasPerformanceInYear(artist, currentYear, events, performances) %}<li><a href="/artists/{{ artist.stageName | slugify }}/index.html">{{ artist.stageName }}</a></li>
+{% endif %}
+{% endfor %}
 </ul>
 
 <h3>Previous Years</h3>
 <ul class="artist-list">
-  {% for artist in sorted %}
-    {% set hasPerformanceInCurrentYear = false %}
-    
-    {# Check if artist has any performances in current year #}
-    {% for perf in performances %}
-      {% if perf.ArtistID == artist.ID %}
-        {# Find the corresponding event #}
-        {% for event in events %}
-          {% if event.ID == perf.EventID %}
-            {% if event.Date and currentYear in event.Date %}
-              {% set hasPerformanceInCurrentYear = true %}
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-      {% endif %}
-    {% endfor %}
-    
-    {% if not hasPerformanceInCurrentYear %}
-      {% set slug = artist.stageName | slugify %}
-      <li>
-        <a href="/artists/{{ slug }}/index.html">{{ artist.stageName }}</a>
-      </li>
-    {% endif %}
-  {% endfor %}
+{% for artist in sorted %}
+{% set hasCurrentYear = helpers.artistHasPerformanceInYear(artist, currentYear, events, performances) %}
+{% set hasPast = helpers.artistHasPastPerformance(artist, events, performances, todayTime) %}
+{% if hasPast and not hasCurrentYear %}<li><a href="/artists/{{ artist.stageName | slugify }}/index.html">{{ artist.stageName }}</a></li>
+{% endif %}
+{% endfor %}
 </ul>
 {% else %}
 <p>No artists found.</p>
