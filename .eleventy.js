@@ -71,4 +71,49 @@ export default function (eleventyConfig) {
     const match = String(input).match(/\b(\d{4})\b/);
     return match ? match[1] : "";
   });
+
+  // add a parseDate filter to convert date strings like "Fri, 9 Jan 2026" to Date objects
+  eleventyConfig.addNunjucksFilter("parseDate", (dateStr) => {
+    if (!dateStr) return null;
+    if (dateStr instanceof Date) return dateStr;
+    
+    // Try to parse the string (works with formats like "Fri, 9 Jan 2026")
+    const parsed = new Date(dateStr);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+    return null;
+  });
+
+  // Make 'now' available globally for templates
+  eleventyConfig.addGlobalData("now", new Date());
+
+  // Helper to check if an artist performed in a specific year
+  eleventyConfig.addGlobalData("helpers", {
+    artistHasPerformanceInYear: (artist, year, events, performances) => {
+      for (const event of events) {
+        if (event.Date && event.Date.includes(year)) {
+          for (const perf of performances) {
+            if (perf.EventID === event.ID && perf.ArtistID === artist.ID) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    },
+    artistHasPastPerformance: (artist, events, performances, todayTime) => {
+      for (const event of events) {
+        const eventDate = new Date(event.Date);
+        if (!isNaN(eventDate.getTime()) && eventDate.getTime() <= todayTime) {
+          for (const perf of performances) {
+            if (perf.EventID === event.ID && perf.ArtistID === artist.ID) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+  });
 }

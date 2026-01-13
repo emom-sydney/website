@@ -27,5 +27,8 @@ export default [
   "EMOM2511-55.png",
   "EMOM2511-64.png",
   "EMOM2511-13.png",
-  "EMOM2511-14.png"
+  "EMOM2511-14.png",
+  "DSCF6188.jpg",
+  "IMG_1237.jpeg",
+  "signal-2025-12-12-182046_010.jpg"
 ];
