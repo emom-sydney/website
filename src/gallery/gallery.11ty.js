@@ -128,7 +128,7 @@ export default async function render(data) {
   // Top-level /gallery/index.html -> list of galleries
   if (page.topIndex) {
     const list = (page.galleries || []).map(g => `<li><a href="${g.url}">${g.gallery}</a></li>`).join("");
-    return `<h2>Galleries</h2>\n<ul>\n${list}\n</ul>\n`;
+    return `<h2>Event Galleries</h2>\n<ul>\n${list}\n</ul>\n`;
   }
 
   // folder page rendering (gallery or subfolder)
@@ -199,9 +199,12 @@ export default async function render(data) {
     html += `</ul>\n`;
   }
 
-  // Separate image files from non-image files
+  // Sort files into video, images, and other.
+  const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv', 'wmv', 'm4v']);
   const imageFiles = (files || []).filter(f => IMAGE_EXTENSIONS.has(f.ext));
   const nonImageFiles = (files || []).filter(f => !IMAGE_EXTENSIONS.has(f.ext));
+  const videoFiles = (nonImageFiles || []).filter(f => VIDEO_EXTENSIONS.has(String(f.ext).toLowerCase()));
+  const otherFiles = (nonImageFiles || []).filter(f => !VIDEO_EXTENSIONS.has(String(f.ext).toLowerCase()));
 
   // If there are image files, render lightbox gallery
   if (imageFiles.length) {
@@ -226,19 +229,32 @@ export default async function render(data) {
       thumbPath: thumbPaths,
       caption: imageFiles.map(f => `${f.name} (${f.sizeFormatted})`)
     };
+    html += "<h3>Images</h3>\n";
     html += lightbox(lightboxData);
   }
 
-  // Then list any non-image files
-  if (nonImageFiles && nonImageFiles.length) {
-    html += `<h3>Other Files</h3>\n<ul class="galleryList">\n`;
-    html += nonImageFiles.map(f => `
+
+  // List video files
+  if (videoFiles && videoFiles.length) {
+    html += `<h3>Video Files</h3>\n<ul class="galleryList">\n`;
+    html += videoFiles.map(f => `
       <li>
         ${f.icon || ""} <a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
       </li>
     `).join("");
     html += `\n</ul>\n`;
-  } else if (!imageFiles.length) {
+  }
+
+  // Then list any remaining non-video files
+  if (otherFiles && otherFiles.length) {
+    html += `<h3>Other Files</h3>\n<ul class="galleryList">\n`;
+    html += otherFiles.map(f => `
+      <li>
+        ${f.icon || ""} <a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
+      </li>
+    `).join("");
+    html += `\n</ul>\n`;
+  } else if (!imageFiles.length && !videoFiles.length && !otherFiles.length) {
     html += `<p>No files in this folder.</p>\n`;
   }
 
