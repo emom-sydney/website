@@ -19,7 +19,7 @@ export const data = {
 };
 
 export default async function render(data) {
-  const { artist, performances, events, artistsocialpprofiles, socialplatforms, artistimages } = data;
+  const { artist, performances, events, artistsocialprofiles, socialplatforms, artistimages } = data;
 
   // Find all performances for this artist
   const artistPerfs = [];
@@ -31,7 +31,7 @@ export default async function render(data) {
 
   // Find all social profiles for this artist
   const artistProfiles = [];
-  for (const profile of artistsocialpprofiles) {
+  for (const profile of artistsocialprofiles) {
     if (profile.artistID == artist.ID) {
       artistProfiles.push(profile);
     }
