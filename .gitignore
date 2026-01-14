@@ -3,8 +3,6 @@ package-lock.json
 .DS_Store
 _site
 .vscode
-src/_data/csv/*
-src/_data/*.csv
 .cache
 assets/img/th/*
 assets/img/bg/*

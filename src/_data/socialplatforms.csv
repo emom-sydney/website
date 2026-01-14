@@ -1,0 +1,14 @@
+ID,platformName,URLFormat
+1,Instagram,https://instagram.com/{profileName}
+2,Facebook,https://facebook.com/{profileName}
+3,Soundcloud,https://soundcloud.com/{profileName}
+4,Bandcamp,https://{profileName}.bandcamp.com
+5,Youtube,https://www.youtube.com/@{profileName}
+6,Linktree,https://linktr.ee/{profileName}
+7,Website,{profileName}
+8,Github,https://github.com/{profileName}
+9,X,https://x.com/{profileName}
+10,Tiktok,https://tiktok.com/@{profileName}
+11,Bluesky,https://bsky.app/profile/{profileName}
+12,Mastodon,{profileName}
+13,Spotify,https://open.spotify.com/artist/{profileName}
