@@ -70,6 +70,9 @@ export async function getImageThumbnail(imageUrl, context) {
 
   const stats = await Image(imageUrl, options);
   // stats.jpeg[0] corresponds to width 250, format jpeg
-  const thumb = stats.jpeg && stats.jpeg[0];
-  return thumb ? thumb.url : null;
+  if (!stats || !stats.jpeg || !stats.jpeg[0]) {
+    console.warn(`Failed to generate thumbnail for ${imageUrl}`);
+    return null;
+  }
+  return stats.jpeg[0].url;
 }

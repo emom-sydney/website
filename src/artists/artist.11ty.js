@@ -45,7 +45,7 @@ export default async function render(data) {
     const imgRow = artistimages.find(img => img.artistID === artist.ID);
     if (imgRow && imgRow.imageURL) {
       originalUrl = String(imgRow.imageURL).trim();
-      thmUrl = await getImageThumbnail(imgRow.imageURL);
+      thmUrl = await getImageThumbnail(imgRow.imageURL, artist.stageName);
     }
   }
 
