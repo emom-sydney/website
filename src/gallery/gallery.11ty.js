@@ -239,18 +239,26 @@ export default async function render(data) {
     html += `<h3>Video Files</h3>\n<ul class="galleryList">\n`;
     html += videoFiles.map(f => `
       <li>
-        ${f.icon || ""} <a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
-      </li>
-    `).join("");
-    html += `\n</ul>\n`;
-  }
+        ${f.icon || ""} ${
+          f.storageClass === "STANDARD"
+            ? `<a href="${f.url}">${f.name}</a>`
+            : `${f.name} (Archived)`
+        }${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
+        </li>
+        `).join("");
+        html += `\n</ul>\n`;
+      }
 
   // Then list any remaining non-video files
   if (otherFiles && otherFiles.length) {
     html += `<h3>Other Files</h3>\n<ul class="galleryList">\n`;
     html += otherFiles.map(f => `
       <li>
-        ${f.icon || ""} <a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
+        ${f.icon || ""} ${
+          f.storageClass === "STANDARD"
+            ? `<a href="${f.url}">${f.name}</a>`
+            : `${f.name} (Archived)`
+        }${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
       </li>
     `).join("");
     html += `\n</ul>\n`;
