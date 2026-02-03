@@ -5,7 +5,7 @@ const BUCKET = "sydney.emom.me";
 
 // Globs to exclude from listings (case-insensitive). Patterns are matched
 // against the full S3 key, the filename, and the extension.
-// 
+//
 export const excludeGlobs = [
   '*.html',
   '.DS_Store'
@@ -95,7 +95,9 @@ export default async function(prefix) {
         lastModified: obj.LastModified,
         url: `https://s3.ap-southeast-2.amazonaws.com/${BUCKET}/${obj.Key}`,
         ext,
-        icon: typeMapping[ext] || ''
+        icon: typeMapping[ext] || '',
+        // NEW: include storage class for each object
+        storageClass: obj.StorageClass || 'STANDARD'
       };
     });
 }
