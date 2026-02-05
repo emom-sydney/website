@@ -206,6 +206,8 @@ export default async function render(data) {
   const videoFiles = (nonImageFiles || []).filter(f => VIDEO_EXTENSIONS.has(String(f.ext).toLowerCase()));
   const otherFiles = (nonImageFiles || []).filter(f => !VIDEO_EXTENSIONS.has(String(f.ext).toLowerCase()));
 
+  let hasOfflineFiles = false;
+
   // If there are image files, render lightbox gallery
   if (imageFiles.length) {
     // Generate thumbnails: check if they exist, create if needed
@@ -237,30 +239,40 @@ export default async function render(data) {
   // List video files
   if (videoFiles && videoFiles.length) {
     html += `<h3>Video Files</h3>\n<ul class="galleryList">\n`;
-    html += videoFiles.map(f => `
+    html += videoFiles.map(f => {
+      const isStandard = f.storageClass === "STANDARD";
+      if (!isStandard) hasOfflineFiles = true;
+
+      const label = isStandard
+        ? `<a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}`
+        : `${f.name} (Offline)`;
+
+      return `
       <li>
-        ${f.icon || ""} ${
-          f.storageClass === "STANDARD"
-            ? `<a href="${f.url}">${f.name}</a>`
-            : `${f.name} (Archived)`
-        }${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
-        </li>
-        `).join("");
-        html += `\n</ul>\n`;
-      }
+        ${f.icon || ""} ${label}
+      </li>
+      `;
+    }).join("");
+    html += `\n</ul>\n`;
+  }
 
   // Then list any remaining non-video files
   if (otherFiles && otherFiles.length) {
     html += `<h3>Other Files</h3>\n<ul class="galleryList">\n`;
-    html += otherFiles.map(f => `
+    html += otherFiles.map(f => {
+      const isStandard = f.storageClass === "STANDARD";
+      if (!isStandard) hasOfflineFiles = true;
+
+      const label = isStandard
+        ? `<a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}`
+        : `${f.name} (Offline)`;
+
+      return `
       <li>
-        ${f.icon || ""} ${
-          f.storageClass === "STANDARD"
-            ? `<a href="${f.url}">${f.name}</a>`
-            : `${f.name} (Archived)`
-        }${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}
+        ${f.icon || ""} ${label}
       </li>
-    `).join("");
+      `;
+    }).join("");
     html += `\n</ul>\n`;
   } else if (!imageFiles.length && !videoFiles.length && !otherFiles.length) {
     html += `<p>No files in this folder.</p>\n`;
@@ -277,6 +289,10 @@ export default async function render(data) {
     }
     html += `</ul>\n`;
   }
-
+  if (hasOfflineFiles) {
+    html += `<p class="footnote" id="footnote">
+      NB: Some files are stored offline. Please <a href="/contact/index.html">contact us</a> for access.
+    </p>\n`;
+  }
   return html;
 }
