@@ -12,3 +12,4 @@ ID,platformName,URLFormat
 11,Bluesky,https://bsky.app/profile/{profileName}
 12,Mastodon,{profileName}
 13,Spotify,https://open.spotify.com/artist/{profileName}
+14,WeeklyBeats,https://weeklybeats.com/{profileName}

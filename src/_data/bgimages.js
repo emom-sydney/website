@@ -30,5 +30,9 @@ export default [
   "EMOM2511-14.png",
   "DSCF6188.jpg",
   "IMG_1237.jpeg",
-  "signal-2025-12-12-182046_010.jpg"
+  "signal-2025-12-12-182046_010.jpg",
+  "sinanbeytas.photography-23.jpg",
+  "sinanbeytas.photography-29.jpg",
+  "sinanbeytas.photography-35.jpg",
+  "DSCF7025.jpg"
 ];
