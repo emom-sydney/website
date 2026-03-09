@@ -34,3 +34,6 @@ My theory is that an emom event will likely only ever have a handful of voluntee
 Imagine a performer arrives at the venue and gets a QR code with URL and a one-time token on a piece of wood (make it an art item they can keep) which activates their profile page on the emom website, and where they can enter their details (stage name, name of tunes they’re playing, social URLs etc) and not only do they get a free profile page right away, we can also generate images & html that OBS can use for title screens and text crawls while they’re playing. 
 
 We had a data projector showing the artists names at the November event, but that was a static image generated before we knew the order the acts would be playing in. Have the projector instead show a web page that dynamically updates with Now Playing. Another page would allow selection of the artist name so that MC - having it open on their phone alongside the profile page and their own notes for each act - just has to tap on it to update all the signage. (I simplify, but I think it's all quite doable by putting the right pieces together in the right way)
+
+## Resources
+- [logos](https://drive.google.com/drive/u/0/mobile/folders/1oDfZQdZb9NQhx_in6vafl0fO-Ktstt2t/1EMySK_hN9GL3JIHSHvwSoSFfeiV8tKy9?usp=sharing&sort=13&direction=a)
