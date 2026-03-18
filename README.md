@@ -12,19 +12,39 @@ and the site will be generated in the _site directory. (add the `--serve` flag t
 
 To add a gallery for an event:
  - upload files to s3://sydney.emom.me/gallery/*galleryname*
- - add *gallleryname* to src/data/galleries.js
+ - set *galleryname* in the `GalleryURL` column in `src/_data/events.csv`
  - build the site as detailed above
  - sync to the live webserver `rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/`
+
+## Postgres migration
+
+The first Postgres migration assets now live in `db/` and `scripts/`.
+
+- Schema: `db/schema.sql`
+- One-off importer: `scripts/import-csv-to-postgres.mjs`
+
+Examples:
+
+```bash
+# Preview the generated SQL
+node scripts/import-csv-to-postgres.mjs --stdout
+
+# Write the SQL to a file
+node scripts/import-csv-to-postgres.mjs --output tmp/import.sql
+
+# Apply schema + import using psql and your existing PG env vars / DATABASE_URL
+node scripts/import-csv-to-postgres.mjs --execute
+```
 
  TODO:
   - media uploads page
   - work out a way for 11ty to build galleries without having to be logged in to AWS (?without just making the s3 bucket public?)
-  - thumbnails for images in galleries
+  - thumbnails for images in galleries: DONE
   - reinstate form submission but with python (or, erk, php?) plus sqlite (or .csv?!) for db (see #thoughts) 
   - move code repo to forgejo instance git.emom.me 
-  - artist profile pages
+  - artist profile pages: DONE
   - calendar/contacts (https://sabre.io/baikal ?)
-  - set up MX an for the domain (not really part of this project but noted here for completeness)
+  - set up MX an for the domain: DONE
 
 # Thoughts
 A website for a small community organisation has different resource needs compared to most social or groupware kind of sites. If you're not chasing user numbers, if the website is run by a small subset of a small group of eager volunteers, I think there's an opportunity to build something quite effective yet simple and portable. 

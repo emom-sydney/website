@@ -3,25 +3,22 @@ layout: "main.njk"
 pageTitle: "Artists we've hosted"
 ---
 
-{% set sorted = artists | sortBy('stageName') %}
-{% set currentYear = 'now' | getYear %}
-{% set todayTime = now.getTime() %}
+{% set sorted = emom.artistPagesSorted %}
+{% set currentYear = emom.currentYear %}
 
 {% if sorted and sorted.length %}
 <h3>{{ currentYear }}</h3>
 <ul class="artist-list">
-{% for artist in sorted %}
-{% if helpers.artistHasPerformanceInYear(artist, currentYear, events, performances) %}<li><a href="/artists/{{ artist.stageName | slugify }}/index.html">{{ artist.stageName }}</a></li>
+{% for artistPage in sorted %}
+{% if artistPage.hasCurrentYearPerformance %}<li><a href="/artists/{{ artistPage.slug }}/index.html">{{ artistPage.artist.stageName }}</a></li>
 {% endif %}
 {% endfor %}
 </ul>
 
 <h3>Previous Years</h3>
 <ul class="artist-list">
-{% for artist in sorted %}
-{% set hasCurrentYear = helpers.artistHasPerformanceInYear(artist, currentYear, events, performances) %}
-{% set hasPast = helpers.artistHasPastPerformance(artist, events, performances, todayTime) %}
-{% if hasPast and not hasCurrentYear %}<li><a href="/artists/{{ artist.stageName | slugify }}/index.html">{{ artist.stageName }}</a></li>
+{% for artistPage in sorted %}
+{% if artistPage.hasPastPerformance and not artistPage.hasCurrentYearPerformance %}<li><a href="/artists/{{ artistPage.slug }}/index.html">{{ artistPage.artist.stageName }}</a></li>
 {% endif %}
 {% endfor %}
 </ul>

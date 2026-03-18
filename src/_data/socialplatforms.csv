@@ -13,3 +13,4 @@ ID,platformName,URLFormat
 12,Mastodon,{profileName}
 13,Spotify,https://open.spotify.com/artist/{profileName}
 14,WeeklyBeats,https://weeklybeats.com/{profileName}
+15,Twitch.tv,https://twitch.tv/{profileName}
