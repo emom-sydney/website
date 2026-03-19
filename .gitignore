@@ -6,3 +6,4 @@ _site
 .cache
 assets/img/th/*
 assets/img/bg/*
+.pgenv

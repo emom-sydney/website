@@ -22,6 +22,7 @@ The first Postgres migration assets now live in `db/` and `scripts/`.
 
 - Schema: `db/schema.sql`
 - One-off importer: `scripts/import-csv-to-postgres.mjs`
+- Runtime loader: `lib/data/loadEmomData.js`
 
 Examples:
 
@@ -35,6 +36,21 @@ node scripts/import-csv-to-postgres.mjs --output tmp/import.sql
 # Apply schema + import using psql and your existing PG env vars / DATABASE_URL
 node scripts/import-csv-to-postgres.mjs --execute
 ```
+
+To run the site against Postgres through the SSH tunnel instead of local CSV files:
+
+```bash
+cp .pgenv-example .pgenv
+$EDITOR .pgenv
+
+set -a
+source ./.pgenv
+set +a
+
+npx @11ty/eleventy
+```
+
+`DATABASE_URL` can be used instead of the individual `PG*` variables if preferred.
 
  TODO:
   - media uploads page

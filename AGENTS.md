@@ -90,6 +90,11 @@ Practical first step:
 - Keep one repository-local loader that can read from CSV now and Postgres later
 - Make templates consume normalized objects without caring whether they came from CSV or Postgres
 
+Current status:
+- The repository-local loader now supports both CSV and Postgres
+- Select the source with `EMOM_DATA_SOURCE`
+- Postgres connections are expected to come through the local SSH tunnel described in `DB_SETUP.md`
+
 Suggested schema:
 - `artists`
 - `artist_images`
@@ -108,7 +113,7 @@ Migration principle:
 
 1. Keep the repository-local data access layer that can read from CSV or Postgres.
 2. Keep moving join logic out of templates into precomputed view-model data.
-3. Add a Postgres adapter behind the same loader and switch `EMOM_DATA_SOURCE`.
+3. Switch `EMOM_DATA_SOURCE` to `postgres` once tunnel access and credentials are in place.
 4. Only after the build is stable, add write paths or admin tooling.
 
 ## Notes For Future Agents
