@@ -225,3 +225,4 @@ set +a
 - Use `emom_site_reader` only for the website build and read-only tooling.
 - Use a different Postgres role for imports, migrations, and admin work.
 - Use a different SSH key from the one used for normal interactive login.
+- The repo now expects Postgres to be the only relational data source at build time.

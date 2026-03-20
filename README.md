@@ -12,32 +12,21 @@ and the site will be generated in the _site directory. (add the `--serve` flag t
 
 To add a gallery for an event:
  - upload files to s3://sydney.emom.me/gallery/*galleryname*
- - set *galleryname* in the `GalleryURL` column in `src/_data/events.csv`
+ - set *galleryname* in the `events.gallery_url` value in Postgres
  - build the site as detailed above
  - sync to the live webserver `rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/`
 
-## Postgres migration
+## Postgres runtime
 
-The first Postgres migration assets now live in `db/` and `scripts/`.
+The site now reads its relational data from Postgres via the SSH tunnel documented in `DB_SETUP.md`.
+
+Relevant files:
 
 - Schema: `db/schema.sql`
-- One-off importer: `scripts/import-csv-to-postgres.mjs`
 - Runtime loader: `lib/data/loadEmomData.js`
+- Local tunnel env template: `.pgenv-example`
 
-Examples:
-
-```bash
-# Preview the generated SQL
-node scripts/import-csv-to-postgres.mjs --stdout
-
-# Write the SQL to a file
-node scripts/import-csv-to-postgres.mjs --output tmp/import.sql
-
-# Apply schema + import using psql and your existing PG env vars / DATABASE_URL
-node scripts/import-csv-to-postgres.mjs --execute
-```
-
-To run the site against Postgres through the SSH tunnel instead of local CSV files:
+To run the site:
 
 ```bash
 cp .pgenv-example .pgenv
@@ -50,13 +39,13 @@ set +a
 npx @11ty/eleventy
 ```
 
-`DATABASE_URL` can be used instead of the individual `PG*` variables if preferred.
+`DATABASE_URL` can be used instead of the individual `PG*` variables if preferred, but the current repo workflow uses `.pgenv`.
 
  TODO:
   - media uploads page
   - work out a way for 11ty to build galleries without having to be logged in to AWS (?without just making the s3 bucket public?)
   - thumbnails for images in galleries: DONE
-  - reinstate form submission but with python (or, erk, php?) plus sqlite (or .csv?!) for db (see #thoughts) 
+  - reinstate form submission but with python (or php?) (see #thoughts) 
   - move code repo to forgejo instance git.emom.me 
   - artist profile pages: DONE
   - calendar/contacts (https://sabre.io/baikal ?)

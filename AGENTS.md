@@ -17,32 +17,18 @@ This file is the Codex-facing source of truth for this repository. The notes in 
 
 ## Actual Data Architecture
 
-Eleventy loads CSV files from `src/_data/` via `.eleventy.js` using `csv-parse/sync`.
+Relational site data now comes from Postgres through `src/_data/emom.js`, which loads and normalizes rows via `lib/data/loadEmomData.js`.
 
-Current CSV-backed collections:
-- `artists.csv`
-- `artistimages.csv`
-- `artistsocialprofiles.csv`
-- `events.csv`
-- `eventtypes.csv`
-- `performances.csv`
-- `socialplatforms.csv`
+Current relational tables:
+- `artists`
+- `artist_images`
+- `artist_social_profiles`
+- `events`
+- `event_types`
+- `performances`
+- `social_platforms`
 
-Current row counts as of 2026-03-18:
-- artists: 51
-- artistimages: 37
-- artistsocialprofiles: 54
-- events: 14
-- eventtypes: 2
-- performances: 63
-- socialplatforms: 14
-
-ID handling:
-- `.eleventy.js` converts any column named `ID` or ending in `ID` to integers
-- This means CSV header casing matters
-- Mixed conventions exist today: `ArtistID` and `EventID` are PascalCase, while `artistID` and `socialPlatformID` are lower camel case
-
-## Where The CSV Data Is Used
+## Where Relational Data Is Used
 
 Primary relational usage is limited and explicit:
 
@@ -57,7 +43,7 @@ Primary relational usage is limited and explicit:
 
 The rest of the site is mostly static templates.
 
-## Non-CSV Data Sources
+## Data Sources
 
 - `src/_data/s3files.js`
   - Lists S3 objects under `gallery/<prefix>`
@@ -67,7 +53,7 @@ The rest of the site is mostly static templates.
   - Loads normalized site data through the repository layer in `lib/data/loadEmomData.js`
 
 The gallery system is already hybrid:
-- Relational metadata comes from CSV
+- Relational metadata comes from Postgres
 - Media inventory comes live from S3 at build time
 
 ## Current Constraints And Drift
@@ -79,20 +65,14 @@ The older memory-bank and Copilot docs are partly stale:
 
 When updating docs, prefer this file and verify against code first.
 
-## If We Migrate To Postgres
+## Postgres
 
 Recommended approach:
 - Keep the site statically generated with Eleventy
-- Replace CSV reads with a build-time data access layer that fetches from Postgres
 - Keep S3-backed gallery media as a separate concern
 
-Practical first step:
-- Keep one repository-local loader that can read from CSV now and Postgres later
-- Make templates consume normalized objects without caring whether they came from CSV or Postgres
-
 Current status:
-- The repository-local loader now supports both CSV and Postgres
-- Select the source with `EMOM_DATA_SOURCE`
+- The repository-local loader is Postgres-backed
 - Postgres connections are expected to come through the local SSH tunnel described in `DB_SETUP.md`
 
 Suggested schema:
@@ -105,16 +85,9 @@ Suggested schema:
 - `performances`
 - optional later: `galleries`
 
-Migration principle:
+Compatibility principle:
 - Preserve current field names at the template boundary during the first migration phase
 - Normalize DB column names in SQL if desired, but map them back before handing data to Eleventy
-
-## Sensible Migration Sequence
-
-1. Keep the repository-local data access layer that can read from CSV or Postgres.
-2. Keep moving join logic out of templates into precomputed view-model data.
-3. Switch `EMOM_DATA_SOURCE` to `postgres` once tunnel access and credentials are in place.
-4. Only after the build is stable, add write paths or admin tooling.
 
 ## Notes For Future Agents
 

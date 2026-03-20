@@ -6,7 +6,6 @@
 #   source ./.pgenv
 #   set +a
 
-EMOM_DATA_SOURCE=postgres
 PGHOST=127.0.0.1
 PGPORT=15432
 PGDATABASE=emomweb
