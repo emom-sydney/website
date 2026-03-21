@@ -1,4 +1,3 @@
-import { parse } from "csv-parse/sync";
 import fs from "fs";
 
 export default function (eleventyConfig) {
@@ -6,24 +5,6 @@ export default function (eleventyConfig) {
   eleventyConfig.addPassthroughCopy("assets");
   eleventyConfig.setIncludesDirectory("_includes");
   eleventyConfig.setOutputDirectory("_site");
-  
-  // csv handling: parse CSV files into arrays of objects
-  eleventyConfig.addDataExtension("csv", (contents) => {
-    const records = parse(contents, {
-      columns: true,
-      skip_empty_lines: true,
-    });
-    // the parser returns strings, so we convert 'ID' columns to integers
-    return records.map(record => {
-      const converted = { ...record };
-      for (const key in converted) {
-        if (key.endsWith('ID') || key === 'ID') {
-          converted[key] = parseInt(converted[key], 10);
-        }
-      }
-      return converted;
-    });
-  });
 
   // add a simple sortBy filter for Nunjucks templates
   eleventyConfig.addNunjucksFilter("sortBy", (arr, key) => {
@@ -87,33 +68,4 @@ export default function (eleventyConfig) {
 
   // Make 'now' available globally for templates
   eleventyConfig.addGlobalData("now", new Date());
-
-  // Helper to check if an artist performed in a specific year
-  eleventyConfig.addGlobalData("helpers", {
-    artistHasPerformanceInYear: (artist, year, events, performances) => {
-      for (const event of events) {
-        if (event.Date && event.Date.includes(year)) {
-          for (const perf of performances) {
-            if (perf.EventID === event.ID && perf.ArtistID === artist.ID) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
-    },
-    artistHasPastPerformance: (artist, events, performances, todayTime) => {
-      for (const event of events) {
-        const eventDate = new Date(event.Date);
-        if (!isNaN(eventDate.getTime()) && eventDate.getTime() <= todayTime) {
-          for (const perf of performances) {
-            if (perf.EventID === event.ID && perf.ArtistID === artist.ID) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
-    }
-  });
 }

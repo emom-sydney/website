@@ -1,0 +1,13 @@
+# Copy this file to .pgenv and fill in the real password.
+# Example:
+#   cp .pgenv-example .pgenv
+#   $EDITOR .pgenv
+#   set -a
+#   source ./.pgenv
+#   set +a
+
+PGHOST=127.0.0.1
+PGPORT=15432
+PGDATABASE=emomweb
+PGUSER=emom_site_reader
+PGPASSWORD=your-reader-password-here
