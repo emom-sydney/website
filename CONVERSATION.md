@@ -829,3 +829,457 @@ if it's possible to automatically add every prompt and response from now on (inc
 ## Assistant
 
 I can keep appending each new user prompt and my reply to `CONVERSATION.md` for the rest of this chat. I’m adding this turn now and will continue doing it automatically in subsequent turns here.
+
+## User
+
+good. now i was about to check in the current code but while reviewing the changes i noticed the new normalizeOptionalText function as well as formatLegacyEventData in loadEmomData.js. I feel like these functions have only come about because of the lack of data typing in the original .csv database. If i'm not mistaken normalizeOptionalText is only there because the events table has NULL values in the galleryURL data, that were originally just empty fields (being treated as empty strings) in the .csv. I feel like we could remove the need for that function if we converted the NULL values in the db to "" and (here I'm a bit fuzzy with the SQL) I think the column attributes(?) should be changed to NOTNULL?
+
+so there's that but then i was also wondering about the date column, which has imported from the csv again as text and it looks like we have the formatLegacyEventDate function doing the same kind of thing so why don't I just change the event_date column to a date type and remove the legacy_date_text column because we can have postgres return the date in that format from the event_date column wherever we need to (example from legacy_date_text is 'Thu, 9 Apr 2026') ...
+
+don't make any changes, just analyse what would need to be changed if we were to change the event table's data types to match the actual data. this will affect all bits of code that reference the event date, so check everywhere in the tree.
+
+## Assistant
+
+`normalizeOptionalText` and `formatLegacyEventDate` are both compatibility shims, but they are not equal cases.
+
+For `gallery_url`, your instinct is partly right: the normalization exists because the app still treats missing gallery URLs as empty strings at the template boundary. But switching the database column from `NULL` to `''` is not a clean win in the current schema.
+
+The important detail is [db/schema.sql](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/db/schema.sql): `events.gallery_url` is currently `text UNIQUE`.
+
+With that schema:
+- multiple `NULL` values are allowed
+- multiple `''` values are **not** allowed
+
+So if you change all “no gallery yet” rows to `''` and make the column `NOT NULL`, you would immediately have a uniqueness problem as soon as more than one event had no gallery URL.
+
+That means your realistic choices are:
+
+1. Keep `gallery_url` nullable
+- this matches the data model better: “may not exist yet”
+- `normalizeOptionalText` can stay, or be reduced to a narrower helper just for `gallery_url`
+
+2. Make `gallery_url NOT NULL DEFAULT ''`
+- but then you should also replace the table-level `UNIQUE` constraint with a partial unique index such as “unique where `gallery_url <> ''`”
+- and update all code paths to treat `''` as “missing”
+
+From a relational-model perspective, `NULL` is the better fit here. “No gallery assigned yet” is genuinely absence of a value, not an empty value. So I would not recommend changing this column to `NOT NULL ''` unless you strongly prefer that convention across the whole app.
+
+On the date side, you are right in substance: [db/schema.sql](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/db/schema.sql) already has `event_date date NOT NULL`, and `legacy_date_text` is only there as a migration compatibility field. If you remove `legacy_date_text`, the code can generate the display string from `event_date`.
+
+The event-date references in the tree are much narrower than they look:
+
+- [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js)
+  - this is the real center of impact
+  - `formatLegacyEventDate()` exists solely to synthesize the old `"Thu, 9 Apr 2026"` string
+  - `normalizedEvents` currently sets `Date` from `legacy_date_text` first, then falls back to formatting `event_date`
+  - date comparisons for artist history currently parse `event.Date`, not `event.event_date`
+  - current-year detection also checks `event.Date.includes(currentYear)`
+
+- [.eleventy.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/.eleventy.js)
+  - `getYear` and `parseDate` are generic date helpers
+  - they are not currently tied to `events.Date`
+  - in the current tree, `parseDate` appears unused
+
+- [src/artists/index.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/index.njk)
+  - does **not** read event dates directly anymore
+  - it uses `emom.currentYear` and the booleans precomputed in the loader
+
+- [src/artists/artist.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/artist.11ty.js)
+  - does **not** render dates at all right now
+  - it only uses `event.EventName` and `event.GalleryURL`
+
+- [src/gallery/gallery.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/gallery/gallery.11ty.js)
+  - does not use event dates directly
+  - it only uses gallery URLs and event-linked artists
+
+So if you wanted the `events` table to match the real data model cleanly, the code changes would mostly be:
+
+1. Schema changes
+- drop `legacy_date_text`
+- optionally keep `gallery_url` nullable
+- if you insist on `NOT NULL ''` for `gallery_url`, change the uniqueness strategy too
+
+2. Loader changes in [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js)
+- remove `formatLegacyEventDate()` if you stop exposing a legacy `Date` string
+- remove or narrow `normalizeOptionalText()`
+- stop selecting `legacy_date_text AS "Date"` from SQL
+- use `event_date` directly for comparisons and year logic
+- decide whether the normalized event object should expose:
+  - a real `eventDate` field only, or
+  - both `eventDate` and a derived display string for templates
+
+3. Compatibility decision at the template boundary
+- if you keep the normalized event field named `Date` for compatibility, then format from `event_date` in SQL or JS and the rest of the app barely changes
+- if you rename it properly to something like `eventDate`, then only the loader internals change today, because the templates are not currently using the event date directly
+
+4. Docs/examples
+- [DB_SETUP.md](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/DB_SETUP.md) contains an `INSERT INTO events VALUES (...)` example that assumes the old six-column shape and would need updating
+- [CONVERSATION.md](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/CONVERSATION.md) would become historically stale, but that is just a log
+
+My recommendation from this codebase as it exists now:
+
+- `event_date`: yes, treat this as the canonical date and remove `legacy_date_text`
+- `gallery_url`: keep it nullable; it is the correct relational representation
+- then simplify the loader so it works from typed DB data rather than reconstructing CSV-era strings
+
+The key point is that removing `legacy_date_text` is a clean simplification, while converting `gallery_url` from `NULL` to `''` would actually make the schema worse unless you also redesign the uniqueness rule.
+
+## User
+
+reading more of loadEmomData.js i think we might be able to make some more optimisations by doing some JOIN queries .. but lets just do this date one now. (make event_date canonical, keep gallery_url nullable then simplify the loader)
+
+## Assistant
+
+The date cleanup is in.
+
+I updated [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) so:
+- `event_date` is now the only canonical date source
+- the CSV-era `formatLegacyEventDate()` and `normalizeOptionalText()` shims are gone
+- events now carry a typed `eventDate` value internally
+- artist performance sorting, current-year detection, and past-performance checks all use `event.eventDate` instead of parsing a legacy text field
+- `gallery_url` remains nullable, with the SQL still trimming blank values to `NULL`
+
+I updated [db/schema.sql](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/db/schema.sql) to remove `legacy_date_text` from the `events` table definition, and added a migration file at [db/migrations/2026-03-21-events-date-cleanup.sql](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/db/migrations/2026-03-21-events-date-cleanup.sql) that drops the column on the live database.
+
+I also updated the outdated `INSERT INTO events VALUES (...)` example in [DB_SETUP.md](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/DB_SETUP.md) so it matches the current five-column `events` shape.
+
+I did not apply the migration to your live database from here. The manual step you still need is:
+
+```sql
+ALTER TABLE events
+DROP COLUMN IF EXISTS legacy_date_text;
+```
+
+or just run the new migration file against `emomweb`.
+
+## User
+
+now look at the functions in loadEmomData.js that are effectively doing the same job as a JOIN in the database would, and show me the plan to replace that effectively legacy code from the csv days
+
+## Assistant
+
+The main legacy join work in [loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) is here:
+
+- building `artistsById`, `eventsById`, `socialPlatformsById`, `artistImagesByArtistId`
+- grouping `performancesByArtistId` and `performancesByEventId`
+- grouping `socialProfilesByArtistId`
+- constructing `artistPages` by joining:
+  - artist -> performances -> event
+  - artist -> social profiles -> social platforms
+  - artist -> image
+- constructing `eventsWithArtists` by joining:
+  - event -> performances -> artists
+- deriving `eventsByGalleryUrl`
+
+That was necessary when the source was CSV. It is now mostly redundant because Postgres can do it cheaper and more clearly.
+
+**Plan**
+
+1. Keep one thin loader entrypoint.
+   - `loadEmomData()` should just run a few focused SQL queries and shape the result for Eleventy.
+   - remove the in-memory index/grouping code step by step, not all at once.
+
+2. Replace artist page assembly first.
+   - Add one query for base artists.
+   - Add one query for artist performances joined to events.
+   - Add one query for artist social links joined to platforms.
+   - Add one query for artist images.
+   - Then group only final result rows by `artist_id` in JS.
+   - This removes most of the current map-building.
+
+3. Replace event artist assembly next.
+   - Add one query for events joined through performances to artists.
+   - Build `eventsByGalleryUrl` from joined rows directly.
+   - This removes `performancesByEventId`, `artistsById`, and `eventsWithArtists`.
+
+4. Keep only presentation logic in JS.
+   - slug generation
+   - sorting if not already done in SQL
+   - booleans like `hasCurrentYearPerformance` / `hasPastPerformance`
+   - final object shape for templates
+
+5. After that, remove dead helpers.
+   - `uniqueNonEmpty` likely becomes unnecessary if gallery rows come from SQL
+   - most of the object-index construction disappears
+   - loader becomes mostly query + shape code
+
+**Concrete SQL shape**
+
+I would move to roughly these query buckets:
+
+- `artists`
+```sql
+SELECT id, stage_name
+FROM artists
+ORDER BY stage_name;
+```
+
+- `artist images`
+```sql
+SELECT artist_id, id, image_url
+FROM artist_images;
+```
+
+- `artist social links`
+```sql
+SELECT
+  asp.artist_id,
+  asp.id,
+  asp.profile_name,
+  sp.id AS social_platform_id,
+  sp.platform_name,
+  sp.url_format
+FROM artist_social_profiles asp
+JOIN social_platforms sp ON sp.id = asp.social_platform_id;
+```
+
+- `artist performances with event data`
+```sql
+SELECT
+  p.artist_id,
+  p.id,
+  e.id AS event_id,
+  e.event_name,
+  e.gallery_url,
+  e.event_date
+FROM performances p
+JOIN events e ON e.id = p.event_id;
+```
+
+- `events with artists`
+```sql
+SELECT
+  e.id AS event_id,
+  e.event_name,
+  e.gallery_url,
+  e.event_date,
+  a.id AS artist_id,
+  a.stage_name
+FROM events e
+LEFT JOIN performances p ON p.event_id = e.id
+LEFT JOIN artists a ON a.id = p.artist_id
+WHERE e.gallery_url IS NOT NULL;
+```
+
+**Best sequencing**
+
+1. Refactor `artistPages` first.
+2. Refactor `eventsByGalleryUrl` / `galleries` second.
+3. Only then consider collapsing further into fewer bigger queries.
+4. If needed later, use JSON aggregation in Postgres, but not yet.
+
+I would not jump straight to one giant SQL statement. A few well-scoped joined queries will be much easier to debug and still remove almost all CSV-era join code.
+
+If you want, I can do the first refactor pass now and replace the `artistPages` assembly with joined SQL while keeping the template output unchanged.
+
+Also: I still need to append this reply to [CONVERSATION.md](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/CONVERSATION.md) on the next turn or as part of the next edit.
+
+## User
+
+ok now lets Refactor eventsByGalleryUrl / galleries
+
+## Assistant
+
+That refactor is in.
+
+`eventsByGalleryUrl` and `galleries` are now built from a joined SQL result set in [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js), instead of from the old event-side pseudo-join path. Concretely:
+
+- added a `galleryEventsResult` query that joins `events`, `performances`, and `artists`
+- removed the need for:
+  - `artistsById`
+  - `performancesByEventId`
+  - `eventsWithArtists`
+  - `uniqueNonEmpty`
+- `eventsByGalleryUrl` now comes straight from grouped joined rows
+- `galleries` now comes straight from the joined gallery event list
+
+So at this point both major CSV-era join zones have been moved to SQL:
+- `artistPages`
+- `eventsByGalleryUrl` / `galleries`
+
+What’s still in JS is the final shaping/grouping into the object structure Eleventy templates expect, plus presentation logic like slugging and date-based flags.
+
+I only did a quick module-level sanity check here, not a full site build. You should run your normal `11ty` build with the tunnel up before we move on.
+
+## User
+
+galleries still building correctly, although I'd like to change the display on the gallery index page so it shows the event name rather than the gallery url in the list of events.
+
+## Assistant
+
+I updated [src/gallery/gallery.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/gallery/gallery.11ty.js) so the gallery index page now displays each event’s `EventName` rather than the raw gallery URL, while still using the gallery URL to build the permalink.
+
+Concretely:
+- the gallery summary now pulls the matching event from `emom.eventsByGalleryUrl[gallery]`
+- the top-level gallery index renders `label` instead of `gallery`
+- it falls back to the gallery URL only if no matching event name is found
+
+## Assistant
+
+The main legacy join work in [loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) is here:
+
+- building `artistsById`, `eventsById`, `socialPlatformsById`, `artistImagesByArtistId`
+- grouping `performancesByArtistId` and `performancesByEventId`
+- grouping `socialProfilesByArtistId`
+- constructing `artistPages` by joining:
+  - artist -> performances -> event
+  - artist -> social profiles -> social platforms
+  - artist -> image
+- constructing `eventsWithArtists` by joining:
+  - event -> performances -> artists
+- deriving `eventsByGalleryUrl`
+
+That was necessary when the source was CSV. It is now mostly redundant because Postgres can do it cheaper and more clearly.
+
+**Plan**
+
+1. Keep one thin loader entrypoint.
+   - `loadEmomData()` should just run a few focused SQL queries and shape the result for Eleventy.
+   - remove the in-memory index/grouping code step by step, not all at once.
+
+2. Replace artist page assembly first.
+   - Add one query for base artists.
+   - Add one query for artist performances joined to events.
+   - Add one query for artist social links joined to platforms.
+   - Add one query for artist images.
+   - Then group only final result rows by `artist_id` in JS.
+   - This removes most of the current map-building.
+
+3. Replace event artist assembly next.
+   - Add one query for events joined through performances to artists.
+   - Build `eventsByGalleryUrl` from joined rows directly.
+   - This removes `performancesByEventId`, `artistsById`, and `eventsWithArtists`.
+
+4. Keep only presentation logic in JS.
+   - slug generation
+   - sorting if not already done in SQL
+   - booleans like `hasCurrentYearPerformance` / `hasPastPerformance`
+   - final object shape for templates
+
+5. After that, remove dead helpers.
+   - `uniqueNonEmpty` likely becomes unnecessary if gallery rows come from SQL
+   - most of the object-index construction disappears
+   - loader becomes mostly query + shape code
+
+**Concrete SQL shape**
+
+I would move to roughly these query buckets:
+
+- `artists`
+```sql
+SELECT id, stage_name
+FROM artists
+ORDER BY stage_name;
+```
+
+- `artist images`
+```sql
+SELECT artist_id, id, image_url
+FROM artist_images;
+```
+
+- `artist social links`
+```sql
+SELECT
+  asp.artist_id,
+  asp.id,
+  asp.profile_name,
+  sp.id AS social_platform_id,
+  sp.platform_name,
+  sp.url_format
+FROM artist_social_profiles asp
+JOIN social_platforms sp ON sp.id = asp.social_platform_id;
+```
+
+- `artist performances with event data`
+```sql
+SELECT
+  p.artist_id,
+  p.id,
+  e.id AS event_id,
+  e.event_name,
+  e.gallery_url,
+  e.event_date
+FROM performances p
+JOIN events e ON e.id = p.event_id;
+```
+
+- `events with artists`
+```sql
+SELECT
+  e.id AS event_id,
+  e.event_name,
+  e.gallery_url,
+  e.event_date,
+  a.id AS artist_id,
+  a.stage_name
+FROM events e
+LEFT JOIN performances p ON p.event_id = e.id
+LEFT JOIN artists a ON a.id = p.artist_id
+WHERE e.gallery_url IS NOT NULL;
+```
+
+**Best sequencing**
+
+1. Refactor `artistPages` first.
+2. Refactor `eventsByGalleryUrl` / `galleries` second.
+3. Only then consider collapsing further into fewer bigger queries.
+4. If needed later, use JSON aggregation in Postgres, but not yet.
+
+I would not jump straight to one giant SQL statement. A few well-scoped joined queries will be much easier to debug and still remove almost all CSV-era join code.
+
+If you want, I can do the first refactor pass now and replace the `artistPages` assembly with joined SQL while keeping the template output unchanged.
+
+Also: I still need to append this reply to [CONVERSATION.md](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/CONVERSATION.md) on the next turn or as part of the next edit.
+
+## User
+
+ok good plan start with artistPages
+
+## Assistant
+
+The first join refactor is complete. I moved the `artistPages` assembly off the old in-memory pseudo-join path and into joined SQL, while keeping the template-facing shape unchanged for the templates.
+
+What changed in [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js):
+
+- added a dedicated `artistPagesResult` SQL query that joins:
+  - `artists`
+  - `artist_images`
+  - `artist_social_profiles`
+  - `social_platforms`
+  - `performances`
+  - `events`
+- stopped building artist pages from:
+  - `performancesByArtistId`
+  - `socialProfilesByArtistId`
+  - `socialPlatformsById`
+  - `artistImagesByArtistId`
+- kept only the final JS shaping step that groups joined rows back into:
+  - one artist page object per artist
+  - nested `image`
+  - nested `socialLinks`
+  - nested `performances`
+
+What did not change:
+
+- template interfaces in [src/artists/index.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/index.njk) and [src/artists/artist.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/artist.11ty.js)
+- `eventsByGalleryUrl` and gallery/event artist derivation
+- the remaining event-side join logic, which is still the next obvious cleanup target
+
+So after this pass, the loader still does some JS grouping, but the expensive “pretend joins from flat tables” for artist pages are now being done by Postgres where they belong.
+
+I did a quick module-level sanity check only. I did not run a full Eleventy build from here because that still depends on your live Postgres tunnel and S3 access in your environment.
+
+## User
+
+site still builds and artist pages are working, although the list of performances should be sorted by the event date and doesn't appear to be so please tweak that before we move to the next step
+
+## Assistant
+
+I tightened the performance ordering in [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js). Artist performance lists now sort explicitly and stably by `eventDate`, with event name as a tiebreaker and undated rows pushed to the end.
+
+That keeps the page shape unchanged and fixes the ordering issue without touching the templates.
+
+## User
+
+now look at the functions in loadEmomData.js that are effectively doing the same job as a JOIN in the database would, and show me the plan to replace that effectively legacy code from the csv days

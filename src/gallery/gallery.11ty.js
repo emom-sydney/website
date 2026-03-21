@@ -45,11 +45,17 @@ export const data = async () => {
 
   for (const gallery of emom.galleries) {
     const files = await s3files(gallery);
+    const galleryEvent = emom.eventsByGalleryUrl[gallery];
 
     // create summary entry (safe gallery name used in URLs)
-    const safeGallery = gallery.replace(/\/+$/, '').replace(/\//g, '-').replace(/-+$/, '');
+    const safeGallery = String(gallery).trim().replace(/\/+$/, '').replace(/\//g, '-').replace(/-+$/, '');
     const galleryUrl = `/gallery/${safeGallery}/index.html`;
-    galleriesSummary.push({ gallery, safeGallery, url: galleryUrl });
+    galleriesSummary.push({
+      gallery,
+      label: galleryEvent?.EventName || gallery,
+      safeGallery,
+      url: galleryUrl
+    });
 
     // Escape gallery for prefix regex
     const escGallery = gallery.replace(/[-\\/\\^$*+?.()|[\]{}]/g, "\\$&");
@@ -129,7 +135,7 @@ export default async function render(data) {
 
   // Top-level /gallery/index.html -> list of galleries
   if (page.topIndex) {
-    const list = (page.galleries || []).map(g => `<li><a href="${g.url}">${g.gallery}</a></li>`).join("");
+    const list = (page.galleries || []).map(g => `<li><a href="${g.url}">${g.label}</a></li>`).join("");
     return `<h2>Event Galleries</h2>\n<ul>\n${list}\n</ul>\n`;
   }
 

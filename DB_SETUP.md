@@ -185,7 +185,8 @@ SELECT * FROM events LIMIT 3;
 This should fail:
 
 ```sql
-INSERT INTO events VALUES (999, CURRENT_DATE, 'x', 1, 'x', NULL);
+INSERT INTO events (id, event_date, type_id, event_name, gallery_url)
+VALUES (999, CURRENT_DATE, 1, 'x', NULL);
 ```
 
 ## 8. App Connection Settings

@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS social_platforms (
 CREATE TABLE IF NOT EXISTS events (
   id integer PRIMARY KEY,
   event_date date NOT NULL,
-  legacy_date_text text NOT NULL,
   type_id integer NOT NULL REFERENCES event_types(id),
   event_name text NOT NULL,
   gallery_url text UNIQUE
