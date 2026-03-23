@@ -958,6 +958,215 @@ now look at the functions in loadEmomData.js that are effectively doing the same
 
 ## User
 
+great, i think now we should do the same to the artist profile page.. add a line noting that they also volunteer at emom with a link to the volunteer profile. it should go before the "contact me via email" block.
+
+## Assistant
+
+I added the reverse link on artist pages.
+
+- [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) now attaches `volunteerProfile` metadata to each artist page when the same `profile.ID` also exists in the crew set
+- [src/artists/artist.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/artist.11ty.js) now renders a line before the email contact block linking to `/crew/<slug>/index.html`
+
+It uses the same fallback rule as the crew page:
+
+- use `firstName` when `isNamePublic` is true and `firstName` has content
+- otherwise fall back to the artist `stageName`
+
+## User
+
+i notice pageTitle isn't filling out on the main index.njk page so we've only got "emom.sydney |" in the browser title bar. i think it should say "emom.sydney | Home" to fit in better with the other pages.
+
+## Assistant
+
+I updated [src/index.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/index.njk) to add `pageTitle: "Home"` to the front matter, so the browser title should now render as `sydney.emom | Home`.
+
+## User
+
+i have spotted a situation with the crew profile page that needs to be coded for. If a person is a volunteer and artits but has their name set to private we end up with "{{display_name}} has also played at EMOM as {{display_name}}, click here to see their artist profile"   I think it should read "{{display_name}} has also played at EMOM, click here .. etc" so update profile.11ty.js to insert that logic (an if statement around line 42, if i'm not mistaken)
+
+## Assistant
+
+I updated [src/crew/profile.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/crew/profile.11ty.js) so the sentence now checks whether the volunteer reference name and the artist stage name are the same.
+
+Behavior:
+
+- if they are different: `X has also played at EMOM as Y.`
+- if they are the same: `X has also played at EMOM.`
+
+That avoids the duplicated `display_name ... as display_name` wording when the name is private.
+
+## User
+
+ok now we're really ready to do the crew/volunteer pages. I've added the menu item to the page_sidebar.njk now we need to fill out the backend code. i was assuming we'd just copy the code from src/artists/artist.11ty.js and index.njk to a new directory src/volunteers/volunteers.11ty.js but that strikes me as a bunch of duplication we maybe should do. if there's a way to split out the common code needed into separate functions and just leave the artist.11ty.js and volunteer.11ty.js (and their associated nunjucks templatees) deal with the spefic layout requirements for each section then that would be good. show me the plan before making any modifications
+
+## Assistant
+
+Plan before changes:
+
+1. Move the shared profile-page mechanics out of [src/artists/artist.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/artist.11ty.js) into a small helper module.
+   That shared module should handle:
+   - HTML escaping
+   - thumbnail lookup
+   - public name/contact-line logic
+   - shared rendering blocks such as image, bio, social links
+
+2. Keep the route-level generators thin and role-specific.
+   - [src/artists/artist.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/artist.11ty.js) should stay responsible for artist pagination, permalink, page title, and artist-only sections such as performances.
+   - a new volunteer page generator should do the same for volunteers, but with volunteer-specific sections and copy.
+
+3. Generalize the data layer around roles rather than artists.
+   [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) currently produces `artistPages` and artist-specific sorted/index data. The next step should be to add a generic internal helper that can build profile-page data for a given role, then expose:
+   - `artistPages`
+   - `artistPagesSorted`
+   - `volunteerPages`
+   - `volunteerPagesSorted`
+
+4. Keep template-facing shapes parallel.
+   The volunteer pages should use the same basic shape as artist pages wherever possible:
+   - `profile`
+   - `slug`
+   - `image`
+   - `socialLinks`
+   - role-specific extras
+
+   Even if we preserve `artist` as the key for the existing artist templates to avoid churn, the new volunteer path should establish the cleaner pattern.
+
+5. Create the volunteer section as a real section, not an extension of the existing static [src/volunteer.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/volunteer.njk).
+   Most likely:
+   - keep `src/volunteer.njk` as the landing/introduction page if you still want that copy
+   - add a new directory for the profile listing and detail pages
+   - keep URLs consistent with the sidebar link you’ve just added
+
+6. Only duplicate genuinely different layout.
+   Shared blocks should be code, not copied HTML strings. The artist and volunteer templates should differ mainly in:
+   - headings/page titles
+   - index-page grouping/sorting rules
+   - role-specific sections such as performances for artists
+   - contact/bio copy if needed
+
+7. Implement in this order.
+   - first refactor shared artist-page logic into helpers without changing output
+   - then extend the loader to emit volunteer page data
+   - then add volunteer index/detail pages
+   - finally decide whether the old static [src/volunteer.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/volunteer.njk) becomes the section index, a landing page, or gets retired
+
+That approach avoids copy-pasting the current artist generator while also not over-abstracting too early.
+
+## User
+
+the current volunteer.njk page is actually going to be the form where people apply/sign up to be volunteers so i don't want to change that. maybe i'll make the top level directory 'crew' (so our URL becomes sydney.emom.me/crew because having /volunteer and /volunteers is a bit ambigious. so yeah, first refactor the artist page code to pull out that which would be better as helpers, then create the /crew section.
+
+## Assistant
+
+I implemented that in two layers.
+
+Shared page logic now lives in [lib/render/profilePage.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/render/profilePage.js), which handles:
+
+- HTML escaping
+- thumbnail rendering
+- public bio rendering
+- social link rendering
+- public contact-line rendering
+
+[src/artists/artist.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/artists/artist.11ty.js) now uses those helpers, and still keeps the artist-specific performances section and back link.
+
+I also generalized [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) so it now builds both:
+
+- `emom.artistPages`
+- `emom.artistPagesSorted`
+- `emom.volunteerPages`
+- `emom.volunteerPagesSorted`
+
+On top of that, I added the new crew section:
+
+- [src/crew/index.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/crew/index.njk)
+- [src/crew/profile.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/crew/profile.11ty.js)
+
+That gives you:
+
+- `/crew/index.html` as the crew listing page
+- `/crew/<slug>/index.html` for individual crew profiles
+
+The existing [src/volunteer.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/volunteer.njk) was left untouched as the signup/application page.
+
+## User
+
+build failed, i got: 
+
+Problem writing Eleventy templates:
+[11ty] syntax error at or near "FROM" (via error)
+[11ty] 
+[11ty] Original error stack trace: error: syntax error at or near "FROM"
+[11ty]     at /Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/node_modules/pg/lib/client.js:631:17
+[11ty]     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[11ty]     at async loadFromPostgres (file:///Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js:368:31)
+[11ty]     at async TemplateData.getDataValue (file:///Users/stewart/.npm/_npx/34c007b21a377b7f/node_modules/@11ty/eleventy/src/Data/TemplateData.js:515:19)
+[11ty]     at async TemplateData.getAllGlobalData (file:///Users/stewart/.npm/_npx/34c007b21a377b7f/node_modules/@11ty/eleventy/src/Data/TemplateData.js:289:15)
+[11ty]     at async #getGlobalData (file:///Users/stewart/.npm/_npx/34c007b21a377b7f/node_modules/@11ty/eleventy/src/Data/TemplateData.js:365:20)
+[11ty] Wrote 0 files in 1.15 seconds (v3.1.5)
+[11ty] Eleventy Fatal Error (CLI):
+[11ty] syntax error at or near "FROM" (via error)
+[11ty] 
+[11ty] Original error stack trace: error: syntax error at or near "FROM"
+[11ty]     at /Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/node_modules/pg/lib/client.js:631:17
+[11ty]     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[11ty]     at async loadFromPostgres (file:///Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js:368:31)
+[11ty]     at async TemplateData.getDataValue (file:///Users/stewart/.npm/_npx/34c007b21a377b7f/node_modules/@11ty/eleventy/src/Data/TemplateData.js:515:19)
+[11ty]     at async TemplateData.getAllGlobalData (file:///Users/stewart/.npm/_npx/34c007b21a377b7f/node_modules/@11ty/eleventy/src/Data/TemplateData.js:289:15)
+[11ty]     at async #getGlobalData (file:///Users/stewart/.npm/_npx/34c007b21a377b7f/node_modules/@11ty/eleventy/src/Data/TemplateData.js:365:20)
+
+## Assistant
+
+The new role-query builder in [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) was generating a trailing comma before `FROM`, which is why Postgres reported `syntax error at or near "FROM"`.
+
+I fixed that by removing the trailing comma from the generated `performanceFields` fragment for both the artist and volunteer query variants.
+
+## User
+
+good start. now change the crew/index page to use the profiles full (or partial) name in the list, if is_name_public allows
+
+## Assistant
+
+I updated [src/crew/index.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/crew/index.njk) so the crew listing now prefers the public first/last name when `isNamePublic` is true.
+
+Behavior:
+
+- if `isNamePublic` is true and either `firstName` or `lastName` exists, it shows the combined public name
+- otherwise it falls back to `stageName`
+
+## User
+
+very good, now do the same for the pageTitle (at line 11 in profile.11ty.js)  and the name displayed in the <h3> tages at the top of the profile
+
+## Assistant
+
+I updated [src/crew/profile.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/crew/profile.11ty.js) so `pageTitle` now uses the same public-name logic as the crew index:
+
+- public first/last name when `isNamePublic` is true and at least one name field exists
+- otherwise `stageName`
+
+Because the top `<h3>` on the page comes from `pageTitle` via [main.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/_includes/main.njk), that heading now follows the same rule too.
+
+## User
+
+ok good now let's add logic so that if a volunteer also has a profile as an artist, we add "{{first name}} has also played at emom as {{ stage name }} .. click here to see their artist profile" underneath their volunteer bio. obviously if there's no first_name in the db or is_name_public is false, replace first_name with stage_name.
+
+## Assistant
+
+I added that in two places:
+
+- [lib/data/loadEmomData.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/lib/data/loadEmomData.js) now attaches `artistProfile` metadata to each volunteer page when the same `profile.ID` also exists in `artistPages`
+- [src/crew/profile.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/crew/profile.11ty.js) now renders the cross-link block directly under the volunteer bio
+
+The sentence now follows your fallback rule:
+
+- use `firstName` when `isNamePublic` is true and `firstName` has content
+- otherwise fall back to the volunteer `stageName`
+
+The artist stage name is shown in the sentence, and “Click here to see their artist profile” is the link to `/artists/<slug>/index.html`.
+
+## User
+
 slight change to the email display, if the profile is for a band is should say "contact us" not "contact me" and don't use the name field at all.
 
 ## Assistant

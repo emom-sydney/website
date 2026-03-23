@@ -1,12 +1,10 @@
-import { getImageThumbnail } from "../_data/imageHelpers.js";
+import { renderContactLine, renderProfileIntro } from "../../lib/render/profilePage.js";
 
-function escapeHtml(text) {
-  return String(text)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+function getArtistReferenceName(profile) {
+  if (!profile.isNamePublic) return profile.stageName;
+
+  const publicFirstName = profile.firstName ? String(profile.firstName).trim() : "";
+  return publicFirstName || profile.stageName;
 }
 
 export const data = {
@@ -27,43 +25,12 @@ export const data = {
 export default async function render(data) {
   const { artistPage } = data;
   const { artist, performances, socialLinks, image } = artistPage;
-  const publicContactName = artist.isNamePublic
-    ? [artist.firstName, artist.lastName]
-        .map((value) => (value ? String(value).trim() : ""))
-        .filter(Boolean)
-        .join(" ")
-    : "";
-
-  // Get artist thumbnail image
-  let originalUrl = null;
-  let thmUrl = null;
-
-  if (image && image.imageURL) {
-    originalUrl = String(image.imageURL).trim();
-    thmUrl = await getImageThumbnail(image.imageURL, artist.stageName);
-  }
-
-  let html = "";
-
-  // Artist thumbnail
-  if (thmUrl) {
-    html += `<a href="${originalUrl}"><img src="${thmUrl}" alt="${artist.stageName} thumbnail" class="artist-thumb" /></a>\n`;
-  }
-
-  // Public bio
-  if (artist.isBioPublic && artist.bio) {
-    const bioHtml = escapeHtml(artist.bio).replaceAll("\n", "<br />\n");
-    html += `<div class="artist-bio">\n<p>${bioHtml}</p>\n</div>\n`;
-  }
-
-  // Social media links
-  if (socialLinks.length) {
-    html += `<h3>Follow</h3>\n<ul class="social-links">\n`;
-    for (const socialLink of socialLinks) {
-      html += `<li><a href="${socialLink.url}" target="_blank" rel="noopener">${socialLink.platformName}</a></li>\n`;
-    }
-    html += `</ul>\n`;
-  }
+  const profilePage = {
+    profile: artist,
+    socialLinks,
+    image,
+  };
+  let html = await renderProfileIntro(profilePage);
 
   // Performances
   if (performances.length) {
@@ -85,16 +52,12 @@ export default async function render(data) {
     html += `<p>No performances recorded.</p>\n`;
   }
 
-  if (artist.isEmailPublic && artist.email) {
-    const safeEmail = escapeHtml(artist.email);
-    const contactLabel = artist.profileType === "group"
-      ? "Contact us"
-      : publicContactName
-        ? `Contact ${escapeHtml(publicContactName)}`
-        : "Contact me";
-    html += `<p>${contactLabel} via email: <a href="mailto:${safeEmail}">${safeEmail}</a></p>\n`;
+  if (artistPage.volunteerProfile) {
+    const referenceName = getArtistReferenceName(artist);
+    html += `<p>${referenceName} also volunteers at EMOM. <a href="/crew/${artistPage.volunteerProfile.slug}/index.html">Click here</a> to see their crew profile.</p>\n`;
   }
 
+  html += renderContactLine(artist);
   html += `<p><a href="/artists/index.html">&lt;&lt; Back to all artists</a></p>\n`;
 
   return html;
