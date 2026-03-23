@@ -1,0 +1,24 @@
+---
+layout: "main.njk"
+pageTitle: "Crew"
+---
+<p>At sydney.emom we've assembled a small band of rag-tag rebels and ne'er-do-wells .. no wait that's something else. I mean we have a crew of enthusistic volunteers, some of whom even do this for a day job and could rightly be called professional even if they don't look it.</p>
+<p>In no particular order, these are they:</p>
+{% set sorted = emom.volunteerPagesSorted %}
+
+{% if sorted and sorted.length %}
+<ul class="artist-list">
+{% for volunteerPage in sorted %}
+  {% set publicNameParts = [] %}
+  {% if volunteerPage.profile.isNamePublic %}
+    {% if volunteerPage.profile.firstName %}{% set publicNameParts = publicNameParts.concat([volunteerPage.profile.firstName]) %}{% endif %}
+    {% if volunteerPage.profile.lastName %}{% set publicNameParts = publicNameParts.concat([volunteerPage.profile.lastName]) %}{% endif %}
+  {% endif %}
+  {% set publicName = publicNameParts | join(' ') %}
+  <li><a href="/crew/{{ volunteerPage.slug }}/index.html">{{ publicName or volunteerPage.profile.stageName }}</a></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No crew profiles found.</p>
+{% endif %}
+<p><a href="/volunteer">Click here</a> if you'd like to join the rebel alliance (no wait, I mean volunteer!)</p>
