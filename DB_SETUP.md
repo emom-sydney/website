@@ -38,13 +38,14 @@ Connect to the database and grant read access:
 GRANT USAGE ON SCHEMA public TO emom_site_reader;
 
 GRANT SELECT ON TABLE
-  artists,
+  profiles,
+  profile_roles,
   event_types,
   social_platforms,
   events,
   performances,
-  artist_images,
-  artist_social_profiles
+  profile_images,
+  profile_social_profiles
 TO emom_site_reader;
 
 GRANT SELECT ON galleries TO emom_site_reader;
@@ -180,6 +181,7 @@ Inside `psql`, these should work:
 ```sql
 SELECT current_user;
 SELECT * FROM events LIMIT 3;
+SELECT * FROM profiles LIMIT 3;
 ```
 
 This should fail:

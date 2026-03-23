@@ -20,9 +20,10 @@ This file is the Codex-facing source of truth for this repository. The notes in 
 Relational site data now comes from Postgres through `src/_data/emom.js`, which loads and normalizes rows via `lib/data/loadEmomData.js`.
 
 Current relational tables:
-- `artists`
-- `artist_images`
-- `artist_social_profiles`
+- `profiles`
+- `profile_roles`
+- `profile_images`
+- `profile_social_profiles`
 - `events`
 - `event_types`
 - `performances`
@@ -76,10 +77,11 @@ Current status:
 - Postgres connections are expected to come through the local SSH tunnel described in `DB_SETUP.md`
 
 Suggested schema:
-- `artists`
-- `artist_images`
+- `profiles`
+- `profile_roles`
+- `profile_images`
 - `social_platforms`
-- `artist_social_profiles`
+- `profile_social_profiles`
 - `event_types`
 - `events`
 - `performances`
