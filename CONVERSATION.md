@@ -982,6 +982,21 @@ I updated [src/index.njk](/Users/stewart/Library/CloudStorage/Dropbox/Documents/
 
 ## User
 
+i have spotted a situation with the crew profile page that needs to be coded for. If a person is a volunteer and artits but has their name set to private we end up with "{{display_name}} has also played at EMOM as {{display_name}}, click here to see their artist profile"   I think it should read "{{display_name}} has also played at EMOM, click here .. etc" so update profile.11ty.js to insert that logic (an if statement around line 42, if i'm not mistaken)
+
+## Assistant
+
+I updated [src/crew/profile.11ty.js](/Users/stewart/Library/CloudStorage/Dropbox/Documents/EMOM/GitHub/website/src/crew/profile.11ty.js) so the sentence now checks whether the volunteer reference name and the artist stage name are the same.
+
+Behavior:
+
+- if they are different: `X has also played at EMOM as Y.`
+- if they are the same: `X has also played at EMOM.`
+
+That avoids the duplicated `display_name ... as display_name` wording when the name is private.
+
+## User
+
 ok now we're really ready to do the crew/volunteer pages. I've added the menu item to the page_sidebar.njk now we need to fill out the backend code. i was assuming we'd just copy the code from src/artists/artist.11ty.js and index.njk to a new directory src/volunteers/volunteers.11ty.js but that strikes me as a bunch of duplication we maybe should do. if there's a way to split out the common code needed into separate functions and just leave the artist.11ty.js and volunteer.11ty.js (and their associated nunjucks templatees) deal with the spefic layout requirements for each section then that would be good. show me the plan before making any modifications
 
 ## Assistant

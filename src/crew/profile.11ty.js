@@ -39,7 +39,9 @@ export default async function render(data) {
   let html = await renderProfileIntro(volunteerPage);
   if (volunteerPage.artistProfile) {
     const referenceName = getVolunteerReferenceName(volunteerPage.profile);
-    html += `<p>${referenceName} has also played at EMOM as ${volunteerPage.artistProfile.stageName}. <a href="/artists/${volunteerPage.artistProfile.slug}/index.html">Click here to see their artist profile</a>.</p>\n`;
+    const artistStageName = volunteerPage.artistProfile.stageName;
+    const playedAsText = referenceName === artistStageName ? "" : ` as ${artistStageName}`;
+    html += `<p>${referenceName} has also played at EMOM${playedAsText}. <a href="/artists/${volunteerPage.artistProfile.slug}/index.html">Click here</a> to see their artist profile.</p>\n`;
   }
   html += renderContactLine(volunteerPage.profile);
   html += `<p><a href="/crew/index.html">&lt;&lt; Back to all crew</a></p>\n`;

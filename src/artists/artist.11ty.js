@@ -54,7 +54,7 @@ export default async function render(data) {
 
   if (artistPage.volunteerProfile) {
     const referenceName = getArtistReferenceName(artist);
-    html += `<p>${referenceName} also volunteers at EMOM. <a href="/crew/${artistPage.volunteerProfile.slug}/index.html">Click here to see their crew profile</a>.</p>\n`;
+    html += `<p>${referenceName} also volunteers at EMOM. <a href="/crew/${artistPage.volunteerProfile.slug}/index.html">Click here</a> to see their crew profile.</p>\n`;
   }
 
   html += renderContactLine(artist);
