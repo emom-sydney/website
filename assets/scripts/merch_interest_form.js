@@ -2,6 +2,20 @@ const form = document.getElementById("merch-interest-form");
 const statusNode = document.getElementById("merch-form-status");
 
 if (form && statusNode) {
+  [...form.querySelectorAll("[data-merch-item-select]")].forEach((select) => {
+    select.addEventListener("change", () => {
+      const previewImage = select
+        .closest("fieldset")
+        ?.querySelector("[data-merch-preview-image]");
+      const selectedOption = select.options[select.selectedIndex];
+      const selectedImageUrl = selectedOption?.dataset.imageUrl;
+
+      if (previewImage && selectedImageUrl) {
+        previewImage.src = selectedImageUrl;
+      }
+    });
+  });
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -14,27 +28,39 @@ if (form && statusNode) {
       return;
     }
 
-    const lines = [...form.querySelectorAll("[data-merch-variant-id]")]
-      .map((input) => {
-        const quantity = Number.parseInt(input.value, 10);
+    const quantityInputs = [...form.querySelectorAll("[data-merch-item-quantity]")];
+    const priceInputs = [...form.querySelectorAll("[data-merch-item-price]")];
+    const lines = quantityInputs
+      .map((quantityInput, index) => {
+        const fieldset = quantityInput.closest("fieldset");
+        const select = fieldset?.querySelector("[data-merch-item-select]");
+        const selectedVariantId = select ? Number.parseInt(select.value, 10) : Number.parseInt(quantityInput.dataset.merchVariantId || "0", 10);
+        const quantity = Number.parseInt(quantityInputs[index]?.value || "0", 10);
+        const submittedPrice = String(priceInputs[index]?.value || "").trim();
+
         return {
-          merch_variant_id: Number.parseInt(input.dataset.merchVariantId, 10),
+          merch_variant_id: Number.isNaN(selectedVariantId) ? 0 : selectedVariantId,
           quantity: Number.isNaN(quantity) ? 0 : quantity,
+          submitted_price: submittedPrice,
         };
       })
-      .filter((line) => line.quantity > 0);
+      .filter((line) => line.merch_variant_id > 0 && line.quantity > 0);
 
-    if (!lines.length) {
-      statusNode.textContent = "Please choose at least one merch item.";
+    const invalidPrice = lines.some((line) => !/^\d+(\.\d{1,2})?$/.test(line.submitted_price));
+    if (invalidPrice) {
+      statusNode.textContent = "Please enter a valid suggested price using numbers only.";
       return;
     }
 
-    const apiUrl = new URL("/api/forms/merch-interest", window.location.origin).toString();
+    if (!lines.length) {
+      statusNode.textContent = "Please enter a quantity for at least one merch item.";
+      return;
+    }
 
     statusNode.textContent = "Submitting...";
 
     try {
-      const response = await fetch(apiUrl, {
+      const response = await fetch("/api/forms/merch-interest", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -51,11 +77,7 @@ if (form && statusNode) {
         throw new Error(result.error || "Submission failed.");
       }
 
-      form.reset();
-      [...form.querySelectorAll("[data-merch-variant-id]")].forEach((input) => {
-        input.value = "0";
-      });
-      statusNode.textContent = "Thanks. We'll let you know when merch becomes available.";
+      window.location.href = "/merch/thanks/index.html";
     } catch (error) {
       statusNode.textContent = error.message || "Submission failed. Please try again later.";
     }

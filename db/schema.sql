@@ -63,8 +63,9 @@ CREATE TABLE IF NOT EXISTS merch_items (
   id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   slug text NOT NULL UNIQUE,
   name text NOT NULL,
-  category text NOT NULL CHECK (category IN ('tshirt', 'mug', 'keyring')),
+  category text NOT NULL CHECK (category IN ('tshirt', 'mug', 'keyring', 'tote_bag')),
   description text,
+  suggested_price numeric(10, 2) NOT NULL CHECK (suggested_price >= 0),
   is_active boolean NOT NULL DEFAULT true,
   sort_order integer NOT NULL DEFAULT 0
 );
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS merch_interest_lines (
   submission_id integer NOT NULL REFERENCES merch_interest_submissions(id) ON DELETE CASCADE,
   merch_variant_id integer NOT NULL REFERENCES merch_variants(id) ON DELETE CASCADE,
   quantity integer NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  submitted_price numeric(10, 2) NOT NULL CHECK (submitted_price >= 0),
   UNIQUE (submission_id, merch_variant_id)
 );
 

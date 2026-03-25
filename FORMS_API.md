@@ -125,8 +125,8 @@ The expected public paths are:
   "email": "user@example.com",
   "comments": "Interested in a mug and a tee.",
   "lines": [
-    { "merch_variant_id": 1, "quantity": 1 },
-    { "merch_variant_id": 12, "quantity": 2 }
+    { "merch_variant_id": 1, "quantity": 1, "submitted_price": "35.00" },
+    { "merch_variant_id": 12, "quantity": 2, "submitted_price": "18.00" }
   ]
 }
 ```
@@ -136,6 +136,7 @@ Notes:
 - `email` is required
 - `comments` is optional
 - `lines` must contain at least one item
+- each line must include `submitted_price`
 - duplicate `merch_variant_id` values are merged by the API before insert
 - only active merch variants are accepted
 

@@ -1,6 +1,7 @@
 import os
 import re
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 
 from flask import Flask, jsonify, request
 
@@ -77,10 +78,15 @@ def create_app():
                     for merch_variant_id, quantity in normalized_lines.items():
                         cursor.execute(
                             """
-                            INSERT INTO merch_interest_lines (submission_id, merch_variant_id, quantity)
-                            VALUES (%s, %s, %s)
+                            INSERT INTO merch_interest_lines (submission_id, merch_variant_id, quantity, submitted_price)
+                            VALUES (%s, %s, %s, %s)
                             """,
-                            (submission_id, merch_variant_id, quantity),
+                            (
+                                submission_id,
+                                merch_variant_id,
+                                quantity["quantity"],
+                                quantity["submitted_price"],
+                            ),
                         )
 
             return jsonify(
@@ -116,6 +122,7 @@ def normalize_lines(lines):
 
         merch_variant_id = line.get("merch_variant_id")
         quantity = line.get("quantity", 1)
+        submitted_price = line.get("submitted_price")
 
         if not isinstance(merch_variant_id, int):
             raise ValueError("Each merch selection must include an integer merch_variant_id.")
@@ -123,9 +130,35 @@ def normalize_lines(lines):
         if not isinstance(quantity, int) or quantity <= 0:
             raise ValueError("Each merch selection must include a positive integer quantity.")
 
-        normalized[merch_variant_id] += quantity
+        normalized_price = normalize_price(submitted_price)
+        if merch_variant_id in normalized:
+            normalized[merch_variant_id]["quantity"] += quantity
+        else:
+            normalized[merch_variant_id] = {
+                "quantity": quantity,
+                "submitted_price": normalized_price,
+            }
 
     return dict(normalized)
+
+
+def normalize_price(value):
+    if value is None:
+        raise ValueError("Each merch selection must include a submitted price.")
+
+    text = str(value).strip()
+    if not text:
+        raise ValueError("Each merch selection must include a submitted price.")
+
+    try:
+        price = Decimal(text)
+    except InvalidOperation as exc:
+        raise ValueError("Each merch selection must include a valid price.") from exc
+
+    if price < 0:
+        raise ValueError("Each merch selection must include a non-negative price.")
+
+    return price.quantize(Decimal("0.01"))
 
 
 def ensure_variants_exist(cursor, variant_ids):
