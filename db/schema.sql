@@ -74,11 +74,11 @@ CREATE TABLE IF NOT EXISTS merch_variants (
   id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   merch_item_id integer NOT NULL REFERENCES merch_items(id) ON DELETE CASCADE,
   variant_label text NOT NULL,
+  style text,
   size text,
   color text,
   image_url text,
-  is_active boolean NOT NULL DEFAULT true,
-  UNIQUE (merch_item_id, variant_label)
+  is_active boolean NOT NULL DEFAULT true
 );
 
 CREATE TABLE IF NOT EXISTS merch_interest_submissions (
@@ -106,6 +106,14 @@ CREATE INDEX IF NOT EXISTS idx_profile_social_profiles_profile_id ON profile_soc
 CREATE INDEX IF NOT EXISTS idx_profile_social_profiles_platform_id ON profile_social_profiles(social_platform_id);
 CREATE INDEX IF NOT EXISTS idx_profile_roles_role ON profile_roles(role);
 CREATE INDEX IF NOT EXISTS idx_merch_variants_item_id ON merch_variants(merch_item_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_merch_variants_unique_option
+  ON merch_variants (
+    merch_item_id,
+    COALESCE(style, ''),
+    COALESCE(size, ''),
+    COALESCE(color, ''),
+    variant_label
+  );
 CREATE INDEX IF NOT EXISTS idx_merch_interest_lines_submission_id ON merch_interest_lines(submission_id);
 CREATE INDEX IF NOT EXISTS idx_merch_interest_lines_variant_id ON merch_interest_lines(merch_variant_id);
 CREATE INDEX IF NOT EXISTS idx_merch_interest_submissions_email ON merch_interest_submissions(email);
