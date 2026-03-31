@@ -13,7 +13,7 @@
   <script>
     // Read 11ty data: bgimages (array of relative paths) and bgBase (base URL string).
     const _bgImages = {{ bgimages | dump | safe }};
-    const _bgBase = {{ media_baseurl | dump | safe }};
+    const _bgBase = {{ bg_img_baseurl | dump | safe }};
     (function () {
       if (!Array.isArray(_bgImages) || !_bgImages.length) return;
       const base = (typeof _bgBase === 'string') ? _bgBase.replace(/\/+$/, '') : '';
