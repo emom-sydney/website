@@ -1,0 +1,16 @@
+[Unit]
+Description=EMOM Forms Bridge
+After=network.target
+
+[Service]
+Type=simple
+User=emom
+Group=www-data
+WorkingDirectory=/opt/emom/website
+EnvironmentFile=/etc/emom/forms_bridge.env
+ExecStart=/opt/emom/website/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5001 forms_bridge.wsgi:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

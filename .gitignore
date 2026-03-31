@@ -7,3 +7,5 @@ _site
 assets/img/th/*
 assets/img/bg/*
 .pgenv
+__pycache__/
+*.pyc

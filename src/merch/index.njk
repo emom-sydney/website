@@ -1,0 +1,133 @@
+---
+layout: "main.njk"
+pageTitle: "Merch"
+---
+
+<p>We are looking into doing some merchandise to raise funds, and have a bit of fun. Below is a selection of options we're considering with the price we're thinking of selling at.</p><p>Enter your email, make your selections, adjust the price if you think it should be higher (or lower, I guess ;) and hit submit. We'll be in touch just as soon we have a store set up and items to sell.</p>
+
+{% set merchItems = emom.merchItems %}
+
+{% if merchItems and merchItems.length %}
+<form id="merch-interest-form">
+  <label for="merch-email">Email</label>
+  <input type="email" id="merch-email" name="email" required>
+
+  <label for="merch-comments">Comments</label>
+  <textarea id="merch-comments" name="comments" rows="4" placeholder="Anything else you'd like us to know?"></textarea>
+
+  {% for item in merchItems %}
+  <fieldset>
+    <legend>{{ item.name }}</legend>
+    {% if item.description %}<p>{{ item.description }}</p>{% endif %}
+    {% set defaultImage = item.variants[0].imageURL if item.variants and item.variants.length else "" %}
+    {% set hasVariantChoice = item.variants and item.variants.length > 1 %}
+    {% set hasTshirtChoices = item.category == "tshirt" and item.sizeOptions and item.sizeOptions.length %}
+    {% set hasStyleChoice = item.styleOptions and item.styleOptions.length %}
+    {% set singleVariantId = item.variants[0].id if item.variants and item.variants.length == 1 else "" %}
+
+    {% if defaultImage %}
+    <p>
+      <img
+        src="{{ defaultImage }}"
+        alt="{{ item.name }}"
+        width="150"
+        height="150"
+        style="width:150px; height:150px; object-fit:cover;"
+        data-merch-preview-image>
+    </p>
+    {% endif %}
+
+    <div hidden data-merch-variant-map>
+      {% for variant in item.variants %}
+      <span
+        data-variant-id="{{ variant.id }}"
+        data-variant-label="{{ variant.variantLabel }}"
+        data-style="{{ variant.style or '' }}"
+        data-size="{{ variant.size or variant.variantLabel }}"
+        data-color="{{ variant.color or '' }}"
+        data-image-url="{{ variant.imageURL or '' }}"></span>
+      {% endfor %}
+    </div>
+
+    <div class="merch-variant" style="display:flex; align-items:flex-start; gap:1rem; flex-wrap:wrap;">
+      {% if hasTshirtChoices %}
+      {% if hasStyleChoice %}
+      <div>
+      <label for="variant-style-{{ item.id }}">Style</label>
+      <select id="variant-style-{{ item.id }}" name="variant-style-{{ item.id }}" data-merch-item-style>
+        <option value="">Choose...</option>
+        {% for styleOption in item.styleOptions %}
+        <option value="{{ styleOption }}">{{ styleOption }}</option>
+        {% endfor %}
+      </select>
+      </div>
+      {% endif %}
+      <div>
+      <label for="variant-size-{{ item.id }}">Size</label>
+      <select id="variant-size-{{ item.id }}" name="variant-size-{{ item.id }}" data-merch-item-size>
+        <option value="">Choose...</option>
+        {% for sizeOption in item.sizeOptions %}
+        <option value="{{ sizeOption }}">
+          {{ sizeOption }}
+        </option>
+        {% endfor %}
+      </select>
+      </div>
+      <div>
+      <label for="variant-colour-{{ item.id }}">Colour</label>
+      <select id="variant-colour-{{ item.id }}" name="variant-colour-{{ item.id }}" data-merch-item-colour>
+        <option value="">Choose...</option>
+        {% for colorOption in item.colorOptions %}
+        <option value="{{ colorOption }}">{{ colorOption | capitalize }}</option>
+        {% endfor %}
+      </select>
+      </div>
+      {% elif hasVariantChoice %}
+      <div>
+      <label for="variant-select-{{ item.id }}">
+        {% if item.category == "mug" %}Colour{% else %}Option{% endif %}
+      </label>
+      <select id="variant-select-{{ item.id }}" name="variant-select-{{ item.id }}" data-merch-item-select>
+        <option value="">Choose...</option>
+        {% for variant in item.variants %}
+        <option value="{{ variant.id }}" data-image-url="{{ variant.imageURL }}">
+          {{ variant.variantLabel }}
+        </option>
+        {% endfor %}
+      </select>
+      </div>
+      {% endif %}
+      <div>
+      <label for="variant-quantity-{{ item.id }}">Quantity</label>
+      <input
+        type="number"
+        id="variant-quantity-{{ item.id }}"
+        name="variant-quantity-{{ item.id }}"
+        min="0"
+        step="1"
+        value="0"
+        style="width:4ch;"
+        {% if singleVariantId %}data-merch-variant-id="{{ singleVariantId }}"{% endif %}
+        data-merch-item-quantity>
+      </div>
+      <div>
+      <label for="variant-price-{{ item.id }}">Suggested price</label>
+      <input
+        type="text"
+        id="variant-price-{{ item.id }}"
+        name="variant-price-{{ item.id }}"
+        value="{{ item.suggestedPrice }}"
+        data-merch-item-price>
+      </div>
+    </div>
+  </fieldset>
+  {% endfor %}
+
+  <button type="submit">Register Interest</button>
+</form>
+
+<p id="merch-form-status" aria-live="polite"></p>
+<script src="/assets/scripts/merch_interest_form.js"></script>
+{% else %}
+<p>No merch items are currently available.</p>
+{% endif %}
