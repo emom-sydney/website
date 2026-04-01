@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from flask import Flask, jsonify, request
 
 from forms_bridge.db import connect
+from forms_bridge.performer_workflow import register_performer_workflow_routes
 
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -26,7 +27,7 @@ def create_app():
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Vary"] = "Origin"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-            response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         return response
 
     @app.route("/health", methods=["GET"])
@@ -101,6 +102,8 @@ def create_app():
         except Exception:
             app.logger.exception("Merch interest submission failed")
             return error_response("Unable to save submission right now.", 500)
+
+    register_performer_workflow_routes(app)
 
     return app
 

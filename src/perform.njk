@@ -1,33 +1,81 @@
 ---
 layout: "main.njk"
+pageTitle: "Performer Registration"
 ---
 <h2>Performer Registration</h2>
 
-<p> Please <a href="mailto:emom.sydney@gmail.com">email us</a> if you'd like to play at emom.sydney.</p>
+<div id="performer-registration-app" class="performer-registration">
+  <div id="performer-registration-status" class="performer-registration-status" aria-live="polite"></div>
 
+  <section id="performer-registration-start" class="performer-registration-panel">
+    <p>If you would like to register interest in playing at a future EMOM night, start by entering your email address below. We will send you a one-time link that lets you create or update your profile and select the event dates you are available for.</p>
 
-<!-- 
-<p>If you wish to play at our event, you just need to show up on the night. That's what "open mic" means after all :) 
-<p>Having said that, we realise it's a bit different when you've got a boot load of gear to wrangle, so you can pre-register your intention to play by filling out this form. 
-<form id="web-form">
-      <input type="hidden" id="formtype" name="formtype" value="preregistration">
+    <form id="performer-registration-start-form">
+      <label for="performer-registration-email">Email address</label>
+      <input type="email" id="performer-registration-email" name="email" required>
+      <button type="submit">Send registration link</button>
+    </form>
+  </section>
 
-      <label for="name">Name:</label>
-      <input type="text" id="name" name="name" required>
+  <section id="performer-registration-session" class="performer-registration-panel" hidden>
+    <p id="performer-registration-intro"></p>
 
-      <label for="email">Email:</label>
-      <input type="email" id="email" name="email" required>
+    <form id="performer-registration-session-form">
+      <label for="performer-email-display">Email address</label>
+      <input type="email" id="performer-email-display" readonly>
 
-      <label for="mobile">Mobile:</label>
-      <input type="text" id="mobile" name="mobile" required>
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" id="performer-is-email-public" name="is_email_public">
+        <span>visible on profile page</span>
+      </label>
 
-      <label for="message">Brief description of your set:</label>
-      <textarea id="message" name="message" rows="5" required></textarea>
+      <label for="performer-profile-type">Profile type</label>
+      <select id="performer-profile-type" name="profile_type" required>
+        <option value="person">Person</option>
+        <option value="group">Group</option>
+      </select>
 
-      <label for="url">Your preferred URL (social media, bandcamp, etc):</label>
-      <textarea id="url" name="url" rows="1" required></textarea>
-      
-      <button type="submit">Submit</button> 
-</form>
-<script src="/assets/scripts/process_forms.js"></script>
--->
+      <label for="performer-display-name">Display / stage name</label>
+      <input type="text" id="performer-display-name" name="display_name" required>
+
+      <label for="performer-first-name">First name</label>
+      <input type="text" id="performer-first-name" name="first_name">
+
+      <label for="performer-last-name">Last name</label>
+      <input type="text" id="performer-last-name" name="last_name">
+
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" id="performer-is-name-public" name="is_name_public">
+        <span>visible on profile page</span>
+      </label>
+
+      <label for="performer-contact-phone">Contact phone number</label>
+      <input type="text" id="performer-contact-phone" name="contact_phone" required>
+      <p class="performer-registration-note">Required only in case we need to contact you on the day of the event. This will not be displayed on your public profile.</p>
+
+      <label for="performer-artist-bio">Artist bio</label>
+      <textarea id="performer-artist-bio" name="artist_bio" rows="6"></textarea>
+
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" id="performer-is-bio-public" name="is_artist_bio_public">
+        <span>visible on profile page</span>
+      </label>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Social links</legend>
+        <div id="performer-social-links"></div>
+        <button type="button" id="performer-add-social-link">Add social link</button>
+      </fieldset>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Available dates</legend>
+        <p id="performer-events-note" class="performer-registration-note"></p>
+        <div id="performer-event-options"></div>
+      </fieldset>
+
+      <button type="submit">Submit for moderation</button>
+    </form>
+  </section>
+</div>
+
+<script src="/assets/scripts/performer_registration_form.js"></script>

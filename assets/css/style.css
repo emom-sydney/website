@@ -99,6 +99,7 @@ form label {
 }
   
 form input,
+form select,
 form textarea {
   width: calc(100% - 20px); /* Account for padding */
   padding: 10px;
@@ -118,6 +119,84 @@ form button {
  
 form button:hover {
   background-color: #0069d9;
+}
+
+.performer-registration-status {
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.performer-registration-status[data-status-kind="error"] {
+  color: #9b1c1c;
+}
+
+.performer-registration-status[data-status-kind="success"] {
+  color: #176b2c;
+}
+
+.performer-registration-panel {
+  margin-bottom: 2rem;
+}
+
+.performer-registration-note {
+  margin-top: -0.75rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  color: #555;
+}
+
+.performer-registration-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.performer-registration-checkbox input {
+  width: auto;
+  margin: 0;
+}
+
+.performer-registration-checkbox span {
+  display: inline-block;
+}
+
+.performer-registration-fieldset {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.performer-social-link-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.performer-social-link-fields {
+  display: flex;
+  gap: 1rem;
+  flex: 1 1 24rem;
+  flex-wrap: wrap;
+}
+
+.performer-social-link-fields label {
+  flex: 1 1 12rem;
+}
+
+.performer-event-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.performer-event-option input {
+  width: auto;
+  margin: 0;
 }
 
 .AINotice p {

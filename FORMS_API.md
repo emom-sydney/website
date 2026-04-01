@@ -5,6 +5,11 @@ This repo now includes a small Python bridge for writing static-site form submis
 Current endpoint:
 
 - `POST /api/forms/merch-interest`
+- `POST /api/forms/performer-registration/start`
+- `GET /api/forms/performer-registration/session?token=...`
+- `POST /api/forms/performer-registration/submit`
+- `GET /api/forms/performer-registration/moderation/approve?token=...`
+- `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
 
 The bridge code lives in:
 
@@ -30,6 +35,14 @@ Optional:
 - `FORMS_API_ALLOWED_ORIGINS`
   - comma-separated list of allowed origins for CORS
   - if unset, the app reflects any incoming origin
+- `FORMS_SITE_BASE_URL`
+  - base public site URL used to build performer registration and moderation links
+- `FORMS_EMAIL_FROM`
+  - sender address for performer workflow emails
+- `FORMS_SMTP_HOST`
+  - SMTP relay host for bridge-generated emails
+- `FORMS_SMTP_PORT`
+  - SMTP relay port, defaults to `25`
 
 ## Install
 
@@ -115,6 +128,9 @@ The expected public paths are:
 
 - `GET /api/forms/health`
 - `POST /api/forms/merch-interest`
+- `POST /api/forms/performer-registration/start`
+- `GET /api/forms/performer-registration/session?token=...`
+- `POST /api/forms/performer-registration/submit`
 
 ## Request Shape
 
@@ -168,3 +184,29 @@ Error:
 - `merch_variants`
 
 The API validates the submitted variant ids against `merch_variants` and inserts rows into the submissions/lines tables in one transaction.
+
+## Performer Registration
+
+The performer workflow is now staged through the forms bridge:
+
+- `POST /api/forms/performer-registration/start`
+  - accepts `{ "email": "artist@example.com" }`
+  - creates a 24-hour token in `action_tokens`
+  - sends a registration email using local `sendmail`
+- `GET /api/forms/performer-registration/session?token=...`
+  - validates the registration token
+  - returns any existing profile data for that email, social platform options, and currently eligible future events
+- `POST /api/forms/performer-registration/submit`
+  - accepts the token plus draft profile fields, social links, and requested event ids
+  - writes into `profile_submission_drafts`, `profile_submission_social_profiles`, and `requested_dates`
+  - emails moderators one-time approve/deny links
+- moderation links:
+  - approval applies the draft to the live profile and artist role
+  - denial presents a small reason form and emails the artist the reason
+
+Current performer flow environment assumptions:
+
+- the database already has the new performer workflow schema
+- moderator profiles exist in `profiles` with `is_moderator = true`
+- moderator profiles also have the `volunteer` role in `profile_roles`
+- the host can relay mail through the configured SMTP server
