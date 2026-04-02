@@ -6,6 +6,8 @@ import secrets
 import smtplib
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from email.utils import formatdate
+from email.utils import make_msgid
 
 from flask import jsonify, request
 
@@ -882,11 +884,9 @@ def get_profile_submission_draft(cursor, draft_id):
 
 def apply_approved_draft(cursor, draft, approved_by_profile_id):
     if draft["profile_id"] is None:
-        profile_id = next_integer_id(cursor, "profiles")
         cursor.execute(
             """
             INSERT INTO profiles (
-              id,
               profile_type,
               display_name,
               first_name,
@@ -901,10 +901,10 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
               approved_at,
               approved_by_profile_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, NULL, CURRENT_DATE + INTERVAL '100 years', now(), %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, NULL, CURRENT_DATE + INTERVAL '100 years', now(), %s)
+            RETURNING id
             """,
             (
-                profile_id,
                 draft["profile_type"],
                 draft["display_name"],
                 draft["first_name"],
@@ -916,6 +916,7 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
                 approved_by_profile_id,
             ),
         )
+        profile_id = cursor.fetchone()[0]
     else:
         profile_id = draft["profile_id"]
         cursor.execute(
@@ -972,13 +973,12 @@ def upsert_artist_role(cursor, profile_id, bio, is_bio_public):
 def replace_profile_social_links(cursor, profile_id, social_links):
     cursor.execute("DELETE FROM profile_social_profiles WHERE profile_id = %s", (profile_id,))
     for item in social_links:
-        social_profile_id = next_integer_id(cursor, "profile_social_profiles")
         cursor.execute(
             """
-            INSERT INTO profile_social_profiles (id, profile_id, social_platform_id, profile_name)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO profile_social_profiles (profile_id, social_platform_id, profile_name)
+            VALUES (%s, %s, %s)
             """,
-            (social_profile_id, profile_id, item["social_platform_id"], item["profile_name"]),
+            (profile_id, item["social_platform_id"], item["profile_name"]),
         )
 
 
@@ -1006,13 +1006,6 @@ def update_profile_visibility_from_requests(cursor, profile_id, requested_event_
         """,
         (first_requested_event_date, first_requested_event_date, profile_id),
     )
-
-
-def next_integer_id(cursor, table_name):
-    cursor.execute(f"LOCK TABLE {table_name} IN EXCLUSIVE MODE")
-    cursor.execute(f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table_name}")
-    return cursor.fetchone()[0]
-
 
 def record_moderation_action(cursor, *, draft_id, moderator_profile_id, action, reason):
     moderation_action = "approved" if action == WORKFLOW_STATUS_APPROVED else "denied"
@@ -1120,6 +1113,8 @@ def send_mail(to_address, subject, body):
     message["From"] = get_from_address()
     message["To"] = to_address
     message["Subject"] = subject
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid()
     message.set_content(body)
 
     with smtplib.SMTP(get_smtp_host(), get_smtp_port(), timeout=30) as smtp:
