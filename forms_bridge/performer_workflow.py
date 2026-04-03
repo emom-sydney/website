@@ -17,6 +17,8 @@ from forms_bridge.db import connect
 ACTION_TYPE_REGISTRATION_LINK = "registration_link"
 ACTION_TYPE_MODERATION_APPROVE = "moderation_approve"
 ACTION_TYPE_MODERATION_DENY = "moderation_deny"
+ACTION_TYPE_AVAILABILITY_CONFIRM = "availability_confirm"
+ACTION_TYPE_AVAILABILITY_CANCEL = "availability_cancel"
 
 WORKFLOW_STATUS_PENDING = "pending"
 WORKFLOW_STATUS_APPROVED = "approved"
@@ -110,9 +112,12 @@ def register_performer_workflow_routes(app):
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_REGISTRATION_LINK)
                     email = token_row["email"]
                     settings = get_workflow_settings(cursor)
-                    profile = get_existing_profile_by_email(cursor, email)
-
                     draft_payload = normalize_profile_submission_payload(payload, email)
+                    profile, matched_by = get_existing_profile_for_submission(
+                        cursor,
+                        email=email,
+                        display_name=draft_payload["display_name"],
+                    )
                     available_events = get_available_events(cursor, profile["id"] if profile else None, settings)
                     available_event_ids = {event["id"] for event in available_events}
                     ensure_requested_events_are_allowed(draft_payload["requested_event_ids"], available_event_ids)
@@ -149,6 +154,8 @@ def register_performer_workflow_routes(app):
                     draft_id=draft_id,
                     email=email,
                     draft_payload=draft_payload,
+                    existing_profile=profile,
+                    matched_by=matched_by,
                     moderation_links=moderation_links,
                 )
 
@@ -188,9 +195,7 @@ def register_performer_workflow_routes(app):
                         reviewer_profile_id=token_row["profile_id"],
                         denial_reason=None,
                     )
-                    invalidate_unused_tokens(cursor, draft_id=draft["id"], action_type=ACTION_TYPE_MODERATION_APPROVE)
-                    invalidate_unused_tokens(cursor, draft_id=draft["id"], action_type=ACTION_TYPE_MODERATION_DENY)
-                    mark_action_token_used(cursor, token_row["id"])
+                    invalidate_moderation_tokens_for_draft(cursor, draft["id"])
 
                 send_profile_approved_email(app, draft["email"])
 
@@ -210,7 +215,20 @@ def register_performer_workflow_routes(app):
             raw_token = normalize_text(request.args.get("token"))
             if not raw_token:
                 return html_error_page("Missing moderation token.", 400)
-            return render_denial_form(raw_token)
+            try:
+                with connect() as connection:
+                    with connection.cursor() as cursor:
+                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_DENY)
+                        draft = get_profile_submission_draft(cursor, token_row["draft_id"])
+                        if draft["status"] != WORKFLOW_STATUS_PENDING:
+                            raise ValueError("This submission has already been reviewed.")
+
+                return render_denial_form(raw_token)
+            except ValueError as exc:
+                return html_error_page(str(exc), 400)
+            except Exception:
+                app.logger.exception("Profile denial form lookup failed")
+                return html_error_page("Unable to load this moderation action right now.", 500)
 
         raw_token = normalize_text(request.form.get("token"))
         denial_reason = normalize_text(request.form.get("reason"))
@@ -241,9 +259,7 @@ def register_performer_workflow_routes(app):
                         reviewer_profile_id=token_row["profile_id"],
                         denial_reason=denial_reason,
                     )
-                    invalidate_unused_tokens(cursor, draft_id=draft["id"], action_type=ACTION_TYPE_MODERATION_APPROVE)
-                    invalidate_unused_tokens(cursor, draft_id=draft["id"], action_type=ACTION_TYPE_MODERATION_DENY)
-                    mark_action_token_used(cursor, token_row["id"])
+                    invalidate_moderation_tokens_for_draft(cursor, draft["id"])
 
                 send_profile_denied_email(app, draft["email"], denial_reason)
 
@@ -256,6 +272,64 @@ def register_performer_workflow_routes(app):
         except Exception:
             app.logger.exception("Profile denial failed")
             return html_error_page("Unable to deny this submission right now.", 500)
+
+    @app.route("/api/forms/performer-registration/availability/confirm", methods=["GET"])
+    def confirm_requested_date():
+        raw_token = normalize_text(request.args.get("token"))
+        if not raw_token:
+            return html_error_page("Missing availability token.", 400)
+
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_AVAILABILITY_CONFIRM)
+                    requested_date = get_requested_date_with_context(cursor, token_row["requested_date_id"])
+                    ensure_requested_date_is_actionable(requested_date)
+                    update_requested_date_availability_status(
+                        cursor,
+                        requested_date_id=requested_date["id"],
+                        status="availability_confirmed",
+                    )
+                    invalidate_availability_tokens_for_requested_date(cursor, requested_date["id"])
+
+            return html_success_page(
+                "Availability confirmed",
+                f"Thanks. Your availability for {requested_date['event_name']} on {requested_date['event_date']} is confirmed.",
+            )
+        except ValueError as exc:
+            return html_error_page(str(exc), 400)
+        except Exception:
+            app.logger.exception("Availability confirmation failed")
+            return html_error_page("Unable to confirm availability right now.", 500)
+
+    @app.route("/api/forms/performer-registration/availability/cancel", methods=["GET"])
+    def cancel_requested_date():
+        raw_token = normalize_text(request.args.get("token"))
+        if not raw_token:
+            return html_error_page("Missing availability token.", 400)
+
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_AVAILABILITY_CANCEL)
+                    requested_date = get_requested_date_with_context(cursor, token_row["requested_date_id"])
+                    ensure_requested_date_is_actionable(requested_date)
+                    update_requested_date_availability_status(
+                        cursor,
+                        requested_date_id=requested_date["id"],
+                        status="availability_cancelled",
+                    )
+                    invalidate_availability_tokens_for_requested_date(cursor, requested_date["id"])
+
+            return html_success_page(
+                "Availability cancelled",
+                f"Your availability for {requested_date['event_name']} on {requested_date['event_date']} has been cancelled.",
+            )
+        except ValueError as exc:
+            return html_error_page(str(exc), 400)
+        except Exception:
+            app.logger.exception("Availability cancellation failed")
+            return html_error_page("Unable to cancel availability right now.", 500)
 
 
 def get_json_payload():
@@ -375,6 +449,8 @@ def get_workflow_settings(cursor):
         (
             [
                 "performer_request_cooldown_events",
+                "availability_confirmation_lead_days",
+                "final_selection_lead_days",
                 "action_token_ttl_hours",
                 "max_performers_per_event",
             ],
@@ -382,6 +458,8 @@ def get_workflow_settings(cursor):
     )
     settings = {
         "performer_request_cooldown_events": 3,
+        "availability_confirmation_lead_days": 10,
+        "final_selection_lead_days": 7,
         "action_token_ttl_hours": 24,
         "max_performers_per_event": 7,
     }
@@ -466,6 +544,19 @@ def invalidate_unused_tokens(cursor, *, email=None, draft_id=None, action_type=N
     )
 
 
+def invalidate_moderation_tokens_for_draft(cursor, draft_id):
+    cursor.execute(
+        """
+        UPDATE action_tokens
+        SET used_at = now()
+        WHERE draft_id = %s
+          AND action_type IN (%s, %s)
+          AND used_at IS NULL
+        """,
+        (draft_id, ACTION_TYPE_MODERATION_APPROVE, ACTION_TYPE_MODERATION_DENY),
+    )
+
+
 def get_existing_profile_by_email(cursor, email):
     cursor.execute(
         """
@@ -546,6 +637,115 @@ def get_existing_profile_by_email(cursor, email):
         for social_platform_id, profile_name in cursor.fetchall()
     ]
     return profile
+
+
+def get_existing_profile_by_display_name(cursor, display_name):
+    cursor.execute(
+        """
+        SELECT p.id
+        FROM profiles p
+        WHERE lower(p.display_name) = lower(%s)
+        ORDER BY
+          EXISTS (
+            SELECT 1
+            FROM profile_roles pr
+            WHERE pr.profile_id = p.id
+              AND pr.role = 'artist'
+          ) DESC,
+          p.id
+        """,
+        (display_name,),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+    if len(rows) > 1:
+        raise ValueError("Multiple profiles already use that display name. Please contact EMOM.")
+
+    return get_existing_profile_by_id(cursor, rows[0][0])
+
+
+def get_existing_profile_by_id(cursor, profile_id):
+    cursor.execute(
+        """
+        SELECT
+          p.id,
+          p.profile_type,
+          p.display_name,
+          p.first_name,
+          p.last_name,
+          p.email,
+          p.contact_phone,
+          p.is_email_public,
+          p.is_name_public,
+          p.is_profile_approved,
+          p.profile_visible_from,
+          p.profile_expires_on,
+          artist_role.bio,
+          artist_role.is_bio_public,
+          EXISTS (
+            SELECT 1
+            FROM profile_roles pr
+            WHERE pr.profile_id = p.id
+              AND pr.role = 'artist'
+          ) AS has_artist_role
+        FROM profiles p
+        LEFT JOIN profile_roles artist_role
+          ON artist_role.profile_id = p.id
+         AND artist_role.role = 'artist'
+        WHERE p.id = %s
+        """,
+        (profile_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+
+    profile = {
+        "id": row[0],
+        "profile_type": row[1],
+        "display_name": row[2],
+        "first_name": row[3],
+        "last_name": row[4],
+        "email": row[5],
+        "contact_phone": row[6],
+        "is_email_public": row[7],
+        "is_name_public": row[8],
+        "is_profile_approved": row[9],
+        "profile_visible_from": row[10],
+        "profile_expires_on": row[11],
+        "artist_bio": row[12],
+        "is_artist_bio_public": row[13],
+        "has_artist_role": row[14],
+        "social_links": [],
+    }
+
+    cursor.execute(
+        """
+        SELECT social_platform_id, profile_name
+        FROM profile_social_profiles
+        WHERE profile_id = %s
+        ORDER BY id
+        """,
+        (profile["id"],),
+    )
+    profile["social_links"] = [
+        {"social_platform_id": social_platform_id, "profile_name": profile_name}
+        for social_platform_id, profile_name in cursor.fetchall()
+    ]
+    return profile
+
+
+def get_existing_profile_for_submission(cursor, *, email, display_name):
+    profile = get_existing_profile_by_email(cursor, email)
+    if profile:
+        return profile, "email"
+
+    profile = get_existing_profile_by_display_name(cursor, display_name)
+    if profile:
+        return profile, "display_name"
+
+    return None, None
 
 
 def serialize_profile(profile):
@@ -754,6 +954,80 @@ def insert_requested_dates(cursor, draft_id, requested_event_ids):
             """,
             (draft_id, event_id),
         )
+
+
+def get_requested_date_with_context(cursor, requested_date_id):
+    cursor.execute(
+        """
+        SELECT
+          rd.id,
+          rd.status,
+          rd.event_id,
+          e.event_name,
+          e.event_date,
+          d.id,
+          d.email,
+          d.display_name,
+          d.profile_id,
+          COALESCE(p.is_profile_approved, false) AS is_profile_approved
+        FROM requested_dates rd
+        JOIN profile_submission_drafts d
+          ON d.id = rd.draft_id
+        JOIN events e
+          ON e.id = rd.event_id
+        LEFT JOIN profiles p
+          ON p.id = d.profile_id
+        WHERE rd.id = %s
+        """,
+        (requested_date_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("That availability request no longer exists.")
+
+    return {
+        "id": row[0],
+        "status": row[1],
+        "event_id": row[2],
+        "event_name": row[3],
+        "event_date": row[4].isoformat(),
+        "draft_id": row[5],
+        "email": row[6],
+        "display_name": row[7],
+        "profile_id": row[8],
+        "is_profile_approved": row[9],
+    }
+
+
+def ensure_requested_date_is_actionable(requested_date):
+    if requested_date["status"] not in {"requested", "availability_confirmed", "availability_cancelled"}:
+        raise ValueError("This availability request can no longer be updated.")
+
+
+def update_requested_date_availability_status(cursor, *, requested_date_id, status):
+    cursor.execute(
+        """
+        UPDATE requested_dates
+        SET
+          status = %s,
+          availability_responded_at = now()
+        WHERE id = %s
+        """,
+        (status, requested_date_id),
+    )
+
+
+def invalidate_availability_tokens_for_requested_date(cursor, requested_date_id):
+    cursor.execute(
+        """
+        UPDATE action_tokens
+        SET used_at = now()
+        WHERE requested_date_id = %s
+          AND action_type IN (%s, %s)
+          AND used_at IS NULL
+        """,
+        (requested_date_id, ACTION_TYPE_AVAILABILITY_CONFIRM, ACTION_TYPE_AVAILABILITY_CANCEL),
+    )
 
 
 def get_moderator_emails(cursor):
@@ -1033,6 +1307,226 @@ def finalize_draft_status(cursor, *, draft_id, status, reviewer_profile_id, deni
     )
 
 
+def send_due_availability_confirmation_emails(app, run_date=None):
+    sent_count = 0
+    moderator_reminder_count = 0
+
+    with connect() as connection:
+        with connection.cursor() as cursor:
+            settings = get_workflow_settings(cursor)
+            target_date = resolve_target_event_date(
+                run_date=run_date,
+                lead_days=settings["availability_confirmation_lead_days"],
+            )
+            due_requests = get_due_availability_requests(cursor, target_date)
+            moderator_emails = get_moderator_emails(cursor)
+
+            for item in due_requests:
+                invalidate_availability_tokens_for_requested_date(cursor, item["requested_date_id"])
+                confirm_token, confirm_hash = generate_token_pair()
+                cancel_token, cancel_hash = generate_token_pair()
+                expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
+
+                cursor.execute(
+                    """
+                    INSERT INTO action_tokens (
+                      token_hash,
+                      action_type,
+                      email,
+                      profile_id,
+                      draft_id,
+                      requested_date_id,
+                      event_id,
+                      expires_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        confirm_hash,
+                        ACTION_TYPE_AVAILABILITY_CONFIRM,
+                        item["email"],
+                        item["profile_id"],
+                        item["draft_id"],
+                        item["requested_date_id"],
+                        item["event_id"],
+                        expires_at,
+                    ),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO action_tokens (
+                      token_hash,
+                      action_type,
+                      email,
+                      profile_id,
+                      draft_id,
+                      requested_date_id,
+                      event_id,
+                      expires_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        cancel_hash,
+                        ACTION_TYPE_AVAILABILITY_CANCEL,
+                        item["email"],
+                        item["profile_id"],
+                        item["draft_id"],
+                        item["requested_date_id"],
+                        item["event_id"],
+                        expires_at,
+                    ),
+                )
+
+                confirm_url = build_absolute_url(
+                    app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
+                )
+                cancel_url = build_absolute_url(
+                    app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
+                )
+
+                send_availability_email(
+                    email=item["email"],
+                    display_name=item["display_name"],
+                    event_name=item["event_name"],
+                    event_date=item["event_date"],
+                    confirm_url=confirm_url,
+                    cancel_url=cancel_url,
+                    expires_at=expires_at,
+                )
+                cursor.execute(
+                    """
+                    UPDATE requested_dates
+                    SET availability_email_sent_at = now()
+                    WHERE id = %s
+                    """,
+                    (item["requested_date_id"],),
+                )
+                sent_count += 1
+
+            if moderator_emails:
+                for reminder in get_unapproved_event_reminders(cursor, target_date):
+                    if reminder["requested_date_ids"]:
+                        send_unapproved_request_reminder_email(
+                            moderator_emails=moderator_emails,
+                            event_name=reminder["event_name"],
+                            event_date=reminder["event_date"],
+                            rows=reminder["rows"],
+                        )
+                        cursor.execute(
+                            """
+                            UPDATE requested_dates
+                            SET moderator_reminder_sent_at = now()
+                            WHERE id = ANY(%s)
+                            """,
+                            (reminder["requested_date_ids"],),
+                        )
+                        moderator_reminder_count += 1
+
+        connection.commit()
+
+    return {
+        "target_event_date": target_date.isoformat(),
+        "availability_emails_sent": sent_count,
+        "moderator_reminders_sent": moderator_reminder_count,
+    }
+
+
+def resolve_target_event_date(*, run_date, lead_days):
+    if run_date is not None:
+        if isinstance(run_date, datetime):
+            base_date = run_date.date()
+        else:
+            base_date = datetime.strptime(str(run_date), "%Y-%m-%d").date()
+    else:
+        base_date = now_utc().date()
+    return base_date + timedelta(days=lead_days)
+
+
+def get_due_availability_requests(cursor, target_date):
+    cursor.execute(
+        """
+        SELECT
+          rd.id,
+          rd.draft_id,
+          rd.event_id,
+          e.event_name,
+          e.event_date,
+          d.email,
+          d.display_name,
+          d.profile_id
+        FROM requested_dates rd
+        JOIN profile_submission_drafts d
+          ON d.id = rd.draft_id
+        JOIN events e
+          ON e.id = rd.event_id
+        WHERE e.event_date = %s
+          AND e.type_id = %s
+          AND rd.status = 'requested'
+          AND rd.availability_email_sent_at IS NULL
+        ORDER BY e.id, rd.id
+        """,
+        (target_date, OPEN_MIC_EVENT_TYPE_ID),
+    )
+    return [
+        {
+            "requested_date_id": row[0],
+            "draft_id": row[1],
+            "event_id": row[2],
+            "event_name": row[3],
+            "event_date": row[4].isoformat(),
+            "email": row[5],
+            "display_name": row[6],
+            "profile_id": row[7],
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def get_unapproved_event_reminders(cursor, target_date):
+    cursor.execute(
+        """
+        SELECT
+          e.id,
+          e.event_name,
+          e.event_date,
+          rd.id,
+          d.display_name,
+          d.email
+        FROM requested_dates rd
+        JOIN profile_submission_drafts d
+          ON d.id = rd.draft_id
+        JOIN events e
+          ON e.id = rd.event_id
+        LEFT JOIN profiles p
+          ON p.id = d.profile_id
+        WHERE e.event_date = %s
+          AND e.type_id = %s
+          AND rd.status = 'requested'
+          AND rd.moderator_reminder_sent_at IS NULL
+          AND COALESCE(p.is_profile_approved, false) = false
+        ORDER BY e.id, d.display_name, rd.id
+        """,
+        (target_date, OPEN_MIC_EVENT_TYPE_ID),
+    )
+
+    reminders_by_event = {}
+    for event_id, event_name, event_date, requested_date_id, display_name, email in cursor.fetchall():
+        reminder = reminders_by_event.setdefault(
+            event_id,
+            {
+                "event_name": event_name,
+                "event_date": event_date.isoformat(),
+                "requested_date_ids": [],
+                "rows": [],
+            },
+        )
+        reminder["requested_date_ids"].append(requested_date_id)
+        reminder["rows"].append({"display_name": display_name, "email": email})
+
+    return list(reminders_by_event.values())
+
+
 def build_absolute_url(app, path):
     base_url = os.getenv("FORMS_SITE_BASE_URL") or os.getenv("PUBLIC_SITE_BASE_URL")
     if not base_url:
@@ -1050,7 +1544,7 @@ def send_registration_email(app, email, raw_token, expires_at):
     send_mail(email, "EMOM performer registration link", body)
 
 
-def send_moderation_emails(app, *, draft_id, email, draft_payload, moderation_links):
+def send_moderation_emails(app, *, draft_id, email, draft_payload, existing_profile, matched_by, moderation_links):
     if not moderation_links:
         return
 
@@ -1058,11 +1552,13 @@ def send_moderation_emails(app, *, draft_id, email, draft_payload, moderation_li
     social_lines = "\n".join(
         f"- platform #{item['social_platform_id']}: {item['profile_name']}" for item in draft_payload["social_links"]
     ) or "- none provided"
+    existing_profile_block = format_existing_profile_for_moderation(existing_profile, matched_by)
 
     for item in moderation_links:
         body = (
             f"A performer profile submission is awaiting moderation.\n\n"
             f"Draft ID: {draft_id}\n"
+            f"{existing_profile_block}"
             f"Email: {email}\n"
             f"Profile type: {draft_payload['profile_type']}\n"
             f"Display name: {draft_payload['display_name']}\n"
@@ -1081,6 +1577,31 @@ def send_moderation_emails(app, *, draft_id, email, draft_payload, moderation_li
         send_mail(item["email"], f"EMOM performer profile moderation request #{draft_id}", body)
 
 
+def format_existing_profile_for_moderation(existing_profile, matched_by):
+    if not existing_profile:
+        return "Existing profile match: none. This will create a new profile if approved.\n\n"
+
+    social_lines = "\n".join(
+        f"- platform #{item['social_platform_id']}: {item['profile_name']}" for item in existing_profile["social_links"]
+    ) or "- none on current live profile"
+
+    return (
+        f"Existing profile match: yes ({matched_by})\n"
+        f"Existing profile id: {existing_profile['id']}\n"
+        f"Existing email: {existing_profile['email'] or ''}\n"
+        f"Existing display name: {existing_profile['display_name'] or ''}\n"
+        f"Existing first name: {existing_profile['first_name'] or ''}\n"
+        f"Existing last name: {existing_profile['last_name'] or ''}\n"
+        f"Existing contact phone: {existing_profile['contact_phone'] or ''}\n"
+        f"Existing email public: {'yes' if existing_profile['is_email_public'] else 'no'}\n"
+        f"Existing name public: {'yes' if existing_profile['is_name_public'] else 'no'}\n"
+        f"Existing bio public: {'yes' if existing_profile['is_artist_bio_public'] else 'no'}\n"
+        f"Existing bio:\n{existing_profile['artist_bio'] or '(none)'}\n"
+        f"Existing social links:\n{social_lines}\n\n"
+        "Submitted draft:\n"
+    )
+
+
 def send_profile_approved_email(app, email):
     body = (
         "Your performer profile has been approved, and your requested performance dates have been noted.\n"
@@ -1094,6 +1615,35 @@ def send_profile_denied_email(app, email, reason):
         f"Reason:\n{reason}\n"
     )
     send_mail(email, "EMOM performer profile update", body)
+
+
+def send_availability_email(*, email, display_name, event_name, event_date, confirm_url, cancel_url, expires_at):
+    body = (
+        f"Hello {display_name or 'performer'},\n\n"
+        f"You previously registered interest in playing at {event_name} on {event_date}.\n"
+        "Please use one of the links below to confirm or cancel your availability.\n\n"
+        f"Confirm availability: {confirm_url}\n"
+        f"Cancel availability: {cancel_url}\n\n"
+        f"These links expire at {expires_at.isoformat()}.\n"
+    )
+    send_mail(email, f"EMOM availability check for {event_name}", body)
+
+
+def send_unapproved_request_reminder_email(*, moderator_emails, event_name, event_date, rows):
+    row_lines = "\n".join(
+        f"- {item['display_name']} <{item['email']}>" for item in rows
+    ) or "- none"
+    body = (
+        f"Availability reminders have gone out for {event_name} on {event_date}.\n\n"
+        "The following requesters for that event are still unapproved:\n"
+        f"{row_lines}\n"
+    )
+    for moderator in moderator_emails:
+        send_mail(
+            moderator["email"],
+            f"EMOM moderator reminder: unapproved requesters for {event_name}",
+            body,
+        )
 
 
 def get_from_address():

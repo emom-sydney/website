@@ -10,6 +10,8 @@ Current endpoint:
 - `POST /api/forms/performer-registration/submit`
 - `GET /api/forms/performer-registration/moderation/approve?token=...`
 - `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
+- `GET /api/forms/performer-registration/availability/confirm?token=...`
+- `GET /api/forms/performer-registration/availability/cancel?token=...`
 
 The bridge code lives in:
 
@@ -131,6 +133,8 @@ The expected public paths are:
 - `POST /api/forms/performer-registration/start`
 - `GET /api/forms/performer-registration/session?token=...`
 - `POST /api/forms/performer-registration/submit`
+- `GET /api/forms/performer-registration/availability/confirm?token=...`
+- `GET /api/forms/performer-registration/availability/cancel?token=...`
 
 ## Request Shape
 
@@ -203,6 +207,19 @@ The performer workflow is now staged through the forms bridge:
 - moderation links:
   - approval applies the draft to the live profile and artist role
   - denial presents a small reason form and emails the artist the reason
+- availability links:
+  - confirm marks `requested_dates.status = 'availability_confirmed'`
+  - cancel marks `requested_dates.status = 'availability_cancelled'`
+
+Availability reminder job:
+
+- script: `python -m forms_bridge.send_availability_reminders`
+- optional override: `python -m forms_bridge.send_availability_reminders --run-date 2026-04-04`
+- behavior:
+  - reads `availability_confirmation_lead_days` from `app_settings`
+  - finds due Open Mic events
+  - emails all unsent requesters one-time confirm/cancel links
+  - emails moderators if any requesters for that event are still unapproved
 
 Current performer flow environment assumptions:
 
