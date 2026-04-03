@@ -11,9 +11,10 @@ npx @11ty/eleventy
 and the site will be generated in the _site directory. (add the `--serve` flag to have it served to `localhost:8080`)
 
 To add a gallery for an event:
- - upload files to s3://sydney.emom.me/gallery/*galleryname*
+ - upload files to https://media.emom.me/gallery/*galleryname* (TODO add a file uploader)
  - set *galleryname* in the `events.gallery_url` value in Postgres
  - build the site as detailed above
+ - sync to the test webserver `rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/test.emom.me/`
  - sync to the live webserver `rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/`
 
 ## Postgres runtime
@@ -43,13 +44,13 @@ npx @11ty/eleventy
 
  TODO:
   - media uploads page
-  - work out a way for 11ty to build galleries without having to be logged in to AWS (?without just making the s3 bucket public?)
-  - thumbnails for images in galleries: DONE
   - reinstate form submission but with python (or php?) (see #thoughts) 
   - move code repo to forgejo instance git.emom.me 
-  - artist profile pages: DONE
   - calendar/contacts (https://sabre.io/baikal ?)
-  - set up MX an for the domain: DONE
+  - work out a way for 11ty to build galleries without having to be logged in to AWS :DONE
+  - thumbnails for images in galleries: :DONE
+  - artist profile pages: :DONE
+  - set up MX an for the domain :DONE
 
 # Thoughts
 A website for a small community organisation has different resource needs compared to most social or groupware kind of sites. If you're not chasing user numbers, if the website is run by a small subset of a small group of eager volunteers, I think there's an opportunity to build something quite effective yet simple and portable. 
