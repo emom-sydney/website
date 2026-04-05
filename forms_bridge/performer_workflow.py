@@ -25,6 +25,14 @@ ACTION_TYPE_BACKUP_SELECTION = "backup_selection"
 WORKFLOW_STATUS_PENDING = "pending"
 WORKFLOW_STATUS_APPROVED = "approved"
 WORKFLOW_STATUS_DENIED = "denied"
+LINEUP_STATUS_SELECTED = "selected"
+LINEUP_STATUS_BACKUP = "backup"
+LINEUP_STATUS_COOLDOWN_BACKUP = "cooldown_backup"
+ADMIN_SELECTION_ALLOWED_STATUSES = {
+    LINEUP_STATUS_SELECTED,
+    LINEUP_STATUS_BACKUP,
+    LINEUP_STATUS_COOLDOWN_BACKUP,
+}
 OPEN_MIC_EVENT_TYPE_ID = 1
 
 
@@ -382,7 +390,6 @@ def register_performer_workflow_routes(app):
                 return html_error_page("Unable to load admin selection right now.", 500)
 
         raw_token = normalize_text(request.form.get("token"))
-        selected_requested_date_ids = parse_int_list(request.form.getlist("selected_requested_date_ids"))
         if not raw_token:
             return html_error_page("Missing admin selection token.", 400)
 
@@ -393,17 +400,26 @@ def register_performer_workflow_routes(app):
                     settings = get_workflow_settings(cursor)
                     event = get_event_selection_context(cursor, token_row["event_id"])
                     candidates = get_admin_selection_candidates(cursor, token_row["event_id"])
+                    candidate_statuses = parse_admin_selection_statuses(request.form, candidates)
                     save_admin_selection(
                         cursor,
                         event_id=token_row["event_id"],
                         admin_profile_id=token_row["profile_id"],
                         candidates=candidates,
-                        selected_requested_date_ids=selected_requested_date_ids,
+                        candidate_statuses=candidate_statuses,
                         max_performers=settings["max_performers_per_event"],
                     )
                     mark_action_token_used(cursor, token_row["id"])
 
-                send_selected_performer_emails(event, candidates, selected_requested_date_ids)
+                send_selected_performer_emails(
+                    event,
+                    candidates,
+                    [
+                        item["requested_date_id"]
+                        for item in candidates
+                        if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
+                    ],
+                )
 
             return html_success_page(
                 "Lineup saved",
@@ -414,6 +430,85 @@ def register_performer_workflow_routes(app):
         except Exception:
             app.logger.exception("Admin selection save failed")
             return html_error_page("Unable to save admin selection right now.", 500)
+
+    @app.route("/api/forms/performer-registration/admin-selection/events", methods=["GET"])
+    def admin_selection_events():
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    events = get_upcoming_open_mic_events(cursor)
+            return jsonify({"ok": True, "events": events})
+        except Exception:
+            app.logger.exception("Admin selection events lookup failed")
+            return error_response("Unable to load upcoming event dates right now.", 500)
+
+    @app.route("/api/forms/performer-registration/admin-selection/start", methods=["OPTIONS"])
+    def admin_selection_start_options():
+        return ("", 204)
+
+    @app.route("/api/forms/performer-registration/admin-selection/start", methods=["POST"])
+    def admin_selection_start():
+        try:
+            payload = get_json_payload()
+            email = normalize_email(payload.get("email"))
+            event_id = payload.get("event_id")
+            if not email:
+                return error_response("A valid email address is required.", 400)
+            if not isinstance(event_id, int):
+                raise ValueError("A valid event date must be selected.")
+
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    settings = get_workflow_settings(cursor)
+                    event = get_open_mic_event_for_admin_selection(cursor, event_id)
+                    admin = get_admin_profile_by_email(cursor, email)
+                    if admin:
+                        invalidate_unused_tokens(
+                            cursor,
+                            email=email,
+                            action_type=ACTION_TYPE_ADMIN_SELECTION,
+                        )
+                        raw_token, token_hash = generate_token_pair()
+                        expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
+                        cursor.execute(
+                            """
+                            INSERT INTO action_tokens (token_hash, action_type, email, profile_id, event_id, expires_at)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                token_hash,
+                                ACTION_TYPE_ADMIN_SELECTION,
+                                admin["email"],
+                                admin["profile_id"],
+                                event["event_id"],
+                                expires_at,
+                            ),
+                        )
+                        selection_url = build_absolute_url(app, f"/perform/admin/?token={raw_token}")
+                    else:
+                        selection_url = None
+                        expires_at = None
+
+                if admin:
+                    send_admin_selection_email(
+                        admin_email=admin["email"],
+                        event_name=event["event_name"],
+                        event_date=event["event_date"],
+                        selection_url=selection_url,
+                        expires_at=expires_at,
+                    )
+
+            return jsonify(
+                {
+                    "ok": True,
+                    "message": "If that email address belongs to an admin, a fresh selection link has been sent.",
+                }
+            )
+        except ValueError as exc:
+            return error_response(str(exc), 400)
+        except Exception:
+            app.logger.exception("Admin selection start failed")
+            return error_response("Unable to send an admin selection link right now.", 500)
 
     @app.route("/api/forms/performer-registration/backup-selection", methods=["GET", "POST"])
     def backup_selection():
@@ -516,6 +611,17 @@ def parse_int_list(values):
         if not text.isdigit():
             raise ValueError("Expected integer values.")
         parsed.append(int(text))
+    return parsed
+
+
+def parse_admin_selection_statuses(form, candidates):
+    candidate_ids = {item["requested_date_id"] for item in candidates}
+    parsed = {}
+    for requested_date_id in candidate_ids:
+        raw_value = normalize_text(form.get(f"status_{requested_date_id}")) or LINEUP_STATUS_BACKUP
+        if raw_value not in ADMIN_SELECTION_ALLOWED_STATUSES:
+            raise ValueError("One or more performer statuses are invalid.")
+        parsed[requested_date_id] = raw_value
     return parsed
 
 
@@ -1808,7 +1914,7 @@ def send_due_admin_selection_emails(app, run_date=None):
                         ),
                     )
                     selection_url = build_absolute_url(
-                        app, f"/api/forms/performer-registration/admin-selection?token={raw_token}"
+                        app, f"/perform/admin/?token={raw_token}"
                     )
                     send_admin_selection_email(
                         admin_email=admin["email"],
@@ -1854,6 +1960,40 @@ def get_due_admin_selection_events(cursor, target_date):
     ]
 
 
+def get_upcoming_open_mic_events(cursor):
+    cursor.execute(
+        """
+        SELECT id, event_name, event_date
+        FROM events
+        WHERE type_id = %s
+          AND event_date >= CURRENT_DATE
+        ORDER BY event_date, id
+        """,
+        (OPEN_MIC_EVENT_TYPE_ID,),
+    )
+    return [
+        {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+        for row in cursor.fetchall()
+    ]
+
+
+def get_open_mic_event_for_admin_selection(cursor, event_id):
+    cursor.execute(
+        """
+        SELECT id, event_name, event_date
+        FROM events
+        WHERE id = %s
+          AND type_id = %s
+          AND event_date >= CURRENT_DATE
+        """,
+        (event_id, OPEN_MIC_EVENT_TYPE_ID),
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("That event date is not available for admin selection.")
+    return {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+
+
 def get_admin_emails(cursor):
     cursor.execute(
         """
@@ -1871,6 +2011,31 @@ def get_admin_emails(cursor):
         """
     )
     return [{"profile_id": row[0], "email": row[1]} for row in cursor.fetchall()]
+
+
+def get_admin_profile_by_email(cursor, email):
+    cursor.execute(
+        """
+        SELECT p.id, p.email
+        FROM profiles p
+        WHERE lower(p.email) = lower(%s)
+          AND p.is_admin = true
+          AND EXISTS (
+            SELECT 1
+            FROM profile_roles pr
+            WHERE pr.profile_id = p.id
+              AND pr.role = 'volunteer'
+          )
+        ORDER BY p.id
+        """,
+        (email,),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+    if len(rows) > 1:
+        raise ValueError("Multiple admin profiles already use that email address.")
+    return {"profile_id": rows[0][0], "email": rows[0][1]}
 
 
 def get_event_selection_context(cursor, event_id):
@@ -1932,23 +2097,27 @@ def get_admin_selection_candidates(cursor, event_id):
     ]
 
 
-def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, selected_requested_date_ids, max_performers):
+def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, max_performers):
     candidate_by_requested_date_id = {item["requested_date_id"]: item for item in candidates}
-    invalid_ids = [item for item in selected_requested_date_ids if item not in candidate_by_requested_date_id]
+    invalid_ids = [item for item in candidate_statuses if item not in candidate_by_requested_date_id]
     if invalid_ids:
         raise ValueError("One or more selected performers are invalid for this event.")
+
+    selected_requested_date_ids = [
+        item["requested_date_id"]
+        for item in candidates
+        if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
+    ]
     if len(selected_requested_date_ids) > max_performers:
         raise ValueError(f"You can select at most {max_performers} performers.")
 
-    selected_ids_set = set(selected_requested_date_ids)
     selected_profile_ids = []
     for item in candidates:
-        if item["requested_date_id"] in selected_ids_set:
-            status = "selected"
+        status = candidate_statuses.get(item["requested_date_id"], LINEUP_STATUS_BACKUP)
+        if status == LINEUP_STATUS_SELECTED:
             slot_number = selected_requested_date_ids.index(item["requested_date_id"]) + 1
             selected_profile_ids.append(item["profile_id"])
         else:
-            status = "cooldown_backup" if item["selection_status"] == "cooldown_backup" else "backup"
             slot_number = None
 
         cursor.execute(
@@ -1980,7 +2149,7 @@ def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, sele
                 admin_profile_id,
             ),
         )
-        if item["requested_date_id"] in selected_ids_set:
+        if status == LINEUP_STATUS_SELECTED:
             cursor.execute(
                 """
                 UPDATE requested_dates
@@ -2402,6 +2571,12 @@ def format_selection_status_label(status):
     return "-"
 
 
+def render_admin_status_option(status, current_status):
+    selected_status = current_status or LINEUP_STATUS_BACKUP
+    selected_attr = " selected" if status == selected_status else ""
+    return f"<option value=\"{html.escape(status)}\"{selected_attr}>{html.escape(format_selection_status_label(status))}</option>"
+
+
 def get_upcoming_event_status_summary(cursor):
     cursor.execute(
         """
@@ -2669,15 +2844,21 @@ def render_denial_form(raw_token):
 def render_admin_selection_form(raw_token, event, candidates, max_performers):
     candidate_rows = "\n".join(
         (
-            "<label style=\"display:flex; gap:0.75rem; align-items:flex-start; margin-bottom:0.75rem;\">"
-            f"<input type=\"checkbox\" name=\"selected_requested_date_ids\" value=\"{item['requested_date_id']}\">"
-            f"<span><strong>{html.escape(item['display_name'])}</strong><br>"
-            f"{html.escape(item['email'] or '')}<br>"
-            f"{html.escape(item['contact_phone'] or '')}</span>"
-            "</label>"
+            "<tr>"
+            f"<td><strong>{html.escape(item['display_name'])}</strong></td>"
+            f"<td>{html.escape(item['email'] or '')}<br>{html.escape(item['contact_phone'] or '')}</td>"
+            f"<td>{html.escape(item['availability_status'] or '-')}</td>"
+            "<td>"
+            f"<select name=\"status_{item['requested_date_id']}\" data-lineup-status>"
+            f"{render_admin_status_option(LINEUP_STATUS_SELECTED, item.get('selection_status'))}"
+            f"{render_admin_status_option(LINEUP_STATUS_BACKUP, item.get('selection_status'))}"
+            f"{render_admin_status_option(LINEUP_STATUS_COOLDOWN_BACKUP, item.get('selection_status'))}"
+            "</select>"
+            "</td>"
+            "</tr>"
         )
         for item in candidates
-    ) or "<p>No eligible confirmed performers are available for this event.</p>"
+    ) or "<tr><td colspan=\"4\">No eligible confirmed performers are available for this event.</td></tr>"
 
     return (
         """
@@ -2687,7 +2868,11 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers):
     <meta charset="utf-8">
     <title>Admin lineup selection</title>
     <style>
-      body { font-family: sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }
+      body { font-family: sans-serif; max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
+      .summary { padding: 0.75rem 1rem; background: #f3f3f3; border: 1px solid #ddd; margin: 1rem 0; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { text-align: left; vertical-align: top; padding: 0.6rem; border-bottom: 1px solid #ddd; }
+      select { width: 100%; max-width: 16rem; }
       button { margin-top: 1rem; }
     </style>
   </head>
@@ -2699,18 +2884,45 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers):
     <p><strong>Date:</strong> """
         + html.escape(event["event_date"])
         + """</p>
-    <p>Select up to """
+    <p>Set the status for each performer below. Selected performers count toward the final lineup. Backup and cooldown backup remain available as reserves.</p>
+    <div class="summary">
+      <strong>Total selected to perform:</strong>
+      <span id="selected-count">0</span>
+      <span> / """
         + html.escape(str(max_performers))
-        + """ performers for the final lineup. Everyone else will be recorded as backup.</p>
+        + """</span>
+    </div>
     <form method="post">
       <input type="hidden" name="token" value=\""""
         + html.escape(raw_token, quote=True)
         + """\">
-      """
+      <table>
+        <thead>
+          <tr>
+            <th>Artist</th>
+            <th>Contact</th>
+            <th>Availability</th>
+            <th>Lineup status</th>
+          </tr>
+        </thead>
+        <tbody>"""
         + candidate_rows
-        + """
+        + """</tbody>
+      </table>
       <button type="submit">Save lineup</button>
     </form>
+    <script>
+      (function () {
+        const selects = [...document.querySelectorAll('[data-lineup-status]')];
+        const countNode = document.getElementById('selected-count');
+        function updateSelectedCount() {
+          const count = selects.filter((node) => node.value === 'selected').length;
+          countNode.textContent = String(count);
+        }
+        selects.forEach((node) => node.addEventListener('change', updateSelectedCount));
+        updateSelectedCount();
+      }());
+    </script>
   </body>
 </html>
 """

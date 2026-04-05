@@ -18,7 +18,11 @@ pageTitle: "Performer Registration"
   </section>
 
   <section id="performer-registration-session" class="performer-registration-panel" hidden>
-    <p id="performer-registration-intro"></p>
+    <p id="performer-registration-intro">Enter your details and select the dates you're available to perform.</br></br>
+    We'll contact you the week before the event to let you know if you've been selected for that date. 
+    You can select as many dates as you like below, but we try to follow a rule of at least 3 months between shows for any one act. 
+    (This is a malleable rule at our discretion, it's a bit of a juggling act and we appreciate your understanding - the admin's decisions are final. :)</p>
+
 
     <form id="performer-registration-session-form">
       <label for="performer-email-display">Email address</label>
@@ -26,7 +30,7 @@ pageTitle: "Performer Registration"
 
       <label class="performer-registration-checkbox">
         <input type="checkbox" id="performer-is-email-public" name="is_email_public">
-        <span>visible on profile page</span>
+        <span>Show email on your profile page</span>
       </label>
 
       <label for="performer-profile-type">Profile type</label>
@@ -46,19 +50,19 @@ pageTitle: "Performer Registration"
 
       <label class="performer-registration-checkbox">
         <input type="checkbox" id="performer-is-name-public" name="is_name_public">
-        <span>visible on profile page</span>
+        <span>Show full name on your profile page</span>
       </label>
 
       <label for="performer-contact-phone">Contact phone number</label>
       <input type="text" id="performer-contact-phone" name="contact_phone" required>
-      <p class="performer-registration-note">Required only in case we need to contact you on the day of the event. This will not be displayed on your public profile.</p>
+      <p class="performer-registration-note">Required only in case we need to contact you urgently on the day of the event. This will not be displayed on your public profile.</p>
 
       <label for="performer-artist-bio">Artist bio</label>
       <textarea id="performer-artist-bio" name="artist_bio" rows="6"></textarea>
 
       <label class="performer-registration-checkbox">
         <input type="checkbox" id="performer-is-bio-public" name="is_artist_bio_public">
-        <span>visible on profile page</span>
+        <span>Show bio text on your profile page</span>
       </label>
 
       <fieldset class="performer-registration-fieldset">
@@ -68,7 +72,7 @@ pageTitle: "Performer Registration"
       </fieldset>
 
       <fieldset class="performer-registration-fieldset">
-        <legend>Available dates</legend>
+        <legend>Choose dates you want play</legend>
         <p id="performer-events-note" class="performer-registration-note"></p>
         <div id="performer-event-options"></div>
       </fieldset>
