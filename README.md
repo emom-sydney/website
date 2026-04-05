@@ -1,32 +1,49 @@
-**sydney.emom.me**
+# sydney.emom.me
 
-This is the codebase for sydney.emom.me website. We are building with the [11ty](https://www.11ty.dev) Static Site Generator. I have used CoPilot extensively to kick things off because I'm too impatient to read the doco, but I have very little idea what I'm doing within VSCode so it's all default settings and stuff but (somewhat to my surprise) it seems to be mostly working reasonably well and the only hallucinations that have been happening are by me.
+Static website for `sydney.emom.me`, built with Eleventy and backed by Postgres for relational site data.
 
-However the fact remains that all good code here is mine, everything else is the LLM's fault.
+## Current Architecture
 
-To build the site files, from the top level directory run
+- static site source in `src/`
+- generated output in `_site/`
+- relational build-time data loaded through:
+  - `src/_data/emom.js`
+  - `lib/data/loadEmomData.js`
+- write-side forms and tokenized workflows handled by:
+  - `forms_bridge/app.py`
+  - `forms_bridge/db.py`
+  - `forms_bridge/performer_workflow.py`
+
+The site currently includes:
+
+- artist and crew profile sections
+- gallery pages backed by Postgres metadata plus live S3 listings
+- merch interest form
+- performer registration and moderation workflow for Open Mic events
+
+## Build
+
+Generate the site:
+
+```bash
+npx @11ty/eleventy
 ```
-npx @11ty/eleventy 
+
+Run a local dev server:
+
+```bash
+npx @11ty/eleventy --serve
 ```
-and the site will be generated in the _site directory. (add the `--serve` flag to have it served to `localhost:8080`)
 
-To add a gallery for an event:
- - upload files to s3://sydney.emom.me/gallery/*galleryname*
- - set *galleryname* in the `events.gallery_url` value in Postgres
- - build the site as detailed above
- - sync to the live webserver `rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/`
+## Postgres Runtime
 
-## Postgres runtime
+The site now reads relational data from Postgres through the SSH tunnel documented in [DB_SETUP.md](./DB_SETUP.md).
 
-The site now reads its relational data from Postgres via the SSH tunnel documented in `DB_SETUP.md`.
+Canonical schema:
 
-Relevant files:
+- `db/schema.sql`
 
-- Schema: `db/schema.sql`
-- Runtime loader: `lib/data/loadEmomData.js`
-- Local tunnel env template: `.pgenv-example`
-
-To run the site:
+Typical local setup:
 
 ```bash
 cp .pgenv-example .pgenv
@@ -35,30 +52,66 @@ $EDITOR .pgenv
 set -a
 source ./.pgenv
 set +a
-
-npx @11ty/eleventy
 ```
 
-`DATABASE_URL` can be used instead of the individual `PG*` variables if preferred, but the current repo workflow uses `.pgenv`.
+Then build normally with Eleventy.
 
- TODO:
-  - media uploads page
-  - work out a way for 11ty to build galleries without having to be logged in to AWS (?without just making the s3 bucket public?)
-  - thumbnails for images in galleries: DONE
-  - reinstate form submission but with python (or php?) (see #thoughts) 
-  - move code repo to forgejo instance git.emom.me 
-  - artist profile pages: DONE
-  - calendar/contacts (https://sabre.io/baikal ?)
-  - set up MX an for the domain: DONE
+`DATABASE_URL` can be used instead of individual `PG*` variables if preferred.
 
-# Thoughts
-A website for a small community organisation has different resource needs compared to most social or groupware kind of sites. If you're not chasing user numbers, if the website is run by a small subset of a small group of eager volunteers, I think there's an opportunity to build something quite effective yet simple and portable. 
+## Forms Bridge
 
-My theory is that an emom event will likely only ever have a handful of volunteers running it at any one time, usually out of a google spreadsheet which is basically just lists of text information anyway. So what if the backend was just a text document that anyone could understand and edit? Obviously you'd put that behind secure authentication etc but again, we don't have to neccessarily spin up an entire MFA infrastructure when everyone involved actually physically knows each other from having met at the music nights. In other words, we can base the security architecture around the idea of physical presence and contacts, which I think would open up a bunch of unique possibilities. Some scripts on a USB stick with an embedded ssh key could just about do everything we want if we set up the workflows right.
+The forms bridge is a small Flask app used because Eleventy pages are static and cannot write directly to Postgres.
 
-Imagine a performer arrives at the venue and gets a QR code with URL and a one-time token on a piece of wood (make it an art item they can keep) which activates their profile page on the emom website, and where they can enter their details (stage name, name of tunes they’re playing, social URLs etc) and not only do they get a free profile page right away, we can also generate images & html that OBS can use for title screens and text crawls while they’re playing. 
+It currently handles:
 
-We had a data projector showing the artists names at the November event, but that was a static image generated before we knew the order the acts would be playing in. Have the projector instead show a web page that dynamically updates with Now Playing. Another page would allow selection of the artist name so that MC - having it open on their phone alongside the profile page and their own notes for each act - just has to tap on it to update all the signage. (I simplify, but I think it's all quite doable by putting the right pieces together in the right way)
+- `POST /api/forms/merch-interest`
+- performer registration start/session/submit
+- moderator approve/deny actions
+- availability confirm/cancel actions
+- admin lineup selection
+- backup promotion after cancellations
 
-## Resources
-- [logos](https://drive.google.com/drive/u/0/mobile/folders/1oDfZQdZb9NQhx_in6vafl0fO-Ktstt2t/1EMySK_hN9GL3JIHSHvwSoSFfeiV8tKy9?usp=sharing&sort=13&direction=a)
+Supporting scripts:
+
+- `python -m forms_bridge.send_availability_reminders`
+- `python -m forms_bridge.send_admin_selection_links`
+
+Bridge deployment and runtime details live in:
+
+- [FORMS.md](./FORMS.md)
+- [FORMS_API.md](./FORMS_API.md)
+
+## Public Data Rules
+
+Public artist pages are now filtered by approval and visibility:
+
+- `is_profile_approved = true`
+- `profile_visible_from IS NULL OR <= CURRENT_DATE`
+- `profile_expires_on >= CURRENT_DATE`
+
+Planned future lineups are stored in `event_performer_selections`.
+
+Actual played lineups should still end up in `performances`.
+
+## Galleries
+
+Gallery pages are hybrid:
+
+- relational event/profile metadata comes from Postgres
+- media inventory is read live from S3 at build time
+
+To add a gallery for an event:
+
+1. upload files to `s3://sydney.emom.me/gallery/<galleryname>`
+2. set `events.gallery_url` to `<galleryname>`
+3. rebuild the site
+4. deploy `_site/`
+
+## Key Docs
+
+- [AGENTS.md](./AGENTS.md)
+- [DB_SETUP.md](./DB_SETUP.md)
+- [FORMS.md](./FORMS.md)
+- [FORMS_API.md](./FORMS_API.md)
+- [REGO_STATUS.md](./REGO_STATUS.md)
+- [PERFORMER_WORKFLOW_FLOW.md](./PERFORMER_WORKFLOW_FLOW.md)

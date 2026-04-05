@@ -66,6 +66,60 @@ flowchart TD
     BF --> BG[invalidate_moderation_tokens_for_draft]
     BG --> BH[send_profile_denied_email]
     BH --> BI[success page]
+
+    BJ[availability reminder job] --> BK[get_due_availability_requests]
+    BK --> BL[create confirm/cancel action tokens]
+    BL --> BM[send_availability_email]
+    BM --> BN[get_unapproved_event_reminders]
+    BN --> BO[send_unapproved_request_reminder_email]
+
+    BP[/GET availability/confirm?token/] --> BQ[get_action_token availability_confirm]
+    BQ --> BR[get_requested_date_with_context]
+    BR --> BS[update_requested_date_availability_status confirmed]
+    BS --> BT[invalidate_availability_tokens_for_requested_date]
+    BT --> BU[success page]
+
+    BV[/GET availability/cancel?token/] --> BW[get_action_token availability_cancel]
+    BW --> BX[get_requested_date_with_context]
+    BX --> BY[update_requested_date_availability_status cancelled]
+    BY --> BZ[invalidate_availability_tokens_for_requested_date]
+    BZ --> CA[handle_selection_cancellation_if_needed]
+    CA --> CB{selected performer cancelled?}
+    CB -- no --> CC[success page]
+    CB -- yes, backups exist --> CD[create backup_selection tokens]
+    CD --> CE[send_backup_selection_email]
+    CE --> CF[success page]
+    CB -- yes, no backups and lineup short --> CG[send_open_slot_alert_email]
+    CG --> CH[success page]
+
+    CI[admin selection job] --> CJ[get_due_admin_selection_events]
+    CJ --> CK[create admin_selection tokens]
+    CK --> CL[send_admin_selection_email]
+
+    CM[/GET admin-selection?token/] --> CN[get_action_token admin_selection]
+    CN --> CO[get_event_selection_context]
+    CO --> CP[get_admin_selection_candidates]
+    CP --> CQ[render_admin_selection_form]
+
+    CR[/POST admin-selection/] --> CS[get_action_token admin_selection]
+    CS --> CT[get_admin_selection_candidates]
+    CT --> CU[save_admin_selection]
+    CU --> CV[mark selected candidates as selected]
+    CV --> CW[mark all other eligible candidates as backup]
+    CW --> CX[send_selected_performer_emails]
+    CX --> CY[success page]
+
+    CZ[/GET backup-selection?token/] --> DA[get_action_token backup_selection]
+    DA --> DB[get_event_selection_context]
+    DB --> DC[get_current_selected_lineup]
+    DC --> DD[get_backup_candidates]
+    DD --> DE[render_backup_selection_form]
+
+    DF[/POST backup-selection/] --> DG[get_action_token backup_selection]
+    DG --> DH[promote_backup_selection]
+    DH --> DI[invalidate_backup_selection_tokens_for_event]
+    DI --> DJ[send_backup_promoted_email]
+    DJ --> DK[success page]
 ```
 
 ## Business Process Diagram
@@ -90,9 +144,17 @@ flowchart TD
     M --> P[Requested dates remain recorded for later scheduling]
     O --> Q[Artist can submit a revised profile later]
 
-    P --> R[Future workflow: 10-day availability confirmation]
-    R --> S[Future workflow: 7-day admin lineup selection]
-    S --> T[Future workflow: actual played lineup copied into performances]
+    P --> R[10-day availability reminder emails go out]
+    R --> S[Performers confirm or cancel availability]
+    S --> T[7-day admin page records selected lineup]
+    T --> U[Non-selected approved confirmed performers are stored as backup]
+    U --> V{Selected performer cancels later?}
+    V -- Yes, backups exist --> W[Mods receive backup selection link]
+    W --> X[One backup is promoted into lineup]
+    V -- Yes, no backups and lineup short --> Y[Mods receive open slot alert]
+    X --> Z[Future workflow: actual played lineup copied into performances]
+    Y --> Z
+    V -- No --> Z
 ```
 
 ## Route / Helper / Data Interaction Map
@@ -105,6 +167,10 @@ flowchart LR
         R3[submit_performer_registration]
         R4[approve_profile_submission]
         R5[deny_profile_submission]
+        R6[confirm_requested_date]
+        R7[cancel_requested_date]
+        R8[admin_selection]
+        R9[backup_selection]
     end
 
     subgraph ValidationAndTokenHelpers
@@ -116,6 +182,8 @@ flowchart LR
         H6[invalidate_unused_tokens]
         H7[invalidate_moderation_tokens_for_draft]
         H8[mark_action_token_used]
+        H9[invalidate_availability_tokens_for_requested_date]
+        H10[invalidate_backup_selection_tokens_for_event]
     end
 
     subgraph ReadHelpers
@@ -128,6 +196,15 @@ flowchart LR
         Q7[get_available_events]
         Q8[get_moderator_emails]
         Q9[get_profile_submission_draft]
+        Q10[get_requested_date_with_context]
+        Q11[get_due_availability_requests]
+        Q12[get_unapproved_event_reminders]
+        Q13[get_due_admin_selection_events]
+        Q14[get_admin_emails]
+        Q15[get_event_selection_context]
+        Q16[get_admin_selection_candidates]
+        Q17[get_current_selected_lineup]
+        Q18[get_backup_candidates]
     end
 
     subgraph WriteHelpers
@@ -143,6 +220,11 @@ flowchart LR
         W10[record_moderation_action]
         W11[finalize_draft_status]
         W12[format_existing_profile_for_moderation]
+        W13[attach_profile_to_draft]
+        W14[update_requested_date_availability_status]
+        W15[handle_selection_cancellation_if_needed]
+        W16[save_admin_selection]
+        W17[promote_backup_selection]
     end
 
     subgraph MailHelpers
@@ -151,6 +233,13 @@ flowchart LR
         M3[send_profile_approved_email]
         M4[send_profile_denied_email]
         M5[send_mail]
+        M6[send_availability_email]
+        M7[send_unapproved_request_reminder_email]
+        M8[send_admin_selection_email]
+        M9[send_selected_performer_emails]
+        M10[send_backup_selection_email]
+        M11[send_backup_promoted_email]
+        M12[send_open_slot_alert_email]
     end
 
     subgraph Tables
@@ -166,6 +255,7 @@ flowchart LR
         T10[(events)]
         T11[(performances)]
         T12[(social_platforms)]
+        T13[(event_performer_selections)]
     end
 
     R1 --> H1 --> H2 --> Q1
@@ -211,6 +301,7 @@ flowchart LR
     W9 --> T10
     R4 --> W10 --> T9
     R4 --> W11 --> T6
+    R4 --> W13 --> T6
     R4 --> H7 --> T2
     R4 --> M3 --> M5
 
@@ -220,6 +311,44 @@ flowchart LR
     R5 --> W11 --> T6
     R5 --> H7 --> T2
     R5 --> M4 --> M5
+
+    R6 --> H4 --> T2
+    R6 --> Q10 --> T8
+    Q10 --> T6
+    Q10 --> T10
+    R6 --> W14 --> T8
+    R6 --> H9 --> T2
+
+    R7 --> H4 --> T2
+    R7 --> Q10 --> T8
+    R7 --> W14 --> T8
+    R7 --> H9 --> T2
+    R7 --> W15
+    W15 --> Q8
+    W15 --> Q15
+    W15 --> Q18
+    W15 --> M10
+    W15 --> M12
+
+    R8 --> H4 --> T2
+    R8 --> Q15 --> T10
+    R8 --> Q16 --> T8
+    Q16 --> T6
+    Q16 --> T3
+    Q16 --> T13
+    R8 --> W16 --> T13
+    W16 --> T8
+    R8 --> M9 --> M5
+
+    R9 --> H4 --> T2
+    R9 --> Q15 --> T10
+    R9 --> Q17 --> T13
+    Q17 --> T3
+    R9 --> Q18 --> T13
+    R9 --> W17 --> T13
+    W17 --> T8
+    R9 --> H10 --> T2
+    R9 --> M11 --> M5
 ```
 
 ## Sequence Diagram
@@ -233,6 +362,7 @@ sequenceDiagram
     participant DB as Postgres
     participant SMTP as SMTP Relay
     participant Mod as Moderator
+    participant Admin as Admin
 
     Performer->>Site: Open /perform/
     Site-->>Performer: Show email-only start form
@@ -304,6 +434,64 @@ sequenceDiagram
         SMTP-->>Performer: Denial email
         Bridge-->>Mod: Success page
     end
+
+    Bridge->>DB: Reminder job finds events at availability_confirmation_lead_days
+    Bridge->>DB: Create confirm/cancel tokens for requested dates
+    Bridge->>SMTP: Send availability reminder emails
+    SMTP-->>Performer: Confirm / cancel links
+
+    alt Performer confirms availability
+        Performer->>Bridge: GET /availability/confirm?token=...
+        Bridge->>DB: Validate confirm token
+        Bridge->>DB: Mark requested_dates availability_confirmed
+        Bridge->>DB: Invalidate both availability links
+        Bridge-->>Performer: Success page
+    else Performer cancels availability
+        Performer->>Bridge: GET /availability/cancel?token=...
+        Bridge->>DB: Validate cancel token
+        Bridge->>DB: Mark requested_dates availability_cancelled
+        Bridge->>DB: Invalidate both availability links
+        Bridge->>DB: If selected lineup exists, mark selection cancelled
+        alt Backups exist
+            Bridge->>DB: Create backup_selection tokens
+            Bridge->>SMTP: Email moderators backup-selection links
+            SMTP-->>Mod: Backup selection link
+        else No backups and lineup short
+            Bridge->>SMTP: Email moderators open-slot alert
+            SMTP-->>Mod: Open slot alert
+        end
+        Bridge-->>Performer: Success page
+    end
+
+    Bridge->>DB: Admin-selection job finds events at final_selection_lead_days
+    Bridge->>DB: Create admin_selection tokens
+    Bridge->>SMTP: Email admins lineup-selection links
+    SMTP-->>Admin: Admin selection link
+
+    Admin->>Bridge: GET /admin-selection?token=...
+    Bridge->>DB: Validate admin token
+    Bridge->>DB: Load eligible approved confirmed candidates
+    Bridge-->>Admin: Tokenized lineup selection page
+
+    Admin->>Bridge: POST selected lineup
+    Bridge->>DB: Save selected candidates as selected
+    Bridge->>DB: Save all remaining eligible candidates as backup
+    Bridge->>SMTP: Email selected performers
+    SMTP-->>Performer: Performance confirmed email
+    Bridge-->>Admin: Success page
+
+    alt Moderator promotes backup later
+        Mod->>Bridge: GET /backup-selection?token=...
+        Bridge->>DB: Validate backup token
+        Bridge->>DB: Load current lineup and backup pool
+        Bridge-->>Mod: Backup promotion page
+        Mod->>Bridge: POST chosen backup
+        Bridge->>DB: Promote backup to selected
+        Bridge->>DB: Invalidate backup-selection tokens for event
+        Bridge->>SMTP: Email promoted backup performer
+        SMTP-->>Performer: Promoted from backup email
+        Bridge-->>Mod: Success page
+    end
 ```
 
 ## Notes
@@ -315,5 +503,10 @@ sequenceDiagram
 - That means a changed email address can currently update an existing profile when the stage name matches.
 - Moderator emails now include both the existing live profile snapshot and the submitted draft details when a match is found.
 - `apply_approved_draft` currently sets `profile_visible_from` using the earliest requested event date.
-- That visibility rule is a temporary approximation until the later admin selection workflow is implemented.
+- That visibility rule is still a temporary approximation; the ideal final behavior is to key visibility from a first actually selected/performed event.
+- The 7-day admin selection flow now stores:
+  - selected performers as `selected`
+  - all other eligible approved confirmed performers as `backup`
+- If a selected performer cancels and backups exist, moderators receive a tokenized backup-selection page.
+- If a selected performer cancels and no backups exist while the lineup is now short, moderators receive an open-slot alert email.
 - Email delivery now goes through SMTP relay using `FORMS_SMTP_HOST` and `FORMS_SMTP_PORT`.

@@ -19,6 +19,8 @@ ACTION_TYPE_MODERATION_APPROVE = "moderation_approve"
 ACTION_TYPE_MODERATION_DENY = "moderation_deny"
 ACTION_TYPE_AVAILABILITY_CONFIRM = "availability_confirm"
 ACTION_TYPE_AVAILABILITY_CANCEL = "availability_cancel"
+ACTION_TYPE_ADMIN_SELECTION = "admin_selection"
+ACTION_TYPE_BACKUP_SELECTION = "backup_selection"
 
 WORKFLOW_STATUS_PENDING = "pending"
 WORKFLOW_STATUS_APPROVED = "approved"
@@ -75,8 +77,15 @@ def register_performer_workflow_routes(app):
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_REGISTRATION_LINK)
                     email = token_row["email"]
                     settings = get_workflow_settings(cursor)
-                    profile = get_existing_profile_by_email(cursor, email)
-                    available_events = get_available_events(cursor, profile["id"] if profile else None, settings)
+                    live_profile = get_existing_profile_by_email(cursor, email)
+                    latest_draft = get_latest_prefill_submission_by_email(cursor, email)
+                    profile = serialize_prefill_profile(latest_draft) if latest_draft else live_profile
+                    availability_profile = live_profile
+                    if not availability_profile and latest_draft and latest_draft["profile_id"]:
+                        availability_profile = get_existing_profile_by_id(cursor, latest_draft["profile_id"])
+                    available_events = get_available_events(
+                        cursor, availability_profile["id"] if availability_profile else None, settings
+                    )
                     social_platforms = get_social_platforms(cursor)
 
             return jsonify(
@@ -135,6 +144,8 @@ def register_performer_workflow_routes(app):
 
                     insert_profile_submission_social_links(cursor, draft_id, draft_payload["social_links"])
                     insert_requested_dates(cursor, draft_id, draft_payload["requested_event_ids"])
+                    stored_draft = get_profile_submission_draft(cursor, draft_id)
+                    current_status_summary = get_upcoming_event_status_summary(cursor)
 
                     moderator_emails = get_moderator_emails(cursor)
                     if not moderator_emails:
@@ -153,10 +164,11 @@ def register_performer_workflow_routes(app):
                     app=app,
                     draft_id=draft_id,
                     email=email,
-                    draft_payload=draft_payload,
+                    draft_payload=stored_draft,
                     existing_profile=profile,
                     matched_by=matched_by,
                     moderation_links=moderation_links,
+                    current_status_summary=current_status_summary,
                 )
 
             return jsonify({"ok": True, "draft_id": draft_id}), 201
@@ -181,6 +193,7 @@ def register_performer_workflow_routes(app):
                         raise ValueError("This submission has already been reviewed.")
 
                     profile_id = apply_approved_draft(cursor, draft, token_row["profile_id"])
+                    attach_profile_to_draft(cursor, draft_id=draft["id"], profile_id=profile_id)
                     record_moderation_action(
                         cursor,
                         draft_id=draft["id"],
@@ -196,8 +209,14 @@ def register_performer_workflow_routes(app):
                         denial_reason=None,
                     )
                     invalidate_moderation_tokens_for_draft(cursor, draft["id"])
+                    settings = get_workflow_settings(cursor)
 
-                send_profile_approved_email(app, draft["email"])
+                send_profile_approved_email(
+                    app,
+                    draft["email"],
+                    requested_events=draft["requested_events"],
+                    final_selection_lead_days=settings["final_selection_lead_days"],
+                )
 
             return html_success_page(
                 "Profile approved",
@@ -232,12 +251,14 @@ def register_performer_workflow_routes(app):
 
         raw_token = normalize_text(request.form.get("token"))
         denial_reason = normalize_text(request.form.get("reason"))
+        include_edit_link = request.form.get("include_edit_link") != "0"
         if not raw_token:
             return html_error_page("Missing moderation token.", 400)
         if not denial_reason:
             return html_error_page("A denial reason is required.", 400)
 
         try:
+            edit_link = None
             with connect() as connection:
                 with connection.cursor() as cursor:
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_DENY)
@@ -260,8 +281,15 @@ def register_performer_workflow_routes(app):
                         denial_reason=denial_reason,
                     )
                     invalidate_moderation_tokens_for_draft(cursor, draft["id"])
+                    if include_edit_link:
+                        edit_link = create_registration_link(
+                            cursor=cursor,
+                            app=app,
+                            email=draft["email"],
+                            ttl_hours=get_workflow_settings(cursor)["action_token_ttl_hours"],
+                        )
 
-                send_profile_denied_email(app, draft["email"], denial_reason)
+                send_profile_denied_email(app, draft["email"], denial_reason, edit_link=edit_link)
 
             return html_success_page(
                 "Profile denied",
@@ -320,6 +348,7 @@ def register_performer_workflow_routes(app):
                         status="availability_cancelled",
                     )
                     invalidate_availability_tokens_for_requested_date(cursor, requested_date["id"])
+                    handle_selection_cancellation_if_needed(app, cursor, requested_date)
 
             return html_success_page(
                 "Availability cancelled",
@@ -330,6 +359,118 @@ def register_performer_workflow_routes(app):
         except Exception:
             app.logger.exception("Availability cancellation failed")
             return html_error_page("Unable to cancel availability right now.", 500)
+
+    @app.route("/api/forms/performer-registration/admin-selection", methods=["GET", "POST"])
+    def admin_selection():
+        if request.method == "GET":
+            raw_token = normalize_text(request.args.get("token"))
+            if not raw_token:
+                return html_error_page("Missing admin selection token.", 400)
+
+            try:
+                with connect() as connection:
+                    with connection.cursor() as cursor:
+                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                        event = get_event_selection_context(cursor, token_row["event_id"])
+                        candidates = get_admin_selection_candidates(cursor, token_row["event_id"])
+                        max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
+                return render_admin_selection_form(raw_token, event, candidates, max_performers)
+            except ValueError as exc:
+                return html_error_page(str(exc), 400)
+            except Exception:
+                app.logger.exception("Admin selection form lookup failed")
+                return html_error_page("Unable to load admin selection right now.", 500)
+
+        raw_token = normalize_text(request.form.get("token"))
+        selected_requested_date_ids = parse_int_list(request.form.getlist("selected_requested_date_ids"))
+        if not raw_token:
+            return html_error_page("Missing admin selection token.", 400)
+
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                    settings = get_workflow_settings(cursor)
+                    event = get_event_selection_context(cursor, token_row["event_id"])
+                    candidates = get_admin_selection_candidates(cursor, token_row["event_id"])
+                    save_admin_selection(
+                        cursor,
+                        event_id=token_row["event_id"],
+                        admin_profile_id=token_row["profile_id"],
+                        candidates=candidates,
+                        selected_requested_date_ids=selected_requested_date_ids,
+                        max_performers=settings["max_performers_per_event"],
+                    )
+                    mark_action_token_used(cursor, token_row["id"])
+
+                send_selected_performer_emails(event, candidates, selected_requested_date_ids)
+
+            return html_success_page(
+                "Lineup saved",
+                f"The selection for {event['event_name']} on {event['event_date']} has been saved.",
+            )
+        except ValueError as exc:
+            return html_error_page(str(exc), 400)
+        except Exception:
+            app.logger.exception("Admin selection save failed")
+            return html_error_page("Unable to save admin selection right now.", 500)
+
+    @app.route("/api/forms/performer-registration/backup-selection", methods=["GET", "POST"])
+    def backup_selection():
+        if request.method == "GET":
+            raw_token = normalize_text(request.args.get("token"))
+            if not raw_token:
+                return html_error_page("Missing backup selection token.", 400)
+
+            try:
+                with connect() as connection:
+                    with connection.cursor() as cursor:
+                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_BACKUP_SELECTION)
+                        event = get_event_selection_context(cursor, token_row["event_id"])
+                        current_selected = get_current_selected_lineup(cursor, token_row["event_id"])
+                        backups = get_backup_candidates(cursor, token_row["event_id"])
+                        if not backups:
+                            raise ValueError("There are no backup performers available for this event.")
+                return render_backup_selection_form(raw_token, event, current_selected, backups)
+            except ValueError as exc:
+                return html_error_page(str(exc), 400)
+            except Exception:
+                app.logger.exception("Backup selection form lookup failed")
+                return html_error_page("Unable to load backup selection right now.", 500)
+
+        raw_token = normalize_text(request.form.get("token"))
+        requested_date_id_text = normalize_text(request.form.get("requested_date_id"))
+        if not raw_token:
+            return html_error_page("Missing backup selection token.", 400)
+        if not requested_date_id_text or not requested_date_id_text.isdigit():
+            return html_error_page("A backup performer must be selected.", 400)
+
+        requested_date_id = int(requested_date_id_text)
+
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_BACKUP_SELECTION)
+                    event = get_event_selection_context(cursor, token_row["event_id"])
+                    promoted = promote_backup_selection(
+                        cursor,
+                        event_id=token_row["event_id"],
+                        requested_date_id=requested_date_id,
+                        admin_profile_id=token_row["profile_id"],
+                    )
+                    invalidate_backup_selection_tokens_for_event(cursor, token_row["event_id"])
+
+                send_backup_promoted_email(event, promoted)
+
+            return html_success_page(
+                "Backup promoted",
+                f"{promoted['display_name']} has been promoted into the lineup for {event['event_name']}.",
+            )
+        except ValueError as exc:
+            return html_error_page(str(exc), 400)
+        except Exception:
+            app.logger.exception("Backup promotion failed")
+            return html_error_page("Unable to promote backup performer right now.", 500)
 
 
 def get_json_payload():
@@ -364,6 +505,18 @@ def normalize_boolean(value, *, default=False):
     if isinstance(value, bool):
         return value
     raise ValueError("Boolean fields must be true or false.")
+
+
+def parse_int_list(values):
+    parsed = []
+    for value in values:
+        text = normalize_text(value)
+        if not text:
+            continue
+        if not text.isdigit():
+            raise ValueError("Expected integer values.")
+        parsed.append(int(text))
+    return parsed
 
 
 def normalize_profile_submission_payload(payload, email):
@@ -625,16 +778,22 @@ def get_existing_profile_by_email(cursor, email):
 
     cursor.execute(
         """
-        SELECT social_platform_id, profile_name
-        FROM profile_social_profiles
-        WHERE profile_id = %s
-        ORDER BY id
+        SELECT psp.social_platform_id, psp.profile_name, sp.platform_name, sp.url_format
+        FROM profile_social_profiles psp
+        JOIN social_platforms sp ON sp.id = psp.social_platform_id
+        WHERE psp.profile_id = %s
+        ORDER BY psp.id
         """,
         (profile["id"],),
     )
     profile["social_links"] = [
-        {"social_platform_id": social_platform_id, "profile_name": profile_name}
-        for social_platform_id, profile_name in cursor.fetchall()
+        {
+            "social_platform_id": social_platform_id,
+            "profile_name": profile_name,
+            "platform_name": platform_name,
+            "url_format": url_format,
+        }
+        for social_platform_id, profile_name, platform_name, url_format in cursor.fetchall()
     ]
     return profile
 
@@ -722,16 +881,22 @@ def get_existing_profile_by_id(cursor, profile_id):
 
     cursor.execute(
         """
-        SELECT social_platform_id, profile_name
-        FROM profile_social_profiles
-        WHERE profile_id = %s
-        ORDER BY id
+        SELECT psp.social_platform_id, psp.profile_name, sp.platform_name, sp.url_format
+        FROM profile_social_profiles psp
+        JOIN social_platforms sp ON sp.id = psp.social_platform_id
+        WHERE psp.profile_id = %s
+        ORDER BY psp.id
         """,
         (profile["id"],),
     )
     profile["social_links"] = [
-        {"social_platform_id": social_platform_id, "profile_name": profile_name}
-        for social_platform_id, profile_name in cursor.fetchall()
+        {
+            "social_platform_id": social_platform_id,
+            "profile_name": profile_name,
+            "platform_name": platform_name,
+            "url_format": url_format,
+        }
+        for social_platform_id, profile_name, platform_name, url_format in cursor.fetchall()
     ]
     return profile
 
@@ -765,6 +930,28 @@ def serialize_profile(profile):
         "is_artist_bio_public": profile["is_artist_bio_public"],
         "has_artist_role": profile["has_artist_role"],
         "social_links": profile["social_links"],
+        "requested_event_ids": profile.get("requested_event_ids", []),
+    }
+
+
+def serialize_prefill_profile(draft):
+    if not draft:
+        return None
+    return {
+        "id": draft["profile_id"],
+        "profile_type": draft["profile_type"],
+        "display_name": draft["display_name"],
+        "first_name": draft["first_name"],
+        "last_name": draft["last_name"],
+        "email": draft["email"],
+        "contact_phone": draft["contact_phone"],
+        "is_email_public": draft["is_email_public"],
+        "is_name_public": draft["is_name_public"],
+        "artist_bio": draft["artist_bio"],
+        "is_artist_bio_public": draft["is_artist_bio_public"],
+        "has_artist_role": True,
+        "social_links": draft["social_links"],
+        "requested_event_ids": draft["requested_event_ids"],
     }
 
 
@@ -780,6 +967,24 @@ def get_social_platforms(cursor):
         {"id": row[0], "platform_name": row[1], "url_format": row[2]}
         for row in cursor.fetchall()
     ]
+
+
+def get_latest_prefill_submission_by_email(cursor, email):
+    cursor.execute(
+        """
+        SELECT id
+        FROM profile_submission_drafts
+        WHERE lower(email) = lower(%s)
+          AND status IN (%s, %s, %s)
+        ORDER BY submitted_at DESC, id DESC
+        LIMIT 1
+        """,
+        (email, WORKFLOW_STATUS_PENDING, WORKFLOW_STATUS_DENIED, WORKFLOW_STATUS_APPROVED),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    return get_profile_submission_draft(cursor, row[0])
 
 
 def get_available_events(cursor, profile_id, settings):
@@ -1085,6 +1290,23 @@ def create_moderation_links(*, cursor, app, draft_id, moderator_emails, ttl_hour
     return links
 
 
+def create_registration_link(*, cursor, app, email, ttl_hours):
+    invalidate_unused_tokens(cursor, email=email, action_type=ACTION_TYPE_REGISTRATION_LINK)
+    raw_token, token_hash = generate_token_pair()
+    expires_at = now_utc() + timedelta(hours=ttl_hours)
+    cursor.execute(
+        """
+        INSERT INTO action_tokens (token_hash, action_type, email, expires_at)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (token_hash, ACTION_TYPE_REGISTRATION_LINK, email, expires_at),
+    )
+    return {
+        "url": build_absolute_url(app, f"/perform/?token={raw_token}"),
+        "expires_at": expires_at,
+    }
+
+
 def get_profile_submission_draft(cursor, draft_id):
     cursor.execute(
         """
@@ -1127,32 +1349,45 @@ def get_profile_submission_draft(cursor, draft_id):
         "status": row[12],
         "social_links": [],
         "requested_event_ids": [],
+        "requested_events": [],
     }
 
     cursor.execute(
         """
-        SELECT social_platform_id, profile_name
-        FROM profile_submission_social_profiles
-        WHERE draft_id = %s
-        ORDER BY sort_order, id
+        SELECT pssp.social_platform_id, pssp.profile_name, sp.platform_name, sp.url_format
+        FROM profile_submission_social_profiles pssp
+        JOIN social_platforms sp ON sp.id = pssp.social_platform_id
+        WHERE pssp.draft_id = %s
+        ORDER BY pssp.sort_order, pssp.id
         """,
         (draft_id,),
     )
     draft["social_links"] = [
-        {"social_platform_id": social_platform_id, "profile_name": profile_name}
-        for social_platform_id, profile_name in cursor.fetchall()
+        {
+            "social_platform_id": social_platform_id,
+            "profile_name": profile_name,
+            "platform_name": platform_name,
+            "url_format": url_format,
+        }
+        for social_platform_id, profile_name, platform_name, url_format in cursor.fetchall()
     ]
 
     cursor.execute(
         """
-        SELECT event_id
-        FROM requested_dates
-        WHERE draft_id = %s
-        ORDER BY event_id
+        SELECT rd.event_id, e.event_date, e.event_name
+        FROM requested_dates rd
+        JOIN events e ON e.id = rd.event_id
+        WHERE rd.draft_id = %s
+        ORDER BY e.event_date, rd.event_id
         """,
         (draft_id,),
     )
-    draft["requested_event_ids"] = [row[0] for row in cursor.fetchall()]
+    requested_events = [
+        {"event_id": row[0], "event_date": row[1].isoformat(), "event_name": row[2]}
+        for row in cursor.fetchall()
+    ]
+    draft["requested_events"] = requested_events
+    draft["requested_event_ids"] = [item["event_id"] for item in requested_events]
     return draft
 
 
@@ -1304,6 +1539,17 @@ def finalize_draft_status(cursor, *, draft_id, status, reviewer_profile_id, deni
         WHERE id = %s
         """,
         (status, reviewer_profile_id, denial_reason, draft_id),
+    )
+
+
+def attach_profile_to_draft(cursor, *, draft_id, profile_id):
+    cursor.execute(
+        """
+        UPDATE profile_submission_drafts
+        SET profile_id = %s
+        WHERE id = %s
+        """,
+        (profile_id, draft_id),
     )
 
 
@@ -1527,6 +1773,528 @@ def get_unapproved_event_reminders(cursor, target_date):
     return list(reminders_by_event.values())
 
 
+def send_due_admin_selection_emails(app, run_date=None):
+    sent_count = 0
+
+    with connect() as connection:
+        with connection.cursor() as cursor:
+            settings = get_workflow_settings(cursor)
+            target_date = resolve_target_event_date(
+                run_date=run_date,
+                lead_days=settings["final_selection_lead_days"],
+            )
+            due_events = get_due_admin_selection_events(cursor, target_date)
+            admins = get_admin_emails(cursor)
+
+            for event in due_events:
+                if not admins:
+                    continue
+
+                for admin in admins:
+                    raw_token, token_hash = generate_token_pair()
+                    expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
+                    cursor.execute(
+                        """
+                        INSERT INTO action_tokens (token_hash, action_type, email, profile_id, event_id, expires_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            token_hash,
+                            ACTION_TYPE_ADMIN_SELECTION,
+                            admin["email"],
+                            admin["profile_id"],
+                            event["event_id"],
+                            expires_at,
+                        ),
+                    )
+                    selection_url = build_absolute_url(
+                        app, f"/api/forms/performer-registration/admin-selection?token={raw_token}"
+                    )
+                    send_admin_selection_email(
+                        admin_email=admin["email"],
+                        event_name=event["event_name"],
+                        event_date=event["event_date"],
+                        selection_url=selection_url,
+                        expires_at=expires_at,
+                    )
+                    sent_count += 1
+
+                cursor.execute(
+                    """
+                    UPDATE events
+                    SET admin_selection_email_sent_at = now()
+                    WHERE id = %s
+                    """,
+                    (event["event_id"],),
+                )
+
+        connection.commit()
+
+    return {
+        "target_event_date": target_date.isoformat(),
+        "admin_selection_emails_sent": sent_count,
+    }
+
+
+def get_due_admin_selection_events(cursor, target_date):
+    cursor.execute(
+        """
+        SELECT id, event_name, event_date
+        FROM events
+        WHERE event_date = %s
+          AND type_id = %s
+          AND admin_selection_email_sent_at IS NULL
+        ORDER BY id
+        """,
+        (target_date, OPEN_MIC_EVENT_TYPE_ID),
+    )
+    return [
+        {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+        for row in cursor.fetchall()
+    ]
+
+
+def get_admin_emails(cursor):
+    cursor.execute(
+        """
+        SELECT p.id, p.email
+        FROM profiles p
+        WHERE p.is_admin = true
+          AND p.email IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM profile_roles pr
+            WHERE pr.profile_id = p.id
+              AND pr.role = 'volunteer'
+          )
+        ORDER BY p.id
+        """
+    )
+    return [{"profile_id": row[0], "email": row[1]} for row in cursor.fetchall()]
+
+
+def get_event_selection_context(cursor, event_id):
+    cursor.execute(
+        """
+        SELECT id, event_name, event_date
+        FROM events
+        WHERE id = %s
+        """,
+        (event_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("That event no longer exists.")
+    return {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+
+
+def get_admin_selection_candidates(cursor, event_id):
+    cursor.execute(
+        """
+        SELECT
+          rd.id,
+          d.id,
+          p.id,
+          d.display_name,
+          d.email,
+          d.contact_phone,
+          rd.status,
+          COALESCE(sel.status, ''),
+          sel.slot_number
+        FROM requested_dates rd
+        JOIN profile_submission_drafts d
+          ON d.id = rd.draft_id
+        JOIN profiles p
+          ON p.id = d.profile_id
+        LEFT JOIN event_performer_selections sel
+          ON sel.event_id = rd.event_id
+         AND sel.profile_id = p.id
+        WHERE rd.event_id = %s
+          AND rd.status = 'availability_confirmed'
+          AND p.is_profile_approved = true
+        ORDER BY d.display_name, rd.id
+        """,
+        (event_id,),
+    )
+    return [
+        {
+            "requested_date_id": row[0],
+            "draft_id": row[1],
+            "profile_id": row[2],
+            "display_name": row[3],
+            "email": row[4],
+            "contact_phone": row[5],
+            "availability_status": row[6],
+            "selection_status": row[7] or None,
+            "slot_number": row[8],
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, selected_requested_date_ids, max_performers):
+    candidate_by_requested_date_id = {item["requested_date_id"]: item for item in candidates}
+    invalid_ids = [item for item in selected_requested_date_ids if item not in candidate_by_requested_date_id]
+    if invalid_ids:
+        raise ValueError("One or more selected performers are invalid for this event.")
+    if len(selected_requested_date_ids) > max_performers:
+        raise ValueError(f"You can select at most {max_performers} performers.")
+
+    selected_ids_set = set(selected_requested_date_ids)
+    selected_profile_ids = []
+    for item in candidates:
+        if item["requested_date_id"] in selected_ids_set:
+            status = "selected"
+            slot_number = selected_requested_date_ids.index(item["requested_date_id"]) + 1
+            selected_profile_ids.append(item["profile_id"])
+        else:
+            status = "cooldown_backup" if item["selection_status"] == "cooldown_backup" else "backup"
+            slot_number = None
+
+        cursor.execute(
+            """
+            INSERT INTO event_performer_selections (
+              event_id,
+              profile_id,
+              requested_date_id,
+              slot_number,
+              status,
+              selected_at,
+              selected_by_profile_id
+            )
+            VALUES (%s, %s, %s, %s, %s, now(), %s)
+            ON CONFLICT (event_id, profile_id)
+            DO UPDATE SET
+              requested_date_id = EXCLUDED.requested_date_id,
+              slot_number = EXCLUDED.slot_number,
+              status = EXCLUDED.status,
+              selected_at = now(),
+              selected_by_profile_id = EXCLUDED.selected_by_profile_id
+            """,
+            (
+                event_id,
+                item["profile_id"],
+                item["requested_date_id"],
+                slot_number,
+                status,
+                admin_profile_id,
+            ),
+        )
+        if item["requested_date_id"] in selected_ids_set:
+            cursor.execute(
+                """
+                UPDATE requested_dates
+                SET
+                  selected_at = now(),
+                  selected_by_profile_id = %s
+                WHERE id = %s
+                """,
+                (admin_profile_id, item["requested_date_id"]),
+            )
+
+    if selected_profile_ids:
+        settings = get_workflow_settings(cursor)
+        apply_cooldown_backups_for_selected(
+            cursor,
+            event_id=event_id,
+            selected_profile_ids=selected_profile_ids,
+            admin_profile_id=admin_profile_id,
+            cooldown_events=settings["performer_request_cooldown_events"],
+        )
+
+
+def apply_cooldown_backups_for_selected(cursor, *, event_id, selected_profile_ids, admin_profile_id, cooldown_events):
+    if not selected_profile_ids or cooldown_events <= 0:
+        return
+
+    cursor.execute(
+        """
+        WITH current_event AS (
+          SELECT event_date, id
+          FROM events
+          WHERE id = %s
+        )
+        SELECT e.id
+        FROM events e
+        CROSS JOIN current_event ce
+        WHERE e.type_id = %s
+          AND (
+            e.event_date > ce.event_date
+            OR (e.event_date = ce.event_date AND e.id > ce.id)
+          )
+        ORDER BY e.event_date, e.id
+        LIMIT %s
+        """,
+        (event_id, OPEN_MIC_EVENT_TYPE_ID, cooldown_events),
+    )
+    future_event_ids = [row[0] for row in cursor.fetchall()]
+    if not future_event_ids:
+        return
+
+    cursor.execute(
+        """
+        SELECT
+          rd.event_id,
+          d.profile_id,
+          rd.id
+        FROM requested_dates rd
+        JOIN profile_submission_drafts d
+          ON d.id = rd.draft_id
+        WHERE d.profile_id = ANY(%s)
+          AND rd.event_id = ANY(%s)
+          AND rd.status IN ('requested', 'availability_confirmed')
+          AND d.status = 'approved'
+        """,
+        (selected_profile_ids, future_event_ids),
+    )
+    for future_event_id, profile_id, requested_date_id in cursor.fetchall():
+        cursor.execute(
+            """
+            INSERT INTO event_performer_selections (
+              event_id,
+              profile_id,
+              requested_date_id,
+              slot_number,
+              status,
+              selected_at,
+              selected_by_profile_id
+            )
+            VALUES (%s, %s, %s, NULL, 'cooldown_backup', now(), %s)
+            ON CONFLICT (event_id, profile_id)
+            DO UPDATE SET
+              requested_date_id = EXCLUDED.requested_date_id,
+              slot_number = NULL,
+              status = CASE
+                WHEN event_performer_selections.status = 'selected' THEN 'cooldown_backup'
+                ELSE 'cooldown_backup'
+              END,
+              selected_at = now(),
+              selected_by_profile_id = EXCLUDED.selected_by_profile_id
+            """,
+            (future_event_id, profile_id, requested_date_id, admin_profile_id),
+        )
+
+
+def get_current_selected_lineup(cursor, event_id):
+    cursor.execute(
+        """
+        SELECT p.display_name, sel.slot_number
+        FROM event_performer_selections sel
+        JOIN profiles p
+          ON p.id = sel.profile_id
+        WHERE sel.event_id = %s
+          AND sel.status = 'selected'
+        ORDER BY sel.slot_number NULLS LAST, p.display_name
+        """,
+        (event_id,),
+    )
+    return [{"display_name": row[0], "slot_number": row[1]} for row in cursor.fetchall()]
+
+
+def get_backup_candidates(cursor, event_id):
+    cursor.execute(
+        """
+        SELECT
+          rd.id,
+          p.id,
+          d.display_name,
+          d.email,
+          d.contact_phone,
+          sel.status
+        FROM event_performer_selections sel
+        JOIN requested_dates rd
+          ON rd.id = sel.requested_date_id
+        JOIN profile_submission_drafts d
+          ON d.id = rd.draft_id
+        JOIN profiles p
+          ON p.id = sel.profile_id
+        WHERE sel.event_id = %s
+          AND sel.status IN ('backup', 'cooldown_backup')
+        ORDER BY CASE sel.status WHEN 'backup' THEN 0 ELSE 1 END, d.display_name, rd.id
+        """,
+        (event_id,),
+    )
+    return [
+        {
+            "requested_date_id": row[0],
+            "profile_id": row[1],
+            "display_name": row[2],
+            "email": row[3],
+            "contact_phone": row[4],
+            "selection_status": row[5],
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def promote_backup_selection(cursor, *, event_id, requested_date_id, admin_profile_id):
+    backups = get_backup_candidates(cursor, event_id)
+    backup = next((item for item in backups if item["requested_date_id"] == requested_date_id), None)
+    if not backup:
+        raise ValueError("That backup performer is not available for promotion.")
+
+    cursor.execute(
+        """
+        SELECT COALESCE(MAX(slot_number), 0) + 1
+        FROM event_performer_selections
+        WHERE event_id = %s
+          AND status = 'selected'
+        """,
+        (event_id,),
+    )
+    next_slot = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        UPDATE event_performer_selections
+        SET
+          status = 'selected',
+          slot_number = %s,
+          selected_at = now(),
+          selected_by_profile_id = %s
+        WHERE event_id = %s
+          AND requested_date_id = %s
+        """,
+        (next_slot, admin_profile_id, event_id, requested_date_id),
+    )
+    cursor.execute(
+        """
+        UPDATE requested_dates
+        SET
+          selected_at = now(),
+          selected_by_profile_id = %s
+        WHERE id = %s
+        """,
+        (admin_profile_id, requested_date_id),
+    )
+
+    return {
+        "requested_date_id": requested_date_id,
+        "display_name": backup["display_name"],
+        "email": backup["email"],
+        "contact_phone": backup["contact_phone"],
+        "slot_number": next_slot,
+    }
+
+
+def invalidate_backup_selection_tokens_for_event(cursor, event_id):
+    cursor.execute(
+        """
+        UPDATE action_tokens
+        SET used_at = now()
+        WHERE event_id = %s
+          AND action_type = %s
+          AND used_at IS NULL
+        """,
+        (event_id, ACTION_TYPE_BACKUP_SELECTION),
+    )
+
+
+def handle_selection_cancellation_if_needed(app, cursor, requested_date):
+    if requested_date["profile_id"] is None:
+        return
+
+    cursor.execute(
+        """
+        SELECT status
+        FROM event_performer_selections
+        WHERE event_id = %s
+          AND profile_id = %s
+        """,
+        (requested_date["event_id"], requested_date["profile_id"]),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return
+
+    selection_status = row[0]
+    if selection_status == "backup":
+        cursor.execute(
+            """
+            UPDATE event_performer_selections
+            SET status = 'cancelled'
+            WHERE event_id = %s
+              AND profile_id = %s
+            """,
+            (requested_date["event_id"], requested_date["profile_id"]),
+        )
+        return
+
+    if selection_status != "selected":
+        return
+
+    cursor.execute(
+        """
+        UPDATE event_performer_selections
+        SET status = 'cancelled'
+        WHERE event_id = %s
+          AND profile_id = %s
+        """,
+        (requested_date["event_id"], requested_date["profile_id"]),
+    )
+
+    moderator_emails = get_moderator_emails(cursor)
+    if not moderator_emails:
+        return
+
+    event = get_event_selection_context(cursor, requested_date["event_id"])
+    backups = get_backup_candidates(cursor, requested_date["event_id"])
+    if backups:
+        settings = get_workflow_settings(cursor)
+        invalidate_backup_selection_tokens_for_event(cursor, requested_date["event_id"])
+        for moderator in moderator_emails:
+            raw_token, token_hash = generate_token_pair()
+            expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
+            cursor.execute(
+                """
+                INSERT INTO action_tokens (token_hash, action_type, email, profile_id, event_id, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    token_hash,
+                    ACTION_TYPE_BACKUP_SELECTION,
+                    moderator["email"],
+                    moderator["profile_id"],
+                    requested_date["event_id"],
+                    expires_at,
+                ),
+            )
+            backup_url = build_absolute_url(
+                app, f"/api/forms/performer-registration/backup-selection?token={raw_token}"
+            )
+            send_backup_selection_email(
+                moderator_email=moderator["email"],
+                event_name=event["event_name"],
+                event_date=event["event_date"],
+                backup_url=backup_url,
+                backups=backups,
+                expires_at=expires_at,
+            )
+        return
+
+    if get_selected_count(cursor, requested_date["event_id"]) < get_workflow_settings(cursor)["max_performers_per_event"]:
+        send_open_slot_alert_email(
+            moderator_emails=moderator_emails,
+            event_name=event["event_name"],
+            event_date=event["event_date"],
+            selected_count=get_selected_count(cursor, requested_date["event_id"]),
+            slot_count=get_workflow_settings(cursor)["max_performers_per_event"],
+        )
+
+
+def get_selected_count(cursor, event_id):
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM event_performer_selections
+        WHERE event_id = %s
+          AND status = 'selected'
+        """,
+        (event_id,),
+    )
+    return cursor.fetchone()[0]
+
+
 def build_absolute_url(app, path):
     base_url = os.getenv("FORMS_SITE_BASE_URL") or os.getenv("PUBLIC_SITE_BASE_URL")
     if not base_url:
@@ -1544,14 +2312,17 @@ def send_registration_email(app, email, raw_token, expires_at):
     send_mail(email, "EMOM performer registration link", body)
 
 
-def send_moderation_emails(app, *, draft_id, email, draft_payload, existing_profile, matched_by, moderation_links):
+def send_moderation_emails(
+    app, *, draft_id, email, draft_payload, existing_profile, matched_by, moderation_links, current_status_summary
+):
     if not moderation_links:
         return
 
-    requested_events = ", ".join(str(event_id) for event_id in draft_payload["requested_event_ids"])
-    social_lines = "\n".join(
-        f"- platform #{item['social_platform_id']}: {item['profile_name']}" for item in draft_payload["social_links"]
-    ) or "- none provided"
+    requested_events = "\n".join(
+        f"- {item['event_date']}: {item['event_name']}"
+        for item in draft_payload.get("requested_events", [])
+    ) or "- none selected"
+    social_lines = format_social_links_for_moderation(draft_payload["social_links"], empty_text="- none provided")
     existing_profile_block = format_existing_profile_for_moderation(existing_profile, matched_by)
 
     for item in moderation_links:
@@ -1569,10 +2340,11 @@ def send_moderation_emails(app, *, draft_id, email, draft_payload, existing_prof
             f"Name public: {'yes' if draft_payload['is_name_public'] else 'no'}\n"
             f"Bio public: {'yes' if draft_payload['is_artist_bio_public'] else 'no'}\n"
             f"Bio:\n{draft_payload['artist_bio'] or '(none)'}\n\n"
-            f"Requested event ids: {requested_events}\n"
+            f"Requested event dates:\n{requested_events}\n"
             f"Social links:\n{social_lines}\n\n"
             f"Approve: {item['approve_url']}\n"
             f"Deny: {item['deny_url']}\n"
+            f"\nCurrent status:\n{current_status_summary}\n"
         )
         send_mail(item["email"], f"EMOM performer profile moderation request #{draft_id}", body)
 
@@ -1581,9 +2353,9 @@ def format_existing_profile_for_moderation(existing_profile, matched_by):
     if not existing_profile:
         return "Existing profile match: none. This will create a new profile if approved.\n\n"
 
-    social_lines = "\n".join(
-        f"- platform #{item['social_platform_id']}: {item['profile_name']}" for item in existing_profile["social_links"]
-    ) or "- none on current live profile"
+    social_lines = format_social_links_for_moderation(
+        existing_profile["social_links"], empty_text="- none on current live profile"
+    )
 
     return (
         f"Existing profile match: yes ({matched_by})\n"
@@ -1602,18 +2374,144 @@ def format_existing_profile_for_moderation(existing_profile, matched_by):
     )
 
 
-def send_profile_approved_email(app, email):
+def format_social_links_for_moderation(social_links, *, empty_text):
+    lines = []
+    for item in social_links:
+        platform_name = item.get("platform_name") or f"platform #{item['social_platform_id']}"
+        profile_name = item["profile_name"]
+        url_format = item.get("url_format")
+        if url_format:
+            lines.append(f"- {platform_name}: {url_format.replace('{profileName}', profile_name)}")
+        else:
+            lines.append(f"- {platform_name}: {profile_name}")
+    return "\n".join(lines) or empty_text
+
+
+def format_requested_events_for_email(requested_events, *, empty_text):
+    return "\n".join(
+        f"- {item['event_date']}: {item['event_name']}"
+        for item in requested_events
+    ) or empty_text
+
+
+def format_selection_status_label(status):
+    if status == "cooldown_backup":
+        return "cooldown backup"
+    if status:
+        return status.replace("_", " ")
+    return "-"
+
+
+def get_upcoming_event_status_summary(cursor):
+    cursor.execute(
+        """
+        SELECT id, event_date, event_name
+        FROM events
+        WHERE type_id = %s
+          AND event_date >= CURRENT_DATE
+        ORDER BY event_date, id
+        LIMIT 1
+        """,
+        (OPEN_MIC_EVENT_TYPE_ID,),
+    )
+    next_event = cursor.fetchone()
+    if not next_event:
+        return "- No upcoming Open Mic dates found."
+
+    event_id, event_date, event_name = next_event
+    cursor.execute(
+        """
+        WITH ranked_rows AS (
+          SELECT
+            e.event_date,
+            e.event_name,
+            COALESCE(p.display_name, d.display_name) AS artist_name,
+            d.status AS profile_status,
+            rd.status AS requested_date_status,
+            COALESCE(sel.status, '') AS lineup_status,
+            ROW_NUMBER() OVER (
+              PARTITION BY e.id, COALESCE(d.profile_id::text, lower(d.email))
+              ORDER BY d.submitted_at DESC, d.id DESC, rd.id DESC
+            ) AS row_rank
+          FROM events e
+          LEFT JOIN requested_dates rd
+            ON rd.event_id = e.id
+          LEFT JOIN profile_submission_drafts d
+            ON d.id = rd.draft_id
+           AND d.status <> 'superseded'
+          LEFT JOIN profiles p
+            ON p.id = d.profile_id
+          LEFT JOIN event_performer_selections sel
+            ON sel.event_id = e.id
+           AND sel.profile_id = d.profile_id
+          WHERE e.id = %s
+            AND (rd.id IS NULL OR d.id IS NOT NULL)
+        )
+        SELECT
+          event_date,
+          event_name,
+          artist_name,
+          profile_status,
+          requested_date_status,
+          lineup_status
+        FROM ranked_rows
+        WHERE row_rank = 1
+        ORDER BY lower(COALESCE(artist_name, ''))
+        """,
+        (event_id,),
+    )
+    rows = cursor.fetchall()
+    return format_upcoming_event_status_summary(rows, event_date=event_date, event_name=event_name)
+
+
+def format_upcoming_event_status_summary(rows, *, event_date, event_name):
+    if not rows:
+        return f"{event_date.isoformat()} | {event_name}\n(no current registrations)"
+
+    lines = []
+    header = f"{'Artist':24}  {'Profile':10}  {'Request':22}  {'Lineup':10}"
+    divider = f"{'-' * 24}  {'-' * 10}  {'-' * 22}  {'-' * 10}"
+    lines.append(f"{event_date.isoformat()} | {event_name}")
+    lines.append(header)
+    lines.append(divider)
+
+    for _, _, artist_name, profile_status, requested_date_status, lineup_status in rows:
+        if artist_name:
+            artist_cell = artist_name[:24].ljust(24)
+            profile_cell = (profile_status or "-")[:10].ljust(10)
+            request_cell = (requested_date_status or "-")[:22].ljust(22)
+            lineup_cell = (lineup_status or "-")[:10].ljust(10)
+            lines.append(f"{artist_cell}  {profile_cell}  {request_cell}  {lineup_cell}")
+        else:
+            lines.append(f"{'(no current registrations)':24}  {'-':10}  {'-':22}  {'-':10}")
+
+    return "\n".join(lines)
+
+
+def send_profile_approved_email(app, email, *, requested_events, final_selection_lead_days):
+    requested_dates_text = format_requested_events_for_email(
+        requested_events, empty_text="- no requested dates recorded"
+    )
     body = (
-        "Your performer profile has been approved, and your requested performance dates have been noted.\n"
+        "Your performer profile has been approved, and your requested performance dates have been noted.\n\n"
+        f"Requested dates:\n{requested_dates_text}\n\n"
+        "We will be in touch once we have made our final selection, "
+        f"{final_selection_lead_days} days before the next event date.\n"
     )
     send_mail(email, "EMOM performer profile approved", body)
 
 
-def send_profile_denied_email(app, email, reason):
+def send_profile_denied_email(app, email, reason, *, edit_link=None):
     body = (
         "Your performer profile submission was not approved at this stage.\n\n"
         f"Reason:\n{reason}\n"
     )
+    if edit_link:
+        body += (
+            "\nYou can use the link below to review your details, make changes, and submit again.\n\n"
+            f"{edit_link['url']}\n\n"
+            f"This link expires at {edit_link['expires_at'].isoformat()}.\n"
+        )
     send_mail(email, "EMOM performer profile update", body)
 
 
@@ -1642,6 +2540,67 @@ def send_unapproved_request_reminder_email(*, moderator_emails, event_name, even
         send_mail(
             moderator["email"],
             f"EMOM moderator reminder: unapproved requesters for {event_name}",
+            body,
+        )
+
+
+def send_admin_selection_email(*, admin_email, event_name, event_date, selection_url, expires_at):
+    body = (
+        f"The final lineup selection window is now open for {event_name} on {event_date}.\n\n"
+        f"Open selection page: {selection_url}\n\n"
+        f"This link expires at {expires_at.isoformat()}.\n"
+    )
+    send_mail(admin_email, f"EMOM lineup selection for {event_name}", body)
+
+
+def send_selected_performer_emails(event, candidates, selected_requested_date_ids):
+    selected_set = set(selected_requested_date_ids)
+    for item in candidates:
+        if item["requested_date_id"] not in selected_set:
+            continue
+        body = (
+            f"Your performance slot for {event['event_name']} on {event['event_date']} has been confirmed.\n"
+        )
+        send_mail(item["email"], f"EMOM performance confirmed for {event['event_name']}", body)
+
+
+def send_backup_selection_email(*, moderator_email, event_name, event_date, backup_url, backups, expires_at):
+    backup_lines = "\n".join(
+        f"- {item['display_name']} <{item['email']}> [{format_selection_status_label(item.get('selection_status'))}]"
+        for item in backups
+    ) or "- none"
+    body = (
+        f"A selected performer has cancelled for {event_name} on {event_date}.\n\n"
+        "Current backups:\n"
+        f"{backup_lines}\n\n"
+        f"Choose a backup to promote: {backup_url}\n\n"
+        f"This link expires at {expires_at.isoformat()}.\n"
+    )
+    send_mail(moderator_email, f"EMOM backup selection needed for {event_name}", body)
+
+
+def send_backup_promoted_email(event, promoted):
+    body = (
+        f"You have been promoted from backup to the confirmed lineup for {event['event_name']} on {event['event_date']}.\n"
+    )
+    send_mail(
+        promoted["email"],
+        f"EMOM performance confirmed for {event['event_name']}",
+        body,
+    )
+
+
+def send_open_slot_alert_email(*, moderator_emails, event_name, event_date, selected_count, slot_count):
+    body = (
+        f"There is now an open slot for {event_name} on {event_date}.\n\n"
+        f"Confirmed performers remaining: {selected_count}\n"
+        f"Target slot count: {slot_count}\n"
+        "There are currently no backup performers available for this event.\n"
+    )
+    for moderator in moderator_emails:
+        send_mail(
+            moderator["email"],
+            f"EMOM open slot alert for {event_name}",
             body,
         )
 
@@ -1683,6 +2642,7 @@ def render_denial_form(raw_token):
     <style>
       body { font-family: sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
       textarea { width: 100%; min-height: 12rem; }
+      .checkbox { display: flex; gap: 0.5rem; align-items: flex-start; margin-top: 1rem; }
       button { margin-top: 1rem; }
     </style>
   </head>
@@ -1694,7 +2654,121 @@ def render_denial_form(raw_token):
         + """\">
       <label for="reason">Reason</label>
       <textarea id="reason" name="reason" required></textarea>
+      <label class="checkbox">
+        <input type="checkbox" name="include_edit_link" value="1" checked>
+        <span>Include a fresh one-time edit link in the email to the performer</span>
+      </label>
       <button type="submit">Send denial</button>
+    </form>
+  </body>
+</html>
+"""
+    )
+
+
+def render_admin_selection_form(raw_token, event, candidates, max_performers):
+    candidate_rows = "\n".join(
+        (
+            "<label style=\"display:flex; gap:0.75rem; align-items:flex-start; margin-bottom:0.75rem;\">"
+            f"<input type=\"checkbox\" name=\"selected_requested_date_ids\" value=\"{item['requested_date_id']}\">"
+            f"<span><strong>{html.escape(item['display_name'])}</strong><br>"
+            f"{html.escape(item['email'] or '')}<br>"
+            f"{html.escape(item['contact_phone'] or '')}</span>"
+            "</label>"
+        )
+        for item in candidates
+    ) or "<p>No eligible confirmed performers are available for this event.</p>"
+
+    return (
+        """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Admin lineup selection</title>
+    <style>
+      body { font-family: sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }
+      button { margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Admin lineup selection</h1>
+    <p><strong>Event:</strong> """
+        + html.escape(event["event_name"])
+        + """</p>
+    <p><strong>Date:</strong> """
+        + html.escape(event["event_date"])
+        + """</p>
+    <p>Select up to """
+        + html.escape(str(max_performers))
+        + """ performers for the final lineup. Everyone else will be recorded as backup.</p>
+    <form method="post">
+      <input type="hidden" name="token" value=\""""
+        + html.escape(raw_token, quote=True)
+        + """\">
+      """
+        + candidate_rows
+        + """
+      <button type="submit">Save lineup</button>
+    </form>
+  </body>
+</html>
+"""
+    )
+
+
+def render_backup_selection_form(raw_token, event, current_selected, backups):
+    selected_rows = "\n".join(
+        f"<li>{html.escape(item['display_name'])} (slot {item['slot_number']})</li>"
+        for item in current_selected
+    ) or "<li>No selected performers currently recorded.</li>"
+
+    backup_rows = "\n".join(
+        (
+            "<label style=\"display:flex; gap:0.75rem; align-items:flex-start; margin-bottom:0.75rem;\">"
+            f"<input type=\"radio\" name=\"requested_date_id\" value=\"{item['requested_date_id']}\" required>"
+            f"<span><strong>{html.escape(item['display_name'])}</strong><br>"
+            f"{html.escape(item['email'] or '')}<br>"
+            f"{html.escape(item['contact_phone'] or '')}<br>"
+            f"<small>Status: {html.escape(format_selection_status_label(item.get('selection_status')))}</small></span>"
+            "</label>"
+        )
+        for item in backups
+    ) or "<p>No backup performers are currently available.</p>"
+
+    return (
+        """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Backup selection</title>
+    <style>
+      body { font-family: sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }
+      button { margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Backup selection</h1>
+    <p><strong>Event:</strong> """
+        + html.escape(event["event_name"])
+        + """</p>
+    <p><strong>Date:</strong> """
+        + html.escape(event["event_date"])
+        + """</p>
+    <h2>Current selected lineup</h2>
+    <ul>"""
+        + selected_rows
+        + """</ul>
+    <h2>Available backups</h2>
+    <form method="post">
+      <input type="hidden" name="token" value=\""""
+        + html.escape(raw_token, quote=True)
+        + """\">
+      """
+        + backup_rows
+        + """
+      <button type="submit">Promote backup</button>
     </form>
   </body>
 </html>

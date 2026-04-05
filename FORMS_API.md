@@ -2,7 +2,7 @@
 
 This repo now includes a small Python bridge for writing static-site form submissions into Postgres.
 
-Current endpoint:
+Current endpoints:
 
 - `POST /api/forms/merch-interest`
 - `POST /api/forms/performer-registration/start`
@@ -12,18 +12,23 @@ Current endpoint:
 - `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
 - `GET /api/forms/performer-registration/availability/confirm?token=...`
 - `GET /api/forms/performer-registration/availability/cancel?token=...`
+- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
 
 The bridge code lives in:
 
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
+- `forms_bridge/performer_workflow.py`
+- `forms_bridge/send_availability_reminders.py`
+- `forms_bridge/send_admin_selection_links.py`
 - `forms_bridge/requirements.txt`
 
 ## Purpose
 
 The website is statically generated with Eleventy, so browser forms cannot write directly to Postgres. This bridge is the server-side component that accepts form submissions and inserts rows into the database.
 
-The merch endpoint is intentionally narrow, but the app structure is reusable for future forms.
+The merch endpoint is still supported, but the main active workflow area is performer registration and scheduling.
 
 ## Environment
 
@@ -69,7 +74,7 @@ Or with Python directly:
 python -m flask --app forms_bridge.app run --host 127.0.0.1 --port 5001
 ```
 
-In production, run it behind a reverse proxy or WSGI server. The intended pattern is to expose it under the same site/domain so frontend forms can post to a same-origin path such as `/api/forms/merch-interest`.
+In production, run it behind a reverse proxy or WSGI server. The intended pattern is to expose it under the same site/domain so frontend forms can post to same-origin paths such as `/api/forms/merch-interest` and `/api/forms/performer-registration/...`.
 
 ## Debian / systemd / nginx
 
@@ -133,8 +138,12 @@ The expected public paths are:
 - `POST /api/forms/performer-registration/start`
 - `GET /api/forms/performer-registration/session?token=...`
 - `POST /api/forms/performer-registration/submit`
+- `GET /api/forms/performer-registration/moderation/approve?token=...`
+- `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
 - `GET /api/forms/performer-registration/availability/confirm?token=...`
 - `GET /api/forms/performer-registration/availability/cancel?token=...`
+- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
 
 ## Request Shape
 
@@ -196,17 +205,19 @@ The performer workflow is now staged through the forms bridge:
 - `POST /api/forms/performer-registration/start`
   - accepts `{ "email": "artist@example.com" }`
   - creates a 24-hour token in `action_tokens`
-  - sends a registration email using local `sendmail`
+  - sends a registration email via the configured SMTP relay
 - `GET /api/forms/performer-registration/session?token=...`
   - validates the registration token
-  - returns any existing profile data for that email, social platform options, and currently eligible future events
+  - returns prefill data from the latest relevant submission for that email, social platform options, and currently eligible future Open Mic events
 - `POST /api/forms/performer-registration/submit`
   - accepts the token plus draft profile fields, social links, and requested event ids
   - writes into `profile_submission_drafts`, `profile_submission_social_profiles`, and `requested_dates`
   - emails moderators one-time approve/deny links
 - moderation links:
   - approval applies the draft to the live profile and artist role
-  - denial presents a small reason form and emails the artist the reason
+  - denial presents a small reason form and can include a fresh one-time edit link in the email to the artist
+- moderator emails:
+  - include the submitted draft, current live profile snapshot, requested event dates, clickable social links, and a compact next-event status summary
 - availability links:
   - confirm marks `requested_dates.status = 'availability_confirmed'`
   - cancel marks `requested_dates.status = 'availability_cancelled'`
@@ -221,9 +232,40 @@ Availability reminder job:
   - emails all unsent requesters one-time confirm/cancel links
   - emails moderators if any requesters for that event are still unapproved
 
+Admin selection workflow:
+
+- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+  - tokenized admin page for the 7-day lineup selection
+  - selected candidates are stored as `selected`
+  - all other eligible confirmed candidates are stored as `backup`
+  - later requested dates inside the configured cooldown window can be marked as `cooldown_backup`
+- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
+  - tokenized moderator/admin page used after a selected performer cancels
+  - promotes one backup performer into the lineup
+  - ordinary `backup` entries are preferred over `cooldown_backup`
+
+Admin selection reminder job:
+
+- script: `python -m forms_bridge.send_admin_selection_links`
+- optional override: `python -m forms_bridge.send_admin_selection_links --run-date 2026-04-04`
+- behavior:
+  - reads `final_selection_lead_days` from `app_settings`
+  - finds due Open Mic events
+  - emails admins one-time lineup selection links
+
+Cancellation behavior:
+
+- if a selected performer cancels availability:
+  - their selection row is marked `cancelled`
+  - if backups exist, moderators receive a one-time backup-selection link
+  - if no backups exist and selected count is now below slot count, moderators receive an open-slot alert
+
 Current performer flow environment assumptions:
 
 - the database already has the new performer workflow schema
+- the current migrations have been applied, including admin selection and `cooldown_backup`
 - moderator profiles exist in `profiles` with `is_moderator = true`
 - moderator profiles also have the `volunteer` role in `profile_roles`
+- admin profiles exist in `profiles` with `is_admin = true`
+- admin profiles also have the `volunteer` role in `profile_roles`
 - the host can relay mail through the configured SMTP server

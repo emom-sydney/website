@@ -120,7 +120,7 @@ Notes:
 - Run `ALTER DEFAULT PRIVILEGES` as the role that owns future schema objects.
 - `GRANT ... ON ALL TABLES IN SCHEMA public` covers ordinary tables and views such as `galleries`.
 - `emom_site_reader` is intentionally broad read-only access because the static build and admin tooling may need to inspect multiple parts of the schema.
-- `emom_forms_writer` is the intended DB role for `forms_bridge`.
+- `emom_forms_writer` is the intended DB role for `forms_bridge`, including the performer registration, moderation, reminder, and admin-selection workflows.
 - If you already have older roles such as `emom_merch_writer`, migrate the bridge config over to `emom_forms_writer` rather than continuing to widen the merch-only role.
 
 ## 2. Create A Dedicated SSH User For Tunneling
@@ -287,7 +287,7 @@ set +a
 - Keep the database bound to `127.0.0.1` on the remote host.
 - Use `emom_site_reader` only for the website build and read-only tooling.
 - Use `emom_site_admin` for admin/editor workflows that need write access across the schema.
-- Use `emom_forms_writer` for the `forms_bridge` service.
+- Use `emom_forms_writer` for the `forms_bridge` service and its scheduled scripts.
 - Use a different Postgres role for schema migrations and ownership-level work.
 - Use a different SSH key from the one used for normal interactive login.
 - The repo now expects Postgres to be the only relational data source at build time.

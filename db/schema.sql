@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS events (
   event_date date NOT NULL,
   type_id integer NOT NULL REFERENCES event_types(id),
   event_name text NOT NULL,
-  gallery_url text UNIQUE
+  gallery_url text UNIQUE,
+  admin_selection_email_sent_at timestamptz
 );
 
 CREATE TABLE IF NOT EXISTS performances (
@@ -125,7 +126,8 @@ CREATE TABLE IF NOT EXISTS action_tokens (
       'moderation_deny',
       'availability_confirm',
       'availability_cancel',
-      'admin_selection'
+      'admin_selection',
+      'backup_selection'
     )
   ),
   email text,
@@ -153,7 +155,9 @@ CREATE TABLE IF NOT EXISTS event_performer_selections (
   profile_id integer NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   requested_date_id bigint REFERENCES requested_dates(id) ON DELETE SET NULL,
   slot_number integer,
-  status text NOT NULL DEFAULT 'selected' CHECK (status IN ('selected', 'declined', 'cancelled', 'backup')),
+  status text NOT NULL DEFAULT 'selected' CHECK (
+    status IN ('selected', 'declined', 'cancelled', 'backup', 'cooldown_backup')
+  ),
   selected_at timestamptz NOT NULL DEFAULT now(),
   selected_by_profile_id integer REFERENCES profiles(id),
   notes text,

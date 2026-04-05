@@ -98,9 +98,10 @@ if (appNode) {
     createSocialLinkRow();
   }
 
-  function populateEvents(events) {
+  function populateEvents(events, selectedEventIds = []) {
     eventOptionsNode.innerHTML = "";
     availableEvents = events || [];
+    const selectedSet = new Set((selectedEventIds || []).map((value) => Number(value)));
 
     if (!availableEvents.length) {
       eventOptionsNode.innerHTML = "<p>No eligible future dates are currently available.</p>";
@@ -110,8 +111,9 @@ if (appNode) {
     availableEvents.forEach((eventItem) => {
       const wrapper = document.createElement("label");
       wrapper.className = "performer-event-option";
+      const isChecked = selectedSet.has(Number(eventItem.id));
       wrapper.innerHTML = `
-        <input type="checkbox" value="${eventItem.id}" data-event-checkbox>
+        <input type="checkbox" value="${eventItem.id}" data-event-checkbox${isChecked ? " checked" : ""}>
         <span>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small></span>
       `;
       eventOptionsNode.appendChild(wrapper);
@@ -165,7 +167,7 @@ if (appNode) {
 
       socialPlatforms = result.social_platforms || [];
       applyProfile(result.profile, result.email);
-      populateEvents(result.available_events || []);
+      populateEvents(result.available_events || [], result.profile?.requested_event_ids || []);
 
       introNode.textContent = result.profile
         ? "Update your performer profile details below and select the dates you are available to play."
@@ -282,7 +284,7 @@ if (appNode) {
       setStatus("Your profile submission has been sent for moderation. We will email you once it has been reviewed.", "success");
       sessionForm.reset();
       populateSocialLinks([]);
-      populateEvents(availableEvents);
+      populateEvents(availableEvents, []);
       registrationToken = "";
       const url = new URL(window.location.href);
       url.searchParams.delete("token");
