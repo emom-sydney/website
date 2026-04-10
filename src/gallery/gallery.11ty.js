@@ -143,7 +143,9 @@ export default async function render(data) {
   const { gallery, safeGallery, pathParts = [], files = [], children = [] } = page;
 
   // human readable heading
-  const heading = pathParts.length ? pathParts[pathParts.length - 1] : gallery;
+  const heading = pathParts.length
+    ? pathParts[pathParts.length - 1]
+    : (data.emom.eventsByGalleryUrl[gallery]?.EventName || gallery);
 
   // Try to find the event for this gallery (only for root gallery pages, not subfolders)
   const eventArtists = !pathParts.length && data.emom.eventsByGalleryUrl[gallery]
