@@ -281,3 +281,105 @@ form button:hover {
  #sp-lightbox-next:hover {
    background-color: rgba(0, 0, 0, 0.8);
 }
+
+/* Merch product image lightbox */
+.merch-lightbox-modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.95);
+  align-items: center;
+  justify-content: center;
+}
+
+.merch-lightbox-content {
+  position: relative;
+  max-width: 90%;
+  max-height: 90%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.merch-lightbox-image-container {
+  position: relative;
+  max-height: 75vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.merch-lightbox-slide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.merch-lightbox-slide img {
+  max-height: 70vh;
+  max-width: 90%;
+  object-fit: contain;
+}
+
+.merch-lightbox-caption {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: #ddd;
+  text-align: center;
+}
+
+.merch-lightbox-controls {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  margin-top: 1.5rem;
+}
+
+.merch-lightbox-counter {
+  color: #ddd;
+  font-size: 0.9rem;
+  min-width: 60px;
+  text-align: center;
+}
+
+.merch-lightbox-nav {
+  background-color: transparent;
+  border: 2px solid #ddd;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 1.5rem;
+  padding: 0.5rem 1rem;
+  transition: all 0.3s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.merch-lightbox-nav:hover {
+  background-color: #ddd;
+  color: #000;
+}
+
+.merch-lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 30px;
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #ddd;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.3s ease;
+  z-index: 1001;
+}
+
+.merch-lightbox-close:hover {
+  color: #fff;
+}
