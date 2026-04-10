@@ -143,7 +143,9 @@ export default async function render(data) {
   const { gallery, safeGallery, pathParts = [], files = [], children = [] } = page;
 
   // human readable heading
-  const heading = pathParts.length ? pathParts[pathParts.length - 1] : gallery;
+  const heading = pathParts.length
+    ? pathParts[pathParts.length - 1]
+    : (data.emom.eventsByGalleryUrl[gallery]?.EventName || gallery);
 
   // Try to find the event for this gallery (only for root gallery pages, not subfolders)
   const eventArtists = !pathParts.length && data.emom.eventsByGalleryUrl[gallery]
@@ -190,12 +192,14 @@ export default async function render(data) {
     html += `</ul>\n`;
   }
 
-  // Sort files into video, images, and other.
+  // Sort files into video, audio, images, and other.
   const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv', 'wmv', 'm4v']);
+  const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg', 'opus', 'aiff', 'wma']);
   const imageFiles = (files || []).filter(f => IMAGE_EXTENSIONS.has(f.ext));
   const nonImageFiles = (files || []).filter(f => !IMAGE_EXTENSIONS.has(f.ext));
   const videoFiles = (nonImageFiles || []).filter(f => VIDEO_EXTENSIONS.has(String(f.ext).toLowerCase()));
-  const otherFiles = (nonImageFiles || []).filter(f => !VIDEO_EXTENSIONS.has(String(f.ext).toLowerCase()));
+  const audioFiles = (nonImageFiles || []).filter(f => AUDIO_EXTENSIONS.has(String(f.ext).toLowerCase()));
+  const otherFiles = (nonImageFiles || []).filter(f => !VIDEO_EXTENSIONS.has(String(f.ext).toLowerCase()) && !AUDIO_EXTENSIONS.has(String(f.ext).toLowerCase()));
 
   let hasOfflineFiles = false;
 
@@ -247,6 +251,26 @@ export default async function render(data) {
     html += `\n</ul>\n`;
   }
 
+  // List audio files
+  if (audioFiles && audioFiles.length) {
+    html += `<h3>Audio Files</h3>\n<ul class="galleryList">\n`;
+    html += audioFiles.map(f => {
+      const isStandard = f.storageClass === "STANDARD";
+      if (!isStandard) hasOfflineFiles = true;
+
+      const label = isStandard
+        ? `<a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}`
+        : `${f.name} (Offline)`;
+
+      return `
+      <li>
+        ${f.icon || ""} ${label}
+      </li>
+      `;
+    }).join("");
+    html += `\n</ul>\n`;
+  }
+
   // Then list any remaining non-video files
   if (otherFiles && otherFiles.length) {
     html += `<h3>Other Files</h3>\n<ul class="galleryList">\n`;
@@ -265,7 +289,7 @@ export default async function render(data) {
       `;
     }).join("");
     html += `\n</ul>\n`;
-  } else if (!imageFiles.length && !videoFiles.length && !otherFiles.length) {
+  } else if (!imageFiles.length && !videoFiles.length && !audioFiles.length && !otherFiles.length) {
     html += `<p>No files in this folder.</p>\n`;
   }
 
