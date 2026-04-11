@@ -36,7 +36,9 @@ export const data = {
 export default async function render(data) {
   const { volunteerPage } = data;
 
-  let html = await renderProfileIntro(volunteerPage);
+  let html = await renderProfileIntro(volunteerPage, {
+    missingImageThumbnailUrl: data.missingImageThumbnailUrl
+  });
   if (volunteerPage.artistProfile) {
     const referenceName = getVolunteerReferenceName(volunteerPage.profile);
     const artistStageName = volunteerPage.artistProfile.stageName;
