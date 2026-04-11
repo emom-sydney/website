@@ -1,6 +1,6 @@
 import s3files from "../_data/s3files.js";
 import lightbox from "./lightbox.js";
-import { getImageThumbnail } from "../_data/imageHelpers.js";
+import { getImageThumbnailResult } from "../_data/imageHelpers.js";
 import { loadEmomData } from "../../lib/data/loadEmomData.js";
 
 
@@ -17,21 +17,14 @@ const makeNode = () => ({ files: [], children: new Map() });
 // Helper: sanitize part for URL path (keep letters, numbers, - and _)
 const safePart = (s) => String(s).trim().replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
-// Helper: compute thumbnail path from image URL (matches imageHelpers.js slugifyFromGallery logic)
-function getThumbnailPath(imageUrl, context) {
-  if (!imageUrl) return null;
-  try {
-    const idx = String(imageUrl).indexOf("/gallery");
-    const part = idx !== -1 ? String(imageUrl).slice(idx) : String(imageUrl);
-    let s = part.replace(/^[\/]+/, "").replace(/\//g, "-").toLowerCase();
-    s = s.replace(/[^a-z0-9\-_]+/g, "-");
-    s = s.replace(/-+/g, "-").replace(/^-|-$/g, "");
-    if (s.length > 180) s = s.slice(0, 180);
-    const slugBase = s || `image-${context}`;
-    return `/assets/img/th/${slugBase}-250.jpeg`;
-  } catch (e) {
-    return null;
-  }
+function getGalleryHeading(page, emom) {
+  if (page?.topIndex) return "Event Galleries";
+  if (!page) return "";
+
+  const { gallery, pathParts = [] } = page;
+  return pathParts.length
+    ? pathParts[pathParts.length - 1]
+    : (emom?.eventsByGalleryUrl?.[gallery]?.EventName || gallery);
 }
 
 export const data = async () => {
@@ -124,6 +117,13 @@ export const data = async () => {
       size: 1,
       alias: "page"
     },
+    eleventyComputed: {
+      pageTitle: (data) => {
+        const heading = getGalleryHeading(data.page, data.emom);
+        if (data.page?.topIndex) return heading;
+        return `gallery | ${heading}`;
+      }
+    },
     // ensure each paginated item controls its own output path
     permalink: data => data.page.permalink,
     pages
@@ -132,6 +132,7 @@ export const data = async () => {
 
 export default async function render(data) {
   const page = data.page;
+  const missingImageThumbnailUrl = data.missingImageThumbnailUrl || "/assets/img/icons/img_missing.jpg";
 
   // Top-level /gallery/index.html -> list of galleries
   if (page.topIndex) {
@@ -143,9 +144,7 @@ export default async function render(data) {
   const { gallery, safeGallery, pathParts = [], files = [], children = [] } = page;
 
   // human readable heading
-  const heading = pathParts.length
-    ? pathParts[pathParts.length - 1]
-    : (data.emom.eventsByGalleryUrl[gallery]?.EventName || gallery);
+  const heading = getGalleryHeading(page, data.emom);
 
   // Try to find the event for this gallery (only for root gallery pages, not subfolders)
   const eventArtists = !pathParts.length && data.emom.eventsByGalleryUrl[gallery]
@@ -205,19 +204,11 @@ export default async function render(data) {
 
   // If there are image files, render lightbox gallery
   if (imageFiles.length) {
-    // Generate thumbnails: check if they exist, create if needed
+    // Generate thumbnails; if generation fails, use configured missing-image fallback.
     const thumbPaths = await Promise.all(
       imageFiles.map(async (f) => {
-        // First try the computed path
-        const computedPath = getThumbnailPath(f.url, gallery);
-        // Try to generate the actual thumbnail (will return existing or create new)
-        try {
-          const actualPath = await getImageThumbnail(f.url, gallery);
-          return actualPath || computedPath;
-        } catch (e) {
-          // If generation fails, fall back to computed path
-          return computedPath;
-        }
+        const thumbnail = await getImageThumbnailResult(f.url, gallery);
+        return thumbnail.ok ? thumbnail.url : missingImageThumbnailUrl;
       })
     );
 

@@ -1,6 +1,10 @@
 import Image from "@11ty/eleventy-img";
 import path from "path";
 import fs from "fs";
+import fsPromises from "fs/promises";
+
+const THUMB_URL_PATH = "/assets/img/th/";
+const THUMB_OUTPUT_DIR = path.resolve(process.cwd(), "_site/assets/img/th");
 
 /**
  * Create a filesystem-safe slug from the original image URL starting at the
@@ -35,23 +39,30 @@ function slugifyFromGallery(src) {
 }
 
 export async function getImageThumbnail(imageUrl, context) {
-  if (!imageUrl) return null;
+  const result = await getImageThumbnailResult(imageUrl, context);
+  return result.ok ? result.url : null;
+}
+
+export async function getImageThumbnailResult(imageUrl, context) {
+  if (!imageUrl) return { ok: false, url: null, error: "missing-image-url" };
 
   const slugBase = slugifyFromGallery(imageUrl) || `image-${context}`;
-  const thumbDir = "./assets/img/th/";
   const thumbFilename = `${slugBase}-250.jpeg`;
-  const thumbPath = path.join(thumbDir, thumbFilename);
+  const thumbPath = path.join(THUMB_OUTPUT_DIR, thumbFilename);
+  const publicThumbUrl = `${THUMB_URL_PATH}${thumbFilename}`;
+
+  await fsPromises.mkdir(THUMB_OUTPUT_DIR, { recursive: true });
 
   // Check if thumbnail already exists
   if (fs.existsSync(thumbPath)) {
-    return `/assets/img/th/${thumbFilename}`;
+    return { ok: true, url: publicThumbUrl, error: null };
   }
 
   const options = {
     widths: [250],
     formats: ["jpeg"],
-    outputDir: thumbDir,
-    urlPath: "/assets/img/th/",
+    outputDir: THUMB_OUTPUT_DIR,
+    urlPath: THUMB_URL_PATH,
     // Crop to square using Sharp's fit option via the filename generation step.
     // eleventy-img will still perform resizing; the filenameFormat makes naming deterministic.
     filenameFormat: function (id, src, width, format, options) {
@@ -68,11 +79,16 @@ export async function getImageThumbnail(imageUrl, context) {
     }
   };
 
-  const stats = await Image(imageUrl, options);
-  // stats.jpeg[0] corresponds to width 250, format jpeg
-  if (!stats || !stats.jpeg || !stats.jpeg[0]) {
-    console.warn(`Failed to generate thumbnail for ${imageUrl}`);
-    return null;
+  try {
+    const stats = await Image(imageUrl, options);
+    // stats.jpeg[0] corresponds to width 250, format jpeg
+    if (!stats || !stats.jpeg || !stats.jpeg[0] || !stats.jpeg[0].url) {
+      console.warn(`Failed to generate thumbnail for ${imageUrl}: missing image stats`);
+      return { ok: false, url: null, error: "missing-stats" };
+    }
+    return { ok: true, url: stats.jpeg[0].url, error: null };
+  } catch (error) {
+    console.warn(`Failed to generate thumbnail for ${imageUrl}: ${error.message}`);
+    return { ok: false, url: null, error: error.message };
   }
-  return stats.jpeg[0].url;
 }

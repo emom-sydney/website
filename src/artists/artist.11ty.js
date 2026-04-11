@@ -30,7 +30,9 @@ export default async function render(data) {
     socialLinks,
     image,
   };
-  let html = await renderProfileIntro(profilePage);
+  let html = await renderProfileIntro(profilePage, {
+    missingImageThumbnailUrl: data.missingImageThumbnailUrl
+  });
 
   // Performances
   if (performances.length) {
