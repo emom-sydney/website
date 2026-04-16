@@ -672,6 +672,7 @@ def normalize_profile_submission_payload(payload, email):
     last_name = normalize_text(payload.get("last_name"))
     contact_phone = normalize_text(payload.get("contact_phone"))
     artist_bio = normalize_text(payload.get("artist_bio"))
+    additional_info = normalize_text(payload.get("additional_info"))
     social_links = payload.get("social_links") or []
     requested_event_ids = payload.get("requested_event_ids") or []
 
@@ -728,7 +729,8 @@ def normalize_profile_submission_payload(payload, email):
         "is_email_public": normalize_boolean(payload.get("is_email_public"), default=False),
         "is_name_public": normalize_boolean(payload.get("is_name_public"), default=False),
         "artist_bio": artist_bio,
-        "is_artist_bio_public": normalize_boolean(payload.get("is_artist_bio_public"), default=False),
+        "is_artist_bio_public": True,
+        "additional_info": additional_info,
         "social_links": normalized_social_links,
         "requested_event_ids": normalized_event_ids,
     }
@@ -736,6 +738,12 @@ def normalize_profile_submission_payload(payload, email):
 
 def now_utc():
     return datetime.now(timezone.utc)
+
+
+def format_link_expiry_local(expires_at):
+    if not expires_at:
+        return ""
+    return expires_at.astimezone().strftime("%H:%M:%S on %d:%m:%y")
 
 
 def get_workflow_settings(cursor):
@@ -918,6 +926,7 @@ def get_existing_profile_by_email(cursor, email):
         "profile_expires_on": row[11],
         "artist_bio": row[12],
         "is_artist_bio_public": row[13],
+        "additional_info": None,
         "has_artist_role": row[14],
         "social_links": [],
     }
@@ -1021,6 +1030,7 @@ def get_existing_profile_by_id(cursor, profile_id):
         "profile_expires_on": row[11],
         "artist_bio": row[12],
         "is_artist_bio_public": row[13],
+        "additional_info": None,
         "has_artist_role": row[14],
         "social_links": [],
     }
@@ -1074,6 +1084,7 @@ def serialize_profile(profile):
         "is_name_public": profile["is_name_public"],
         "artist_bio": profile["artist_bio"],
         "is_artist_bio_public": profile["is_artist_bio_public"],
+        "additional_info": profile.get("additional_info"),
         "has_artist_role": profile["has_artist_role"],
         "social_links": profile["social_links"],
         "requested_event_ids": profile.get("requested_event_ids", []),
@@ -1095,6 +1106,7 @@ def serialize_prefill_profile(draft):
         "is_name_public": draft["is_name_public"],
         "artist_bio": draft["artist_bio"],
         "is_artist_bio_public": draft["is_artist_bio_public"],
+        "additional_info": draft.get("additional_info"),
         "has_artist_role": True,
         "social_links": draft["social_links"],
         "requested_event_ids": draft["requested_event_ids"],
@@ -1104,13 +1116,20 @@ def serialize_prefill_profile(draft):
 def get_social_platforms(cursor):
     cursor.execute(
         """
-        SELECT id, platform_name, url_format
+        SELECT id, platform_name, url_format, input_label, input_placeholder, input_help
         FROM social_platforms
         ORDER BY platform_name, id
         """
     )
     return [
-        {"id": row[0], "platform_name": row[1], "url_format": row[2]}
+        {
+            "id": row[0],
+            "platform_name": row[1],
+            "url_format": row[2],
+            "input_label": row[3],
+            "input_placeholder": row[4],
+            "input_help": row[5],
+        }
         for row in cursor.fetchall()
     ]
 
@@ -1238,9 +1257,10 @@ def insert_profile_submission_draft(*, cursor, profile, email, draft_payload):
           is_name_public,
           artist_bio,
           is_artist_bio_public,
+          additional_info,
           submitted_by_email
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -1255,6 +1275,7 @@ def insert_profile_submission_draft(*, cursor, profile, email, draft_payload):
             draft_payload["is_name_public"],
             draft_payload["artist_bio"],
             draft_payload["is_artist_bio_public"],
+            draft_payload["additional_info"],
             email,
         ),
     )
@@ -1469,6 +1490,7 @@ def get_profile_submission_draft(cursor, draft_id):
           is_name_public,
           artist_bio,
           is_artist_bio_public,
+          additional_info,
           status
         FROM profile_submission_drafts
         WHERE id = %s
@@ -1492,7 +1514,8 @@ def get_profile_submission_draft(cursor, draft_id):
         "is_name_public": row[9],
         "artist_bio": row[10],
         "is_artist_bio_public": row[11],
-        "status": row[12],
+        "additional_info": row[12],
+        "status": row[13],
         "social_links": [],
         "requested_event_ids": [],
         "requested_events": [],
@@ -1605,7 +1628,7 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
             ),
         )
 
-    upsert_artist_role(cursor, profile_id, draft["artist_bio"], draft["is_artist_bio_public"])
+    upsert_artist_role(cursor, profile_id, draft["artist_bio"], True)
     replace_profile_social_links(cursor, profile_id, draft["social_links"])
     update_profile_visibility_from_requests(cursor, profile_id, draft["requested_event_ids"])
     return profile_id
@@ -2619,7 +2642,7 @@ def send_registration_email(app, email, raw_token, expires_at):
     body = (
         "Click the link below to create or update your performer profile and request event dates.\n\n"
         f"{register_url}\n\n"
-        f"This link expires at {expires_at.isoformat()}.\n"
+        f"This link expires at {format_link_expiry_local(expires_at)}.\n"
     )
     send_mail(email, "EMOM performer registration link", body)
 
@@ -2650,8 +2673,8 @@ def send_moderation_emails(
             f"Contact phone: {draft_payload['contact_phone']}\n"
             f"Email public: {'yes' if draft_payload['is_email_public'] else 'no'}\n"
             f"Name public: {'yes' if draft_payload['is_name_public'] else 'no'}\n"
-            f"Bio public: {'yes' if draft_payload['is_artist_bio_public'] else 'no'}\n"
             f"Bio:\n{draft_payload['artist_bio'] or '(none)'}\n\n"
+            f"Additional info (not shown on profile):\n{draft_payload.get('additional_info') or '(none)'}\n\n"
             f"Requested event dates:\n{requested_events}\n"
             f"Social links:\n{social_lines}\n\n"
             f"Approve: {item['approve_url']}\n"
@@ -2679,7 +2702,6 @@ def format_existing_profile_for_moderation(existing_profile, matched_by):
         f"Existing contact phone: {existing_profile['contact_phone'] or ''}\n"
         f"Existing email public: {'yes' if existing_profile['is_email_public'] else 'no'}\n"
         f"Existing name public: {'yes' if existing_profile['is_name_public'] else 'no'}\n"
-        f"Existing bio public: {'yes' if existing_profile['is_artist_bio_public'] else 'no'}\n"
         f"Existing bio:\n{existing_profile['artist_bio'] or '(none)'}\n"
         f"Existing social links:\n{social_lines}\n\n"
         "Submitted draft:\n"
@@ -2847,7 +2869,7 @@ def send_profile_denied_email(app, email, reason, *, edit_link=None):
         body += (
             "\nYou can use the link below to review your details, make changes, and submit again.\n\n"
             f"{edit_link['url']}\n\n"
-            f"This link expires at {edit_link['expires_at'].isoformat()}.\n"
+            f"This link expires at {format_link_expiry_local(edit_link['expires_at'])}.\n"
         )
     send_mail(email, "EMOM performer profile update", body)
 
@@ -2859,7 +2881,7 @@ def send_availability_email(*, email, display_name, event_name, event_date, conf
         "Please use one of the links below to confirm or cancel your availability.\n\n"
         f"Confirm availability: {confirm_url}\n"
         f"Cancel availability: {cancel_url}\n\n"
-        f"These links expire at {expires_at.isoformat()}.\n"
+        f"These links expire at {format_link_expiry_local(expires_at)}.\n"
     )
     send_mail(email, f"EMOM availability check for {event_name}", body)
 
@@ -2885,7 +2907,7 @@ def send_admin_selection_email(*, admin_email, event_name, event_date, selection
     body = (
         f"The final lineup selection window is now open for {event_name} on {event_date}.\n\n"
         f"Open selection page: {selection_url}\n\n"
-        f"This link expires at {expires_at.isoformat()}.\n"
+        f"This link expires at {format_link_expiry_local(expires_at)}.\n"
     )
     send_mail(admin_email, f"EMOM lineup selection for {event_name}", body)
 
@@ -2911,7 +2933,7 @@ def send_backup_selection_email(*, moderator_email, event_name, event_date, back
         "Current standby/reserve pool:\n"
         f"{backup_lines}\n\n"
         f"Choose a standby performer to promote: {backup_url}\n\n"
-        f"This link expires at {expires_at.isoformat()}.\n"
+        f"This link expires at {format_link_expiry_local(expires_at)}.\n"
     )
     send_mail(moderator_email, f"EMOM standby selection needed for {event_name}", body)
 

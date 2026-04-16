@@ -213,6 +213,8 @@ The performer workflow is now staged through the forms bridge:
   - returns prefill data from the latest relevant submission for that email, social platform options, and currently eligible future Open Mic events
 - `POST /api/forms/performer-registration/submit`
   - accepts the token plus draft profile fields, social links, and requested event ids
+  - `artist_bio` is treated as public profile bio content
+  - optional `additional_info` is stored for moderators/admins only and is not shown on public profiles
   - writes into `profile_submission_drafts`, `profile_submission_social_profiles`, and `requested_dates`
   - emails moderators one-time approve/deny links
 - moderation links:

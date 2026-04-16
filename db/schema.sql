@@ -37,7 +37,10 @@ CREATE TABLE IF NOT EXISTS event_types (
 CREATE TABLE IF NOT EXISTS social_platforms (
   id integer PRIMARY KEY,
   platform_name text NOT NULL UNIQUE,
-  url_format text NOT NULL
+  url_format text NOT NULL,
+  input_label text,
+  input_placeholder text,
+  input_help text
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -83,6 +86,7 @@ CREATE TABLE IF NOT EXISTS profile_submission_drafts (
   is_name_public boolean NOT NULL DEFAULT false,
   artist_bio text,
   is_artist_bio_public boolean NOT NULL DEFAULT false,
+  additional_info text,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied', 'superseded')),
   submitted_at timestamptz NOT NULL DEFAULT now(),
   submitted_by_email text NOT NULL,

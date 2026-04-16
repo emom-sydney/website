@@ -6,7 +6,6 @@ if (appNode) {
   const statusNode = document.getElementById("performer-registration-status");
   const startForm = document.getElementById("performer-registration-start-form");
   const sessionForm = document.getElementById("performer-registration-session-form");
-  const introNode = document.getElementById("performer-registration-intro");
   const emailDisplay = document.getElementById("performer-email-display");
   const profileTypeField = document.getElementById("performer-profile-type");
   const displayNameField = document.getElementById("performer-display-name");
@@ -14,9 +13,9 @@ if (appNode) {
   const lastNameField = document.getElementById("performer-last-name");
   const contactPhoneField = document.getElementById("performer-contact-phone");
   const bioField = document.getElementById("performer-artist-bio");
+  const additionalInfoField = document.getElementById("performer-additional-info");
   const isEmailPublicField = document.getElementById("performer-is-email-public");
   const isNamePublicField = document.getElementById("performer-is-name-public");
-  const isBioPublicField = document.getElementById("performer-is-bio-public");
   const socialLinksNode = document.getElementById("performer-social-links");
   const addSocialLinkButton = document.getElementById("performer-add-social-link");
   const eventOptionsNode = document.getElementById("performer-event-options");
@@ -51,6 +50,91 @@ if (appNode) {
       .replaceAll("'", "&#39;");
   }
 
+  function getSocialPlatformById(platformId) {
+    return socialPlatforms.find((platform) => Number(platform.id) === Number(platformId)) || null;
+  }
+
+  function splitUrlFormat(urlFormat) {
+    const token = "{profileName}";
+    const format = String(urlFormat || "");
+    const tokenIndex = format.indexOf(token);
+    if (tokenIndex < 0) {
+      return {
+        prefix: "",
+        suffix: "",
+      };
+    }
+    return {
+      prefix: format.slice(0, tokenIndex),
+      suffix: format.slice(tokenIndex + token.length),
+    };
+  }
+
+  function inferSocialInputLabel(platform) {
+    if (!platform) return "Profile name / handle";
+    const format = String(platform.url_format || "").trim();
+    if (format === "{profileName}") {
+      return "Profile URL or address";
+    }
+    return "Profile name / handle";
+  }
+
+  function inferSocialInputPlaceholder(platform) {
+    if (!platform) return "profile name";
+    const format = String(platform.url_format || "").trim();
+    if (format === "{profileName}") {
+      return "https://example.com";
+    }
+    return "profile name";
+  }
+
+  function updateSocialLinkRowPresentation(row) {
+    const platformSelect = row.querySelector("[data-social-platform-id]");
+    const profileInput = row.querySelector("[data-social-profile-name]");
+    const labelNode = row.querySelector("[data-social-profile-label]");
+    const prefixNode = row.querySelector("[data-social-url-prefix]");
+    const suffixNode = row.querySelector("[data-social-url-suffix]");
+    const helpNode = row.querySelector("[data-social-profile-help]");
+
+    if (!platformSelect || !profileInput || !labelNode || !prefixNode || !suffixNode || !helpNode) {
+      return;
+    }
+
+    const selectedPlatform = getSocialPlatformById(platformSelect.value);
+    const urlParts = splitUrlFormat(selectedPlatform?.url_format);
+    const inputLabel =
+      String(selectedPlatform?.input_label || "").trim() || inferSocialInputLabel(selectedPlatform);
+    const inputPlaceholder =
+      String(selectedPlatform?.input_placeholder || "").trim() || inferSocialInputPlaceholder(selectedPlatform);
+    const inputHelp = String(selectedPlatform?.input_help || "").trim();
+
+    labelNode.textContent = inputLabel;
+    profileInput.placeholder = inputPlaceholder;
+
+    prefixNode.textContent = urlParts.prefix;
+    prefixNode.hidden = !urlParts.prefix;
+
+    suffixNode.textContent = urlParts.suffix;
+    suffixNode.hidden = !urlParts.suffix;
+
+    helpNode.textContent = inputHelp;
+    helpNode.hidden = !inputHelp;
+  }
+
+  function getSocialPlatformSelectWidthCh() {
+    const longestName = socialPlatforms.reduce((maxLength, platform) => {
+      const nameLength = String(platform?.platform_name || "").trim().length;
+      return Math.max(maxLength, nameLength);
+    }, 0);
+    return Math.max(longestName + 3, 12);
+  }
+
+  function applySocialPlatformSelectWidth(row) {
+    const platformSelect = row.querySelector("[data-social-platform-id]");
+    if (!platformSelect) return;
+    platformSelect.style.width = `${getSocialPlatformSelectWidthCh()}ch`;
+  }
+
   function createSocialLinkRow(link = {}) {
     const row = document.createElement("div");
     row.className = "performer-social-link-row";
@@ -64,20 +148,29 @@ if (appNode) {
 
     row.innerHTML = `
       <div class="performer-social-link-fields">
-        <label>
+        <label class="performer-social-platform-label">
           Platform
-          <select data-social-platform-id>
+          <select data-social-platform-id class="performer-social-platform-select">
             <option value="">Choose...</option>
             ${optionsHtml}
           </select>
         </label>
-        <label>
-          Profile name / handle
-          <input type="text" value="${escapeHtml(link.profile_name || "")}" data-social-profile-name>
+        <label class="performer-social-profile-label">
+          <span data-social-profile-label>Profile name / handle</span>
+          <span class="performer-social-profile-input">
+            <span class="performer-social-profile-prefix" data-social-url-prefix hidden></span>
+            <input type="text" value="${escapeHtml(link.profile_name || "")}" data-social-profile-name>
+            <span class="performer-social-profile-suffix" data-social-url-suffix hidden></span>
+          </span>
         </label>
+        <p class="performer-registration-note performer-social-profile-help" data-social-profile-help hidden></p>
       </div>
       <button type="button" data-remove-social-link>Remove</button>
     `;
+
+    row.querySelector("[data-social-platform-id]")?.addEventListener("change", () => {
+      updateSocialLinkRowPresentation(row);
+    });
 
     row.querySelector("[data-remove-social-link]")?.addEventListener("click", () => {
       row.remove();
@@ -86,6 +179,8 @@ if (appNode) {
       }
     });
 
+    applySocialPlatformSelectWidth(row);
+    updateSocialLinkRowPresentation(row);
     socialLinksNode.appendChild(row);
   }
 
@@ -150,9 +245,9 @@ if (appNode) {
     lastNameField.value = profile?.last_name || "";
     contactPhoneField.value = profile?.contact_phone || "";
     bioField.value = profile?.artist_bio || "";
+    additionalInfoField.value = profile?.additional_info || "";
     isEmailPublicField.checked = Boolean(profile?.is_email_public);
     isNamePublicField.checked = Boolean(profile?.is_name_public);
-    isBioPublicField.checked = Boolean(profile?.is_artist_bio_public);
     populateSocialLinks(profile?.social_links || []);
   }
 
@@ -169,9 +264,6 @@ if (appNode) {
       applyProfile(result.profile, result.email);
       populateEvents(result.available_events || [], result.profile?.requested_event_ids || []);
 
-      introNode.textContent = result.profile
-        ? "Update your performer profile details below and select the dates you are available to play."
-        : "Create your performer profile below and select the dates you are available to play.";
       eventsNoteNode.textContent = result.cooldown_events
         ? `Available dates are based on upcoming events and the current cooldown rule of skipping the next ${result.cooldown_events} event(s) after a recent performance.`
         : "";
@@ -252,7 +344,7 @@ if (appNode) {
       is_email_public: isEmailPublicField.checked,
       is_name_public: isNamePublicField.checked,
       artist_bio: String(bioField.value || "").trim() || null,
-      is_artist_bio_public: isBioPublicField.checked,
+      additional_info: String(additionalInfoField.value || "").trim() || null,
       social_links: socialLinks,
       requested_event_ids: requestedEventIds,
     };
