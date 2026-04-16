@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS event_performer_selections (
   requested_date_id bigint REFERENCES requested_dates(id) ON DELETE SET NULL,
   slot_number integer,
   status text NOT NULL DEFAULT 'selected' CHECK (
-    status IN ('selected', 'declined', 'cancelled', 'backup', 'cooldown_backup')
+    status IN ('selected', 'declined', 'cancelled', 'standby', 'reserve')
   ),
   selected_at timestamptz NOT NULL DEFAULT now(),
   selected_by_profile_id integer REFERENCES profiles(id),

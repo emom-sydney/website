@@ -86,10 +86,10 @@ flowchart TD
     BZ --> CA[handle_selection_cancellation_if_needed]
     CA --> CB{selected performer cancelled?}
     CB -- no --> CC[success page]
-    CB -- yes, backups exist --> CD[create backup_selection tokens]
+    CB -- yes, standby/reserve candidates exist --> CD[create backup_selection tokens]
     CD --> CE[send_backup_selection_email]
     CE --> CF[success page]
-    CB -- yes, no backups and lineup short --> CG[send_open_slot_alert_email]
+    CB -- yes, no standby/reserve candidates and lineup short --> CG[send_open_slot_alert_email]
     CG --> CH[success page]
 
     CI[admin selection job] --> CJ[get_due_admin_selection_events]
@@ -105,7 +105,7 @@ flowchart TD
     CS --> CT[get_admin_selection_candidates]
     CT --> CU[save_admin_selection]
     CU --> CV[mark selected candidates as selected]
-    CV --> CW[mark all other eligible candidates as backup]
+    CV --> CW[mark all other eligible candidates as standby]
     CW --> CX[send_selected_performer_emails]
     CX --> CY[success page]
 
@@ -147,11 +147,11 @@ flowchart TD
     P --> R[10-day availability reminder emails go out]
     R --> S[Performers confirm or cancel availability]
     S --> T[7-day admin page records selected lineup]
-    T --> U[Non-selected approved confirmed performers are stored as backup]
+    T --> U[Non-selected approved confirmed performers are stored as standby]
     U --> V{Selected performer cancels later?}
-    V -- Yes, backups exist --> W[Mods receive backup selection link]
-    W --> X[One backup is promoted into lineup]
-    V -- Yes, no backups and lineup short --> Y[Mods receive open slot alert]
+    V -- Yes, standby/reserve candidates exist --> W[Mods receive standby selection link]
+    W --> X[One standby performer is promoted into lineup]
+    V -- Yes, no standby/reserve candidates and lineup short --> Y[Mods receive open slot alert]
     X --> Z[Future workflow: actual played lineup copied into performances]
     Y --> Z
     V -- No --> Z
@@ -452,11 +452,11 @@ sequenceDiagram
         Bridge->>DB: Mark requested_dates availability_cancelled
         Bridge->>DB: Invalidate both availability links
         Bridge->>DB: If selected lineup exists, mark selection cancelled
-        alt Backups exist
+        alt Standby/reserve candidates exist
             Bridge->>DB: Create backup_selection tokens
-            Bridge->>SMTP: Email moderators backup-selection links
-            SMTP-->>Mod: Backup selection link
-        else No backups and lineup short
+            Bridge->>SMTP: Email moderators standby-selection links
+            SMTP-->>Mod: Standby selection link
+        else No standby/reserve candidates and lineup short
             Bridge->>SMTP: Email moderators open-slot alert
             SMTP-->>Mod: Open slot alert
         end
@@ -475,21 +475,21 @@ sequenceDiagram
 
     Admin->>Bridge: POST selected lineup
     Bridge->>DB: Save selected candidates as selected
-    Bridge->>DB: Save all remaining eligible candidates as backup
+    Bridge->>DB: Save all remaining eligible candidates as standby
     Bridge->>SMTP: Email selected performers
     SMTP-->>Performer: Performance confirmed email
     Bridge-->>Admin: Success page
 
-    alt Moderator promotes backup later
+    alt Moderator promotes standby later
         Mod->>Bridge: GET /backup-selection?token=...
-        Bridge->>DB: Validate backup token
-        Bridge->>DB: Load current lineup and backup pool
-        Bridge-->>Mod: Backup promotion page
-        Mod->>Bridge: POST chosen backup
-        Bridge->>DB: Promote backup to selected
+        Bridge->>DB: Validate standby selection token
+        Bridge->>DB: Load current lineup and standby/reserve pool
+        Bridge-->>Mod: Standby promotion page
+        Mod->>Bridge: POST chosen standby performer
+        Bridge->>DB: Promote standby performer to selected
         Bridge->>DB: Invalidate backup-selection tokens for event
-        Bridge->>SMTP: Email promoted backup performer
-        SMTP-->>Performer: Promoted from backup email
+        Bridge->>SMTP: Email promoted standby performer
+        SMTP-->>Performer: Promoted from standby email
         Bridge-->>Mod: Success page
     end
 ```
@@ -506,7 +506,7 @@ sequenceDiagram
 - That visibility rule is still a temporary approximation; the ideal final behavior is to key visibility from a first actually selected/performed event.
 - The 7-day admin selection flow now stores:
   - selected performers as `selected`
-  - all other eligible approved confirmed performers as `backup`
-- If a selected performer cancels and backups exist, moderators receive a tokenized backup-selection page.
-- If a selected performer cancels and no backups exist while the lineup is now short, moderators receive an open-slot alert email.
+  - all other eligible approved confirmed performers as `standby`
+- If a selected performer cancels and standby/reserve candidates exist, moderators receive a tokenized backup-selection page.
+- If a selected performer cancels and no standby/reserve candidates exist while the lineup is now short, moderators receive an open-slot alert email.
 - Email delivery now goes through SMTP relay using `FORMS_SMTP_HOST` and `FORMS_SMTP_PORT`.

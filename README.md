@@ -74,7 +74,7 @@ It currently handles:
 - moderator approve/deny actions
 - availability confirm/cancel actions
 - admin lineup selection
-- backup promotion after cancellations
+- standby promotion after cancellations
 
 Supporting scripts:
 

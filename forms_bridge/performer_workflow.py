@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formatdate
 from email.utils import make_msgid
+from urllib.parse import quote
 
 from flask import jsonify, request
 
@@ -26,12 +27,12 @@ WORKFLOW_STATUS_PENDING = "pending"
 WORKFLOW_STATUS_APPROVED = "approved"
 WORKFLOW_STATUS_DENIED = "denied"
 LINEUP_STATUS_SELECTED = "selected"
-LINEUP_STATUS_BACKUP = "backup"
-LINEUP_STATUS_COOLDOWN_BACKUP = "cooldown_backup"
+LINEUP_STATUS_STANDBY = "standby"
+LINEUP_STATUS_RESERVE = "reserve"
 ADMIN_SELECTION_ALLOWED_STATUSES = {
     LINEUP_STATUS_SELECTED,
-    LINEUP_STATUS_BACKUP,
-    LINEUP_STATUS_COOLDOWN_BACKUP,
+    LINEUP_STATUS_STANDBY,
+    LINEUP_STATUS_RESERVE,
 }
 OPEN_MIC_EVENT_TYPE_ID = 1
 
@@ -431,6 +432,43 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection save failed")
             return html_error_page("Unable to save admin selection right now.", 500)
 
+    @app.route("/api/forms/performer-registration/admin-selection/send-confirmation", methods=["GET"])
+    def admin_selection_send_confirmation():
+        raw_token = normalize_text(request.args.get("token"))
+        requested_date_id_text = normalize_text(request.args.get("requested_date_id"))
+        if not raw_token:
+            return html_error_page("Missing admin selection token.", 400)
+        if not requested_date_id_text or not requested_date_id_text.isdigit():
+            return html_error_page("A valid performer request is required.", 400)
+
+        try:
+            requested_date_id = int(requested_date_id_text)
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                    event = get_event_selection_context(cursor, token_row["event_id"])
+                    sent = send_availability_confirmation_for_requested_date(
+                        app,
+                        cursor,
+                        requested_date_id=requested_date_id,
+                        event_id=token_row["event_id"],
+                    )
+                    candidates = get_admin_selection_candidates(cursor, token_row["event_id"])
+                    max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
+
+                return render_admin_selection_form(
+                    raw_token,
+                    event,
+                    candidates,
+                    max_performers,
+                    notice_message=f"Availability confirmation email sent to {sent['display_name']} ({sent['email']}).",
+                )
+        except ValueError as exc:
+            return html_error_page(str(exc), 400)
+        except Exception:
+            app.logger.exception("Admin selection confirmation resend failed")
+            return html_error_page("Unable to send confirmation email right now.", 500)
+
     @app.route("/api/forms/performer-registration/admin-selection/events", methods=["GET"])
     def admin_selection_events():
         try:
@@ -515,7 +553,7 @@ def register_performer_workflow_routes(app):
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
             if not raw_token:
-                return html_error_page("Missing backup selection token.", 400)
+                return html_error_page("Missing standby selection token.", 400)
 
             try:
                 with connect() as connection:
@@ -525,20 +563,20 @@ def register_performer_workflow_routes(app):
                         current_selected = get_current_selected_lineup(cursor, token_row["event_id"])
                         backups = get_backup_candidates(cursor, token_row["event_id"])
                         if not backups:
-                            raise ValueError("There are no backup performers available for this event.")
+                            raise ValueError("There are no standby performers available for this event.")
                 return render_backup_selection_form(raw_token, event, current_selected, backups)
             except ValueError as exc:
                 return html_error_page(str(exc), 400)
             except Exception:
-                app.logger.exception("Backup selection form lookup failed")
-                return html_error_page("Unable to load backup selection right now.", 500)
+                app.logger.exception("Standby selection form lookup failed")
+                return html_error_page("Unable to load standby selection right now.", 500)
 
         raw_token = normalize_text(request.form.get("token"))
         requested_date_id_text = normalize_text(request.form.get("requested_date_id"))
         if not raw_token:
-            return html_error_page("Missing backup selection token.", 400)
+            return html_error_page("Missing standby selection token.", 400)
         if not requested_date_id_text or not requested_date_id_text.isdigit():
-            return html_error_page("A backup performer must be selected.", 400)
+            return html_error_page("A standby performer must be selected.", 400)
 
         requested_date_id = int(requested_date_id_text)
 
@@ -558,14 +596,14 @@ def register_performer_workflow_routes(app):
                 send_backup_promoted_email(event, promoted)
 
             return html_success_page(
-                "Backup promoted",
+                "Standby performer promoted",
                 f"{promoted['display_name']} has been promoted into the lineup for {event['event_name']}.",
             )
         except ValueError as exc:
             return html_error_page(str(exc), 400)
         except Exception:
-            app.logger.exception("Backup promotion failed")
-            return html_error_page("Unable to promote backup performer right now.", 500)
+            app.logger.exception("Standby promotion failed")
+            return html_error_page("Unable to promote standby performer right now.", 500)
 
 
 def get_json_payload():
@@ -615,10 +653,12 @@ def parse_int_list(values):
 
 
 def parse_admin_selection_statuses(form, candidates):
-    candidate_ids = {item["requested_date_id"] for item in candidates}
     parsed = {}
-    for requested_date_id in candidate_ids:
-        raw_value = normalize_text(form.get(f"status_{requested_date_id}")) or LINEUP_STATUS_BACKUP
+    for item in candidates:
+        if not is_admin_selection_candidate_eligible(item):
+            continue
+        requested_date_id = item["requested_date_id"]
+        raw_value = normalize_text(form.get(f"status_{requested_date_id}")) or LINEUP_STATUS_STANDBY
         if raw_value not in ADMIN_SELECTION_ALLOWED_STATUSES:
             raise ValueError("One or more performer statuses are invalid.")
         parsed[requested_date_id] = raw_value
@@ -1879,6 +1919,102 @@ def get_unapproved_event_reminders(cursor, target_date):
     return list(reminders_by_event.values())
 
 
+def send_availability_confirmation_for_requested_date(app, cursor, *, requested_date_id, event_id):
+    requested_date = get_requested_date_with_context(cursor, requested_date_id)
+    if requested_date["event_id"] != event_id:
+        raise ValueError("That performer request is not for this event.")
+    if not requested_date["is_profile_approved"]:
+        raise ValueError("Only approved performer requests can be emailed from this page.")
+    if requested_date["status"] != "requested":
+        raise ValueError("Only unconfirmed performer requests can be re-sent.")
+    if not requested_date["email"]:
+        raise ValueError("This performer request has no email address to send to.")
+
+    settings = get_workflow_settings(cursor)
+    invalidate_availability_tokens_for_requested_date(cursor, requested_date_id)
+    confirm_token, confirm_hash = generate_token_pair()
+    cancel_token, cancel_hash = generate_token_pair()
+    expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
+
+    cursor.execute(
+        """
+        INSERT INTO action_tokens (
+          token_hash,
+          action_type,
+          email,
+          profile_id,
+          draft_id,
+          requested_date_id,
+          event_id,
+          expires_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            confirm_hash,
+            ACTION_TYPE_AVAILABILITY_CONFIRM,
+            requested_date["email"],
+            requested_date["profile_id"],
+            requested_date["draft_id"],
+            requested_date["id"],
+            requested_date["event_id"],
+            expires_at,
+        ),
+    )
+    cursor.execute(
+        """
+        INSERT INTO action_tokens (
+          token_hash,
+          action_type,
+          email,
+          profile_id,
+          draft_id,
+          requested_date_id,
+          event_id,
+          expires_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            cancel_hash,
+            ACTION_TYPE_AVAILABILITY_CANCEL,
+            requested_date["email"],
+            requested_date["profile_id"],
+            requested_date["draft_id"],
+            requested_date["id"],
+            requested_date["event_id"],
+            expires_at,
+        ),
+    )
+
+    confirm_url = build_absolute_url(
+        app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
+    )
+    cancel_url = build_absolute_url(
+        app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
+    )
+
+    send_availability_email(
+        email=requested_date["email"],
+        display_name=requested_date["display_name"],
+        event_name=requested_date["event_name"],
+        event_date=requested_date["event_date"],
+        confirm_url=confirm_url,
+        cancel_url=cancel_url,
+        expires_at=expires_at,
+    )
+    cursor.execute(
+        """
+        UPDATE requested_dates
+        SET availability_email_sent_at = now()
+        WHERE id = %s
+        """,
+        (requested_date["id"],),
+    )
+
+    return {"display_name": requested_date["display_name"], "email": requested_date["email"]}
+
+
 def send_due_admin_selection_emails(app, run_date=None):
     sent_count = 0
 
@@ -2075,7 +2211,7 @@ def get_admin_selection_candidates(cursor, event_id):
           ON sel.event_id = rd.event_id
          AND sel.profile_id = p.id
         WHERE rd.event_id = %s
-          AND rd.status = 'availability_confirmed'
+          AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
           AND p.is_profile_approved = true
         ORDER BY d.display_name, rd.id
         """,
@@ -2097,6 +2233,10 @@ def get_admin_selection_candidates(cursor, event_id):
     ]
 
 
+def is_admin_selection_candidate_eligible(candidate):
+    return candidate.get("availability_status") == "availability_confirmed"
+
+
 def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, max_performers):
     candidate_by_requested_date_id = {item["requested_date_id"]: item for item in candidates}
     invalid_ids = [item for item in candidate_statuses if item not in candidate_by_requested_date_id]
@@ -2106,6 +2246,7 @@ def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, cand
     selected_requested_date_ids = [
         item["requested_date_id"]
         for item in candidates
+        if is_admin_selection_candidate_eligible(item)
         if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
     ]
     if len(selected_requested_date_ids) > max_performers:
@@ -2113,7 +2254,9 @@ def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, cand
 
     selected_profile_ids = []
     for item in candidates:
-        status = candidate_statuses.get(item["requested_date_id"], LINEUP_STATUS_BACKUP)
+        if not is_admin_selection_candidate_eligible(item):
+            continue
+        status = candidate_statuses.get(item["requested_date_id"], LINEUP_STATUS_STANDBY)
         if status == LINEUP_STATUS_SELECTED:
             slot_number = selected_requested_date_ids.index(item["requested_date_id"]) + 1
             selected_profile_ids.append(item["profile_id"])
@@ -2228,14 +2371,14 @@ def apply_cooldown_backups_for_selected(cursor, *, event_id, selected_profile_id
               selected_at,
               selected_by_profile_id
             )
-            VALUES (%s, %s, %s, NULL, 'cooldown_backup', now(), %s)
+            VALUES (%s, %s, %s, NULL, 'reserve', now(), %s)
             ON CONFLICT (event_id, profile_id)
             DO UPDATE SET
               requested_date_id = EXCLUDED.requested_date_id,
               slot_number = NULL,
               status = CASE
-                WHEN event_performer_selections.status = 'selected' THEN 'cooldown_backup'
-                ELSE 'cooldown_backup'
+                WHEN event_performer_selections.status = 'selected' THEN 'reserve'
+                ELSE 'reserve'
               END,
               selected_at = now(),
               selected_by_profile_id = EXCLUDED.selected_by_profile_id
@@ -2278,8 +2421,8 @@ def get_backup_candidates(cursor, event_id):
         JOIN profiles p
           ON p.id = sel.profile_id
         WHERE sel.event_id = %s
-          AND sel.status IN ('backup', 'cooldown_backup')
-        ORDER BY CASE sel.status WHEN 'backup' THEN 0 ELSE 1 END, d.display_name, rd.id
+          AND sel.status IN ('standby', 'reserve')
+        ORDER BY CASE sel.status WHEN 'standby' THEN 0 ELSE 1 END, d.display_name, rd.id
         """,
         (event_id,),
     )
@@ -2300,7 +2443,7 @@ def promote_backup_selection(cursor, *, event_id, requested_date_id, admin_profi
     backups = get_backup_candidates(cursor, event_id)
     backup = next((item for item in backups if item["requested_date_id"] == requested_date_id), None)
     if not backup:
-        raise ValueError("That backup performer is not available for promotion.")
+        raise ValueError("That standby performer is not available for promotion.")
 
     cursor.execute(
         """
@@ -2377,7 +2520,7 @@ def handle_selection_cancellation_if_needed(app, cursor, requested_date):
         return
 
     selection_status = row[0]
-    if selection_status == "backup":
+    if selection_status == "standby":
         cursor.execute(
             """
             UPDATE event_performer_selections
@@ -2564,17 +2707,36 @@ def format_requested_events_for_email(requested_events, *, empty_text):
 
 
 def format_selection_status_label(status):
-    if status == "cooldown_backup":
-        return "cooldown backup"
+    if status == "standby":
+        return "standby"
+    if status == "reserve":
+        return "reserve"
     if status:
         return status.replace("_", " ")
     return "-"
 
 
+def format_availability_status_label(status):
+    labels = {
+        "requested": "unconfirmed",
+        "availability_confirmed": "confirmed",
+        "availability_cancelled": "cancelled",
+    }
+    return labels.get(status, status.replace("_", " ") if status else "-")
+
+
 def render_admin_status_option(status, current_status):
-    selected_status = current_status or LINEUP_STATUS_BACKUP
+    selected_status = current_status or LINEUP_STATUS_STANDBY
     selected_attr = " selected" if status == selected_status else ""
     return f"<option value=\"{html.escape(status)}\"{selected_attr}>{html.escape(format_selection_status_label(status))}</option>"
+
+
+def render_admin_confirmation_link(raw_token, requested_date_id):
+    token = quote(raw_token, safe="")
+    return (
+        f"/api/forms/performer-registration/admin-selection/send-confirmation"
+        f"?token={token}&requested_date_id={requested_date_id}"
+    )
 
 
 def get_upcoming_event_status_summary(cursor):
@@ -2746,17 +2908,17 @@ def send_backup_selection_email(*, moderator_email, event_name, event_date, back
     ) or "- none"
     body = (
         f"A selected performer has cancelled for {event_name} on {event_date}.\n\n"
-        "Current backups:\n"
+        "Current standby/reserve pool:\n"
         f"{backup_lines}\n\n"
-        f"Choose a backup to promote: {backup_url}\n\n"
+        f"Choose a standby performer to promote: {backup_url}\n\n"
         f"This link expires at {expires_at.isoformat()}.\n"
     )
-    send_mail(moderator_email, f"EMOM backup selection needed for {event_name}", body)
+    send_mail(moderator_email, f"EMOM standby selection needed for {event_name}", body)
 
 
 def send_backup_promoted_email(event, promoted):
     body = (
-        f"You have been promoted from backup to the confirmed lineup for {event['event_name']} on {event['event_date']}.\n"
+        f"You have been promoted from standby to the confirmed lineup for {event['event_name']} on {event['event_date']}.\n"
     )
     send_mail(
         promoted["email"],
@@ -2770,7 +2932,7 @@ def send_open_slot_alert_email(*, moderator_emails, event_name, event_date, sele
         f"There is now an open slot for {event_name} on {event_date}.\n\n"
         f"Confirmed performers remaining: {selected_count}\n"
         f"Target slot count: {slot_count}\n"
-        "There are currently no backup performers available for this event.\n"
+        "There are currently no standby or reserve performers available for this event.\n"
     )
     for moderator in moderator_emails:
         send_mail(
@@ -2841,24 +3003,46 @@ def render_denial_form(raw_token):
     )
 
 
-def render_admin_selection_form(raw_token, event, candidates, max_performers):
+def render_admin_selection_form(raw_token, event, candidates, max_performers, notice_message=None):
     candidate_rows = "\n".join(
         (
             "<tr>"
             f"<td><strong>{html.escape(item['display_name'])}</strong></td>"
             f"<td>{html.escape(item['email'] or '')}<br>{html.escape(item['contact_phone'] or '')}</td>"
-            f"<td>{html.escape(item['availability_status'] or '-')}</td>"
+            f"<td>{html.escape(format_availability_status_label(item.get('availability_status')))}</td>"
+            f"<td>{html.escape(format_selection_status_label(item.get('selection_status')))}</td>"
             "<td>"
-            f"<select name=\"status_{item['requested_date_id']}\" data-lineup-status>"
-            f"{render_admin_status_option(LINEUP_STATUS_SELECTED, item.get('selection_status'))}"
-            f"{render_admin_status_option(LINEUP_STATUS_BACKUP, item.get('selection_status'))}"
-            f"{render_admin_status_option(LINEUP_STATUS_COOLDOWN_BACKUP, item.get('selection_status'))}"
-            "</select>"
-            "</td>"
+            + (
+                (
+                    f"<select name=\"status_{item['requested_date_id']}\" data-lineup-status>"
+                    f"{render_admin_status_option(LINEUP_STATUS_SELECTED, item.get('selection_status'))}"
+                    f"{render_admin_status_option(LINEUP_STATUS_STANDBY, item.get('selection_status'))}"
+                    f"{render_admin_status_option(LINEUP_STATUS_RESERVE, item.get('selection_status'))}"
+                    "</select>"
+                )
+                if is_admin_selection_candidate_eligible(item)
+                else "<small>Selection available after confirmation.</small>"
+            )
+            + "</td>"
+            "<td>"
+            + (
+                (
+                    f"<a href=\"{html.escape(render_admin_confirmation_link(raw_token, item['requested_date_id']), quote=True)}\">Send confirmation email</a>"
+                )
+                if item.get("availability_status") == "requested"
+                else "-"
+            )
+            + "</td>"
             "</tr>"
         )
         for item in candidates
-    ) or "<tr><td colspan=\"4\">No eligible confirmed performers are available for this event.</td></tr>"
+    ) or "<tr><td colspan=\"6\">No performer requests are available for this event.</td></tr>"
+
+    notice_block = (
+        f"<div class=\"summary\" style=\"background:#edf7ed;border-color:#c4e3c4;\">{html.escape(notice_message)}</div>"
+        if notice_message
+        else ""
+    )
 
     return (
         """
@@ -2884,7 +3068,10 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers):
     <p><strong>Date:</strong> """
         + html.escape(event["event_date"])
         + """</p>
-    <p>Set the status for each performer below. Selected performers count toward the final lineup. Backup and cooldown backup remain available as reserves.</p>
+    """
+        + notice_block
+        + """
+    <p>All requests for this event are shown below. Only confirmed performers can be assigned lineup status.</p>
     <div class="summary">
       <strong>Total selected to perform:</strong>
       <span id="selected-count">0</span>
@@ -2902,7 +3089,9 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers):
             <th>Artist</th>
             <th>Contact</th>
             <th>Availability</th>
-            <th>Lineup status</th>
+            <th>Current lineup</th>
+            <th>Set lineup status</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>"""
@@ -2946,7 +3135,7 @@ def render_backup_selection_form(raw_token, event, current_selected, backups):
             "</label>"
         )
         for item in backups
-    ) or "<p>No backup performers are currently available.</p>"
+    ) or "<p>No standby performers are currently available.</p>"
 
     return (
         """
@@ -2954,14 +3143,14 @@ def render_backup_selection_form(raw_token, event, current_selected, backups):
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Backup selection</title>
+    <title>Standby selection</title>
     <style>
       body { font-family: sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }
       button { margin-top: 1rem; }
     </style>
   </head>
   <body>
-    <h1>Backup selection</h1>
+    <h1>Standby selection</h1>
     <p><strong>Event:</strong> """
         + html.escape(event["event_name"])
         + """</p>
@@ -2972,7 +3161,7 @@ def render_backup_selection_form(raw_token, event, current_selected, backups):
     <ul>"""
         + selected_rows
         + """</ul>
-    <h2>Available backups</h2>
+    <h2>Available standby/reserve performers</h2>
     <form method="post">
       <input type="hidden" name="token" value=\""""
         + html.escape(raw_token, quote=True)
@@ -2980,7 +3169,7 @@ def render_backup_selection_form(raw_token, event, current_selected, backups):
       """
         + backup_rows
         + """
-      <button type="submit">Promote backup</button>
+      <button type="submit">Promote standby performer</button>
     </form>
   </body>
 </html>

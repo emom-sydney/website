@@ -81,7 +81,7 @@ Important model details:
 - `events.event_date` is the canonical date field
 - performer registration is for Open Mic events only, currently `events.type_id = 1`
 - `requested_dates` stores performer requests plus availability reminder tracking
-- `event_performer_selections` stores pre-event lineup state such as `selected`, `backup`, `cooldown_backup`, and `cancelled`
+- `event_performer_selections` stores pre-event lineup state such as `selected`, `standby`, `reserve`, and `cancelled`
 - `action_tokens` powers all one-time emailed workflow links
 - `app_settings` stores configurable workflow values in `jsonb`
 - gallery identity comes from `events.gallery_url`
@@ -230,6 +230,7 @@ Notable migrations in the repo:
 - `2026-04-04-availability-reminder-tracking.sql`
 - `2026-04-04-admin-selection-workflow.sql`
 - `2026-04-05-cooldown-backup-status.sql`
+- `2026-04-15-standby-reserve-status.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 

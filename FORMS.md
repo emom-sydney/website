@@ -119,7 +119,7 @@ The bridge currently exposes:
 - moderation approve/deny actions
 - availability confirm/cancel actions
 - admin lineup selection
-- backup promotion
+- standby promotion
 
 The bridge uses:
 
@@ -149,7 +149,7 @@ The performer registration system is no longer just a simple form POST. It is a 
 - requested Open Mic dates
 - availability reminders
 - final lineup selection
-- backup and cooldown-backup states
+- standby and reserve states
 
 Current pre-event lineup state lives in:
 

@@ -13,6 +13,7 @@ Current endpoints:
 - `GET /api/forms/performer-registration/availability/confirm?token=...`
 - `GET /api/forms/performer-registration/availability/cancel?token=...`
 - `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&requested_date_id=...`
 - `GET|POST /api/forms/performer-registration/backup-selection?token=...`
 
 The bridge code lives in:
@@ -143,6 +144,7 @@ The expected public paths are:
 - `GET /api/forms/performer-registration/availability/confirm?token=...`
 - `GET /api/forms/performer-registration/availability/cancel?token=...`
 - `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&requested_date_id=...`
 - `GET|POST /api/forms/performer-registration/backup-selection?token=...`
 
 ## Request Shape
@@ -237,12 +239,12 @@ Admin selection workflow:
 - `GET|POST /api/forms/performer-registration/admin-selection?token=...`
   - tokenized admin page for the 7-day lineup selection
   - selected candidates are stored as `selected`
-  - all other eligible confirmed candidates are stored as `backup`
-  - later requested dates inside the configured cooldown window can be marked as `cooldown_backup`
+  - all other eligible confirmed candidates are stored as `standby`
+  - later requested dates inside the configured cooldown window can be marked as `reserve`
 - `GET|POST /api/forms/performer-registration/backup-selection?token=...`
   - tokenized moderator/admin page used after a selected performer cancels
-  - promotes one backup performer into the lineup
-  - ordinary `backup` entries are preferred over `cooldown_backup`
+  - promotes one standby performer into the lineup
+  - ordinary `standby` entries are preferred over `reserve`
 
 Admin selection reminder job:
 
@@ -257,13 +259,13 @@ Cancellation behavior:
 
 - if a selected performer cancels availability:
   - their selection row is marked `cancelled`
-  - if backups exist, moderators receive a one-time backup-selection link
-  - if no backups exist and selected count is now below slot count, moderators receive an open-slot alert
+  - if standby/reserve candidates exist, moderators receive a one-time backup-selection link
+  - if no standby/reserve candidates exist and selected count is now below slot count, moderators receive an open-slot alert
 
 Current performer flow environment assumptions:
 
 - the database already has the new performer workflow schema
-- the current migrations have been applied, including admin selection and `cooldown_backup`
+- the current migrations have been applied, including admin selection and `reserve`
 - moderator profiles exist in `profiles` with `is_moderator = true`
 - moderator profiles also have the `volunteer` role in `profile_roles`
 - admin profiles exist in `profiles` with `is_admin = true`
