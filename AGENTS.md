@@ -55,6 +55,7 @@ Important model details:
   - `is_name_public`
 - `events.event_date` is the canonical date field
 - gallery identity comes from `events.gallery_url`
+- optional per-event gallery video is stored on `events.youtube_embed_url`
 
 ## Where Relational Data Is Used
 
@@ -70,6 +71,7 @@ Primary relational usage is concentrated in a few places:
   - crew detail pages
 - `src/gallery/gallery.11ty.js`
   - gallery pages use relational event/profile metadata plus live S3 media listings
+  - root event gallery pages may render an embedded YouTube video sourced from `events.youtube_embed_url`
 
 The rest of the site is mostly static Nunjucks templates.
 
@@ -92,6 +94,10 @@ Compatibility notes:
 - role cross-links are already attached in the loader:
   - artist pages may have `volunteerProfile`
   - volunteer pages may have `artistProfile`
+- gallery event metadata includes optional `YouTubeEmbedURL` on `eventsByGalleryUrl` entries
+  - accepted DB inputs include watch/share/embed/shorts/live URLs, raw 11-char IDs, or pasted iframe HTML
+  - rendering normalizes valid values to `https://www.youtube-nocookie.com/embed/<VIDEO_ID>`
+  - if normalization fails, gallery pages render an `Open event video` fallback link
 
 ## Shared Rendering Code
 
@@ -147,6 +153,7 @@ Notable migrations in the repo:
 - `2026-03-23-profiles-refactor.sql`
 - `2026-03-23-profile-privacy-columns.sql`
 - `2026-03-23-profile-bios.sql`
+- `2026-04-17-events-youtube-embed.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 
