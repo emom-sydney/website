@@ -615,6 +615,12 @@ def register_performer_workflow_routes(app):
                     event = get_open_mic_event_for_admin_selection(cursor, event_id)
                     admin = get_admin_profile_by_email(cursor, email)
                     if admin:
+                        # If this admin asks for a fresh link, clear any stale self-lock for this event.
+                        release_admin_selection_lock(
+                            cursor,
+                            event_id=event["event_id"],
+                            profile_id=admin["profile_id"],
+                        )
                         invalidate_unused_tokens(
                             cursor,
                             email=email,
@@ -857,7 +863,7 @@ def now_utc():
 def format_link_expiry_local(expires_at):
     if not expires_at:
         return ""
-    return expires_at.astimezone().strftime("%H:%M:%S on %d:%m:%y")
+    return expires_at.astimezone().strftime("%H:%M:%S on %d/%m/%y")
 
 
 def get_workflow_settings(cursor):
