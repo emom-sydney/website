@@ -239,6 +239,10 @@ form button:hover {
   margin: 0;
 }
 
+.performer-event-backup-note {
+  font-style: italic;
+}
+
 .AINotice p {
   font-size: 0.5em;
   color: #666;

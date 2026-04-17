@@ -402,7 +402,11 @@ def register_performer_workflow_routes(app):
                     event,
                     candidates,
                     max_performers,
-                    active_editor_name=lock_state.get("locked_by_name"),
+                    active_editor_name=(
+                        lock_state.get("locked_by_name")
+                        if lock_state.get("locked_by_profile_id") != token_row["profile_id"]
+                        else None
+                    ),
                 )
             except ValueError as exc:
                 status_code = 409 if "currently editing this lineup" in str(exc) else 400
@@ -515,7 +519,11 @@ def register_performer_workflow_routes(app):
                     candidates,
                     max_performers,
                     notice_message=f"Availability confirmation email sent to {sent['display_name']} ({sent['email']}).",
-                    active_editor_name=lock_state.get("locked_by_name"),
+                    active_editor_name=(
+                        lock_state.get("locked_by_name")
+                        if lock_state.get("locked_by_profile_id") != token_row["profile_id"]
+                        else None
+                    ),
                 )
         except ValueError as exc:
             status_code = 409 if "currently editing this lineup" in str(exc) else 400
@@ -909,7 +917,7 @@ def get_action_token(cursor, raw_token, action_type):
     token_hash = hash_token(raw_token)
     cursor.execute(
         """
-        SELECT id, action_type, email, profile_id, draft_id, event_id, expires_at, used_at
+        SELECT id, action_type, email, profile_id, draft_id, requested_date_id, event_id, expires_at, used_at
         FROM action_tokens
         WHERE token_hash = %s
           AND action_type = %s
@@ -926,9 +934,10 @@ def get_action_token(cursor, raw_token, action_type):
         "email": row[2],
         "profile_id": row[3],
         "draft_id": row[4],
-        "event_id": row[5],
-        "expires_at": row[6],
-        "used_at": row[7],
+        "requested_date_id": row[5],
+        "event_id": row[6],
+        "expires_at": row[7],
+        "used_at": row[8],
     }
     if token["used_at"] is not None:
         raise ValueError("That link has already been used.")
@@ -1273,7 +1282,6 @@ def get_latest_prefill_submission_by_email(cursor, email):
 
 
 def get_available_events(cursor, profile_id, settings):
-    cooldown_events = settings["performer_request_cooldown_events"]
     last_performance = None
 
     if profile_id is not None:
@@ -1298,7 +1306,7 @@ def get_available_events(cursor, profile_id, settings):
     if last_performance is None:
         cursor.execute(
             """
-            SELECT id, event_name, event_date
+            SELECT id, event_name, event_date, false AS is_backup_only
             FROM events
             WHERE event_date > CURRENT_DATE
               AND type_id = %s
@@ -1309,32 +1317,29 @@ def get_available_events(cursor, profile_id, settings):
     else:
         cursor.execute(
             """
-            WITH ranked_future_events AS (
-              SELECT
-                e.id,
-                e.event_name,
-                e.event_date,
-                ROW_NUMBER() OVER (ORDER BY e.event_date, e.id) AS future_position
-              FROM events e
-              WHERE e.event_date > CURRENT_DATE
-                AND e.type_id = %s
-                AND (e.event_date, e.id) > (%s, %s)
-            )
-            SELECT id, event_name, event_date
-            FROM ranked_future_events
-            WHERE future_position > %s
+            SELECT
+              id,
+              event_name,
+              event_date,
+              event_date <= (%s::date + INTERVAL '3 months') AS is_backup_only
+            FROM events
+            WHERE event_date > CURRENT_DATE
+              AND type_id = %s
             ORDER BY event_date, id
             """,
             (
-                OPEN_MIC_EVENT_TYPE_ID,
                 last_performance["event_date"],
-                last_performance["event_id"],
-                cooldown_events,
+                OPEN_MIC_EVENT_TYPE_ID,
             ),
         )
 
     return [
-        {"id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+        {
+            "id": row[0],
+            "event_name": row[1],
+            "event_date": row[2].isoformat(),
+            "is_backup_only": bool(row[3]),
+        }
         for row in cursor.fetchall()
     ]
 

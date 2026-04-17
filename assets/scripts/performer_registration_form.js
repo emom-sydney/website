@@ -207,9 +207,12 @@ if (appNode) {
       const wrapper = document.createElement("label");
       wrapper.className = "performer-event-option";
       const isChecked = selectedSet.has(Number(eventItem.id));
+      const backupOnlyHtml = eventItem.is_backup_only
+        ? ' <em class="performer-event-backup-note">(backup only)</em>'
+        : "";
       wrapper.innerHTML = `
         <input type="checkbox" value="${eventItem.id}" data-event-checkbox${isChecked ? " checked" : ""}>
-        <span>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small></span>
+        <span>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small>${backupOnlyHtml}</span>
       `;
       eventOptionsNode.appendChild(wrapper);
     });
@@ -264,9 +267,12 @@ if (appNode) {
       applyProfile(result.profile, result.email);
       populateEvents(result.available_events || [], result.profile?.requested_event_ids || []);
 
-      eventsNoteNode.textContent = result.cooldown_events
-        ? `Available dates are based on upcoming events and the current cooldown rule of skipping the next ${result.cooldown_events} event(s) after a recent performance.`
-        : "";
+      const hasBackupOnlyDates = (result.available_events || []).some(
+        (eventItem) => Boolean(eventItem.is_backup_only)
+      );
+      eventsNoteNode.textContent = hasBackupOnlyDates
+        ? "Tell us the dates you'd like to play. Dates marked 'backup only' fall within the cooldown period after your most recent performance."
+        : "Tell us the dates you'd like to play.";
 
       startSection.hidden = true;
       sessionSection.hidden = false;
