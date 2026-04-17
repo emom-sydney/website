@@ -51,6 +51,9 @@ Optional:
   - SMTP relay host for bridge-generated emails
 - `FORMS_SMTP_PORT`
   - SMTP relay port, defaults to `25`
+- `ADMIN_SELECTION_LOCK_MINUTES`
+  - lock TTL for admin lineup editing sessions
+  - defaults to `30`
 
 ## Install
 
@@ -240,6 +243,9 @@ Admin selection workflow:
 
 - `GET|POST /api/forms/performer-registration/admin-selection?token=...`
   - tokenized admin page for the 7-day lineup selection
+  - event-level edit lock prevents concurrent edits from multiple admins
+  - if another admin already holds the lock, the page returns a friendly lock message with that admin's name
+  - lock is auto-refreshed while the page is open and released on save/close (with TTL fallback)
   - selected candidates are stored as `selected`
   - all other eligible confirmed candidates are stored as `standby`
   - later requested dates inside the configured cooldown window can be marked as `reserve`

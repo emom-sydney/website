@@ -507,6 +507,10 @@ sequenceDiagram
 - The 7-day admin selection flow now stores:
   - selected performers as `selected`
   - all other eligible approved confirmed performers as `standby`
+- The admin selection page now applies an event-level lock:
+  - one admin can hold the editing lock at a time
+  - other admins are shown who currently holds the lock
+  - lock heartbeat and TTL fallback prevent stale permanent locks
 - If a selected performer cancels and standby/reserve candidates exist, moderators receive a tokenized backup-selection page.
 - If a selected performer cancels and no standby/reserve candidates exist while the lineup is now short, moderators receive an open-slot alert email.
 - Email delivery now goes through SMTP relay using `FORMS_SMTP_HOST` and `FORMS_SMTP_PORT`.

@@ -7,7 +7,7 @@ from forms_bridge.performer_workflow import send_due_admin_selection_emails
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Send admin selection links for due performer lineup events."
+        description="Send admin link for performer lineup selection."
     )
     parser.add_argument(
         "--run-date",

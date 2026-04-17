@@ -35,6 +35,7 @@ ADMIN_SELECTION_ALLOWED_STATUSES = {
     LINEUP_STATUS_RESERVE,
 }
 OPEN_MIC_EVENT_TYPE_ID = 1
+DEFAULT_ADMIN_SELECTION_LOCK_MINUTES = 30
 
 
 def register_performer_workflow_routes(app):
@@ -380,12 +381,32 @@ def register_performer_workflow_routes(app):
                 with connect() as connection:
                     with connection.cursor() as cursor:
                         token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                        lock_state = acquire_admin_selection_lock(
+                            cursor,
+                            event_id=token_row["event_id"],
+                            profile_id=token_row["profile_id"],
+                            lock_minutes=get_admin_selection_lock_minutes(),
+                        )
+                        if not lock_state["acquired"]:
+                            holder_name = lock_state["locked_by_name"] or "Another admin"
+                            locked_until = format_link_expiry_local(lock_state.get("lock_expires_at"))
+                            raise ValueError(
+                                f"{holder_name} is currently editing this lineup. "
+                                f"Please try again after {locked_until}."
+                            )
                         event = get_event_selection_context(cursor, token_row["event_id"])
                         candidates = get_admin_selection_candidates(cursor, token_row["event_id"])
                         max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
-                return render_admin_selection_form(raw_token, event, candidates, max_performers)
+                return render_admin_selection_form(
+                    raw_token,
+                    event,
+                    candidates,
+                    max_performers,
+                    active_editor_name=lock_state.get("locked_by_name"),
+                )
             except ValueError as exc:
-                return html_error_page(str(exc), 400)
+                status_code = 409 if "currently editing this lineup" in str(exc) else 400
+                return html_error_page(str(exc), status_code)
             except Exception:
                 app.logger.exception("Admin selection form lookup failed")
                 return html_error_page("Unable to load admin selection right now.", 500)
@@ -398,6 +419,19 @@ def register_performer_workflow_routes(app):
             with connect() as connection:
                 with connection.cursor() as cursor:
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                    lock_state = acquire_admin_selection_lock(
+                        cursor,
+                        event_id=token_row["event_id"],
+                        profile_id=token_row["profile_id"],
+                        lock_minutes=get_admin_selection_lock_minutes(),
+                    )
+                    if not lock_state["acquired"]:
+                        holder_name = lock_state["locked_by_name"] or "Another admin"
+                        locked_until = format_link_expiry_local(lock_state.get("lock_expires_at"))
+                        raise ValueError(
+                            f"{holder_name} is currently editing this lineup. "
+                            f"Please try again after {locked_until}."
+                        )
                     settings = get_workflow_settings(cursor)
                     event = get_event_selection_context(cursor, token_row["event_id"])
                     candidates = get_admin_selection_candidates(cursor, token_row["event_id"])
@@ -411,6 +445,11 @@ def register_performer_workflow_routes(app):
                         max_performers=settings["max_performers_per_event"],
                     )
                     mark_action_token_used(cursor, token_row["id"])
+                    release_admin_selection_lock(
+                        cursor,
+                        event_id=token_row["event_id"],
+                        profile_id=token_row["profile_id"],
+                    )
 
                 send_selected_performer_emails(
                     event,
@@ -427,7 +466,8 @@ def register_performer_workflow_routes(app):
                 f"The selection for {event['event_name']} on {event['event_date']} has been saved.",
             )
         except ValueError as exc:
-            return html_error_page(str(exc), 400)
+            status_code = 409 if "currently editing this lineup" in str(exc) else 400
+            return html_error_page(str(exc), status_code)
         except Exception:
             app.logger.exception("Admin selection save failed")
             return html_error_page("Unable to save admin selection right now.", 500)
@@ -446,6 +486,19 @@ def register_performer_workflow_routes(app):
             with connect() as connection:
                 with connection.cursor() as cursor:
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                    lock_state = acquire_admin_selection_lock(
+                        cursor,
+                        event_id=token_row["event_id"],
+                        profile_id=token_row["profile_id"],
+                        lock_minutes=get_admin_selection_lock_minutes(),
+                    )
+                    if not lock_state["acquired"]:
+                        holder_name = lock_state["locked_by_name"] or "Another admin"
+                        locked_until = format_link_expiry_local(lock_state.get("lock_expires_at"))
+                        raise ValueError(
+                            f"{holder_name} is currently editing this lineup. "
+                            f"Please try again after {locked_until}."
+                        )
                     event = get_event_selection_context(cursor, token_row["event_id"])
                     sent = send_availability_confirmation_for_requested_date(
                         app,
@@ -462,12 +515,73 @@ def register_performer_workflow_routes(app):
                     candidates,
                     max_performers,
                     notice_message=f"Availability confirmation email sent to {sent['display_name']} ({sent['email']}).",
+                    active_editor_name=lock_state.get("locked_by_name"),
                 )
         except ValueError as exc:
-            return html_error_page(str(exc), 400)
+            status_code = 409 if "currently editing this lineup" in str(exc) else 400
+            return html_error_page(str(exc), status_code)
         except Exception:
             app.logger.exception("Admin selection confirmation resend failed")
             return html_error_page("Unable to send confirmation email right now.", 500)
+
+    @app.route("/api/forms/performer-registration/admin-selection/lock", methods=["POST"])
+    def admin_selection_lock_heartbeat():
+        raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
+        if not raw_token:
+            return error_response("A valid admin selection token is required.", 400)
+
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                    lock_state = acquire_admin_selection_lock(
+                        cursor,
+                        event_id=token_row["event_id"],
+                        profile_id=token_row["profile_id"],
+                        lock_minutes=get_admin_selection_lock_minutes(),
+                    )
+            if not lock_state["acquired"]:
+                holder_name = lock_state["locked_by_name"] or "Another admin"
+                locked_until = format_link_expiry_local(lock_state.get("lock_expires_at"))
+                return error_response(
+                    f"{holder_name} is currently editing this lineup. Please try again after {locked_until}.",
+                    409,
+                )
+
+            return jsonify(
+                {
+                    "ok": True,
+                    "locked_by": lock_state.get("locked_by_name"),
+                    "expires_at": lock_state["lock_expires_at"].isoformat(),
+                }
+            )
+        except ValueError as exc:
+            return error_response(str(exc), 400)
+        except Exception:
+            app.logger.exception("Admin selection lock heartbeat failed")
+            return error_response("Unable to refresh admin selection lock right now.", 500)
+
+    @app.route("/api/forms/performer-registration/admin-selection/lock/release", methods=["POST"])
+    def admin_selection_lock_release():
+        raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
+        if not raw_token:
+            return ("", 204)
+
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
+                    release_admin_selection_lock(
+                        cursor,
+                        event_id=token_row["event_id"],
+                        profile_id=token_row["profile_id"],
+                    )
+            return ("", 204)
+        except ValueError:
+            return ("", 204)
+        except Exception:
+            app.logger.exception("Admin selection lock release failed")
+            return ("", 204)
 
     @app.route("/api/forms/performer-registration/admin-selection/events", methods=["GET"])
     def admin_selection_events():
@@ -2153,6 +2267,133 @@ def get_open_mic_event_for_admin_selection(cursor, event_id):
     return {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
 
 
+def get_admin_selection_lock_minutes():
+    value = normalize_text(os.getenv("ADMIN_SELECTION_LOCK_MINUTES"))
+    if not value:
+        return DEFAULT_ADMIN_SELECTION_LOCK_MINUTES
+    if not value.isdigit():
+        return DEFAULT_ADMIN_SELECTION_LOCK_MINUTES
+    minutes = int(value)
+    if minutes <= 0:
+        return DEFAULT_ADMIN_SELECTION_LOCK_MINUTES
+    return minutes
+
+
+def get_profile_lock_display_name(cursor, profile_id):
+    cursor.execute(
+        """
+        SELECT first_name, last_name, display_name, email
+        FROM profiles
+        WHERE id = %s
+        """,
+        (profile_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+
+    first_name, last_name, display_name, email = row
+    full_name = " ".join(part for part in [first_name, last_name] if normalize_text(part))
+    if full_name:
+        return full_name
+    if normalize_text(display_name):
+        return display_name
+    if normalize_text(email):
+        return email
+    return f"profile #{profile_id}"
+
+
+def get_active_admin_selection_lock(cursor, event_id):
+    cursor.execute(
+        """
+        SELECT event_id, locked_by_profile_id, lock_started_at, lock_expires_at
+        FROM admin_selection_locks
+        WHERE event_id = %s
+          AND lock_expires_at > now()
+        """,
+        (event_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    return {
+        "event_id": row[0],
+        "locked_by_profile_id": row[1],
+        "lock_started_at": row[2],
+        "lock_expires_at": row[3],
+        "locked_by_name": get_profile_lock_display_name(cursor, row[1]),
+    }
+
+
+def acquire_admin_selection_lock(cursor, *, event_id, profile_id, lock_minutes):
+    cursor.execute(
+        """
+        DELETE FROM admin_selection_locks
+        WHERE lock_expires_at <= now()
+        """
+    )
+
+    lock_expires_at = now_utc() + timedelta(minutes=lock_minutes)
+    cursor.execute(
+        """
+        INSERT INTO admin_selection_locks (event_id, locked_by_profile_id, lock_started_at, lock_expires_at)
+        VALUES (%s, %s, now(), %s)
+        ON CONFLICT (event_id)
+        DO UPDATE SET
+          locked_by_profile_id = EXCLUDED.locked_by_profile_id,
+          lock_started_at = CASE
+            WHEN admin_selection_locks.locked_by_profile_id = EXCLUDED.locked_by_profile_id
+              THEN admin_selection_locks.lock_started_at
+            ELSE now()
+          END,
+          lock_expires_at = EXCLUDED.lock_expires_at
+        WHERE admin_selection_locks.locked_by_profile_id = EXCLUDED.locked_by_profile_id
+           OR admin_selection_locks.lock_expires_at <= now()
+        RETURNING event_id, locked_by_profile_id, lock_started_at, lock_expires_at
+        """,
+        (event_id, profile_id, lock_expires_at),
+    )
+    row = cursor.fetchone()
+    if row:
+        return {
+            "acquired": True,
+            "event_id": row[0],
+            "locked_by_profile_id": row[1],
+            "lock_started_at": row[2],
+            "lock_expires_at": row[3],
+            "locked_by_name": get_profile_lock_display_name(cursor, row[1]),
+        }
+
+    lock = get_active_admin_selection_lock(cursor, event_id)
+    if not lock:
+        return {
+            "acquired": False,
+            "event_id": event_id,
+            "locked_by_profile_id": None,
+            "lock_expires_at": None,
+            "locked_by_name": None,
+        }
+
+    return {
+        "acquired": False,
+        "event_id": lock["event_id"],
+        "locked_by_profile_id": lock["locked_by_profile_id"],
+        "lock_expires_at": lock["lock_expires_at"],
+        "locked_by_name": lock["locked_by_name"],
+    }
+
+
+def release_admin_selection_lock(cursor, *, event_id, profile_id):
+    cursor.execute(
+        """
+        DELETE FROM admin_selection_locks
+        WHERE event_id = %s
+          AND locked_by_profile_id = %s
+        """,
+        (event_id, profile_id),
+    )
+
+
 def get_admin_emails(cursor):
     cursor.execute(
         """
@@ -3025,7 +3266,14 @@ def render_denial_form(raw_token):
     )
 
 
-def render_admin_selection_form(raw_token, event, candidates, max_performers, notice_message=None):
+def render_admin_selection_form(
+    raw_token,
+    event,
+    candidates,
+    max_performers,
+    notice_message=None,
+    active_editor_name=None,
+):
     candidate_rows = "\n".join(
         (
             "<tr>"
@@ -3065,6 +3313,11 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers, no
         if notice_message
         else ""
     )
+    lock_notice = (
+        f"<div class=\"summary lock-banner\"><strong>Editing lock active:</strong> {html.escape(active_editor_name)} is currently editing this lineup.</div>"
+        if active_editor_name
+        else ""
+    )
 
     return (
         """
@@ -3076,6 +3329,13 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers, no
     <style>
       body { font-family: sans-serif; max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
       .summary { padding: 0.75rem 1rem; background: #f3f3f3; border: 1px solid #ddd; margin: 1rem 0; }
+      .lock-banner {
+        background: #fff4d8;
+        border-color: #efc96a;
+        color: #4d3600;
+        font-size: 1rem;
+        font-weight: 600;
+      }
       table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
       th, td { text-align: left; vertical-align: top; padding: 0.6rem; border-bottom: 1px solid #ddd; }
       select { width: 100%; max-width: 16rem; }
@@ -3092,6 +3352,7 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers, no
         + """</p>
     """
         + notice_block
+        + lock_notice
         + """
     <p>All requests for this event are shown below. Only confirmed performers can be assigned lineup status.</p>
     <div class="summary">
@@ -3126,12 +3387,39 @@ def render_admin_selection_form(raw_token, event, candidates, max_performers, no
       (function () {
         const selects = [...document.querySelectorAll('[data-lineup-status]')];
         const countNode = document.getElementById('selected-count');
+        const token = """
+        + json.dumps(raw_token)
+        + """;
+        const heartbeatUrl = `/api/forms/performer-registration/admin-selection/lock?token=${encodeURIComponent(token)}`;
+        const releaseUrl = `/api/forms/performer-registration/admin-selection/lock/release?token=${encodeURIComponent(token)}`;
         function updateSelectedCount() {
           const count = selects.filter((node) => node.value === 'selected').length;
           countNode.textContent = String(count);
         }
+        async function refreshLock() {
+          try {
+            const response = await fetch(heartbeatUrl, {
+              method: 'POST',
+              credentials: 'same-origin',
+              keepalive: true
+            });
+            if (response.status === 409) {
+              const payload = await response.json().catch(() => ({}));
+              window.alert(payload.error || 'Another admin is now editing this lineup.');
+              window.location.reload();
+            }
+          } catch (error) {
+            // Ignore transient network issues and keep the page usable.
+          }
+        }
         selects.forEach((node) => node.addEventListener('change', updateSelectedCount));
         updateSelectedCount();
+        window.setInterval(refreshLock, 60000);
+        window.addEventListener('beforeunload', () => {
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(releaseUrl);
+          }
+        });
       }());
     </script>
   </body>

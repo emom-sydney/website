@@ -74,6 +74,7 @@ It currently handles:
 - moderator approve/deny actions
 - availability confirm/cancel actions
 - admin lineup selection
+  - includes event-level edit locking so only one admin edits a lineup at a time
 - standby promotion after cancellations
 
 Supporting scripts:

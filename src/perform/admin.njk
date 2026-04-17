@@ -5,7 +5,7 @@ permalink: "/perform/admin/index.html"
 ---
 <h2>Performer Admin</h2>
 
-<p>Use this page to request a fresh admin selection link for an upcoming Open Mic date. If the email address belongs to an admin profile, a one-time link will be sent.</p>
+<p>Use this page to organise acts for an upcoming Open Mic date.</p>
 
 <form id="performer-admin-start-form">
   <label for="performer-admin-event">Date to edit</label>
@@ -13,10 +13,10 @@ permalink: "/perform/admin/index.html"
     <option value="">Loading upcoming dates...</option>
   </select>
 
-  <label for="performer-admin-email">Admin email address</label>
+  <label for="performer-admin-email">Enter your email address (must be a site admin)</label>
   <input type="email" id="performer-admin-email" name="email" required>
 
-  <button type="submit">Email admin link</button>
+  <button type="submit">Send admin link</button>
 </form>
 
 <div id="performer-admin-status" aria-live="polite"></div>
@@ -121,7 +121,7 @@ permalink: "/perform/admin/index.html"
         if (!response.ok || !result.ok) {
           throw new Error(result.error || "Unable to send admin link.");
         }
-        setStatus(result.message || "If that email belongs to an admin, a fresh link has been sent.");
+        setStatus(result.message || "If the email belongs to a site admin, a fresh link has been sent.");
       } catch (error) {
         setStatus(error.message || "Unable to send admin link.");
       }

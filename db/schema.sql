@@ -174,6 +174,13 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS admin_selection_locks (
+  event_id integer PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+  locked_by_profile_id integer NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  lock_started_at timestamptz NOT NULL DEFAULT now(),
+  lock_expires_at timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS merch_items (
   id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   slug text NOT NULL UNIQUE,
@@ -222,6 +229,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_visible_window
   ON profiles(profile_visible_from, profile_expires_on);
 CREATE INDEX IF NOT EXISTS idx_profile_images_profile_id ON profile_images(profile_id);
 CREATE INDEX IF NOT EXISTS idx_profile_social_profiles_profile_id ON profile_social_profiles(profile_id);
+CREATE INDEX IF NOT EXISTS idx_admin_selection_locks_expires_at ON admin_selection_locks(lock_expires_at);
 CREATE INDEX IF NOT EXISTS idx_profile_social_profiles_platform_id ON profile_social_profiles(social_platform_id);
 CREATE INDEX IF NOT EXISTS idx_profile_roles_role ON profile_roles(role);
 CREATE INDEX IF NOT EXISTS idx_profile_submission_drafts_profile_status

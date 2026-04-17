@@ -88,6 +88,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   requested_dates,
   moderation_actions,
   event_performer_selections,
+  admin_selection_locks,
   merch_interest_submissions,
   merch_interest_lines,
   merch_variants
