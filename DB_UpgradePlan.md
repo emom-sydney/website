@@ -41,7 +41,7 @@ Adjust names to your environment:
 
 - Current production DB: `emomweb`
 - In-DB staging copy: `emomweb_stage`
-- Safety backup copy at cutover: `emomweb_prev`
+- Safety backup copy at cutover: `emomweb_old`
 
 ## Phase 1: Generate and Review Catch-up SQL
 
@@ -179,58 +179,14 @@ After rehearsal success, proceed to cutover.
 
 ## Phase 3: Cutover
 
-Two cutover models are supported. Prefer Option A where possible.
-
-## Option A (Preferred): Repoint services to upgraded DB name
-
-Use when changing `PGDATABASE`/`DATABASE_URL` in services is acceptable.
-
-1. Keep `emomweb` untouched as rollback source.
+1. Stop forms bridge + scheduled jobs (freeze writes).
 2. Upgrade `emomweb_stage` as above.
-3. Update service env to use `emomweb_stage`:
-   - forms bridge env file (commonly `/etc/emom/forms_bridge.env`)
-   - any build/deploy env that runs Eleventy with Postgres
-4. Restart services/jobs.
-5. Validate.
-6. Optionally rename DBs later for naming hygiene during a separate maintenance window.
-
-Pros: easiest rollback (switch env back). No DB rename risk.
-
-## Option B: Rename-based in-place swap (your proposed approach)
-
-Use when application config must keep `PGDATABASE=emomweb`.
-
-### 1. Preconditions
-
-- forms bridge stopped
-- scheduled jobs stopped
-- no active writer sessions
-
-### 2. Perform atomic-ish DB name swap
-
-Run as superuser in `postgres` DB:
-
-```sql
-\c postgres
-
--- block until no one is connected to prod/stage names
-SELECT pg_terminate_backend(pid)
-FROM pg_stat_activity
-WHERE datname IN ('emomweb', 'emomweb_stage', 'emomweb_prev')
-  AND pid <> pg_backend_pid();
-
-DROP DATABASE IF EXISTS emomweb_prev;
-ALTER DATABASE emomweb RENAME TO emomweb_prev;
-ALTER DATABASE emomweb_stage RENAME TO emomweb;
-```
-
-### 3. Bring services back
-
-```bash
-sudo systemctl start emom-forms-bridge
-sudo systemctl start emom-send-availability-reminders || true
-sudo systemctl start emom-send-admin-selection-links || true
-```
+3. Terminate active DB sessions to `emomweb`/`emomweb_stage`.
+4. Rename DBs: `emomweb -> emomweb_old`, `emomweb_stage -> emomweb`.
+5. Keep service env on `PGDATABASE=emomweb` (usually no env change needed).
+6. Restart services/jobs.
+7. Validate.
+8. Keep `emomweb_old` for rollback window, then drop later.
 
 ### 4. Post-cutover checks
 
@@ -256,18 +212,13 @@ Application checks:
 2. reminder/admin selection scripts start without schema errors
 3. Eleventy build (`npx @11ty/eleventy`) succeeds with production reader credentials
 
-## Phase 5 (Optional but Recommended): Data Integrity Fingerprint Check
+## Phase 5: Data Integrity Fingerprint Check
 
 This verifies no unexpected data changed during the upgrade.
 
-Use this when:
-
-- writes were paused for the maintenance window, and
-- you want before/after evidence that data rows did not drift.
-
 ### 1. Capture pre-upgrade snapshot from source prod DB
 
-Run before applying changes (or before rename cutover) and save outputs:
+Run before applying changes
 
 ```bash
 psql --dbname=emomweb --set ON_ERROR_STOP=1 --file=/tmp/data-fingerprint.sql > /tmp/prod-before-fingerprint.txt
@@ -375,11 +326,11 @@ If immediate rollback is needed:
 \c postgres
 SELECT pg_terminate_backend(pid)
 FROM pg_stat_activity
-WHERE datname IN ('emomweb', 'emomweb_prev')
+WHERE datname IN ('emomweb', 'emomweb_old')
   AND pid <> pg_backend_pid();
 
 ALTER DATABASE emomweb RENAME TO emomweb_bad;
-ALTER DATABASE emomweb_prev RENAME TO emomweb;
+ALTER DATABASE emomweb_old RENAME TO emomweb;
 ```
 
 Then restart services.
@@ -403,7 +354,7 @@ Ensure these are verified at cutover:
 
 ## Operational Notes
 
-- Do not drop old prod immediately after cutover. Keep `emomweb_prev` until confidence window passes.
+- Do not drop old prod immediately after cutover. Keep `emomweb_old` until confidence window passes.
 - If a column already exists (for example `events.youtube_embed_url`), additive migrations with `IF NOT EXISTS` are safe and should not require pre-deletion.
 - Preserve migration files in git history even if using catch-up scripts for release upgrades.
 
