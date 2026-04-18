@@ -23,6 +23,13 @@ The site currently includes:
 - merch interest form
 - performer registration and moderation workflow for Open Mic events
 
+### Starting to introduce role based actions.
+
+| Volunteer role | Description | Key constraints |
+|---|---|---|
+| moderator | Gets moderation emails/links for approving or denying performer submissions, plus reminder/open-slot/backup-selection notifications. | Must be a `person`, and must have `profile_roles.role = 'volunteer'`. |
+| admin | Gets admin lineup-selection links and can start/access the admin selection flow for event lineup curation. | Must be a `person`, and must have `profile_roles.role = 'volunteer'`. |
+
 ## Build Process
 To build the site files, from the top level directory run
 ```
@@ -78,17 +85,17 @@ Then build normally with Eleventy.
 
 ## Forms Bridge
 
-The forms bridge is a small Flask app used because Eleventy pages are static and cannot write directly to Postgres.
+The forms bridge is a small Flask app for handling a variety of form inputs on the site.
 
 It currently handles:
 
-- `POST /api/forms/merch-interest`
-- performer registration start/session/submit
-- moderator approve/deny actions
-- availability confirm/cancel actions
-- admin lineup selection
-  - includes event-level edit locking so only one admin edits a lineup at a time
-- standby promotion after cancellations
+- A merch survey form
+- TODO: Regular contact form
+- [performer registration workflow](PERFORMER_WORKFLOW_FLOW.md)
+  - moderator approve/deny actions
+  - availability confirm/cancel actions
+  - final lineup selection for an event
+  - standby promotion after cancellations
 
 Supporting scripts:
 
@@ -102,15 +109,13 @@ Bridge deployment and runtime details live in:
 
 ## Public Data Rules
 
-Public artist pages are now filtered by approval and visibility:
+Public artist pages are filtered by approval and visibility:
 
 - `is_profile_approved = true`
 - `profile_visible_from IS NULL OR <= CURRENT_DATE`
 - `profile_expires_on >= CURRENT_DATE`
 
-Planned future lineups are stored in `event_performer_selections`.
-
-Actual played lineups should still end up in `performances`.
+Planned future lineups are stored in `event_performer_selections`, actual played lineups are in `performances`.
 
 ## Galleries
 
@@ -121,8 +126,8 @@ Gallery pages are hybrid:
 
 To add a gallery for an event:
 
-1. upload files to `s3://sydney.emom.me/gallery/<galleryname>`
-2. set `events.gallery_url` to `<galleryname>`
+1. TODO: upload files to media server (currently a manual process involving ssh tunnels on non-standard ports through a jump host - not worth documenting ;)
+2. set `events.gallery_url` to `<galleryname>` (TODO: more correct would be `events.gallery_slug`) 
 3. rebuild the site
 4. deploy `_site/`
 
