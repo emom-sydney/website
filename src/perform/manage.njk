@@ -1,0 +1,92 @@
+---
+layout: "main.njk"
+pageTitle: "Manage Performance Interest"
+---
+
+<div class="workflow-stack">
+  <section class="workflow-card">
+    <h2>Manage your performance interest</h2>
+    <p class="workflow-lead">Use the private link from your email. This page lets you confirm, withdraw, request changes, or update your details without logging in.</p>
+    <div id="manage-load-status" class="workflow-status" aria-live="polite">Loading…</div>
+  </section>
+
+  <section id="manage-shell" class="workflow-stack" hidden>
+    <section class="workflow-card">
+      <div class="workflow-summary">
+        <div>
+          <div class="workflow-eyebrow">Current event</div>
+          <h2 id="manage-event-name"></h2>
+        </div>
+        <div>
+          <div class="workflow-eyebrow">Status</div>
+          <div id="manage-status-badge" class="status-badge"></div>
+        </div>
+      </div>
+
+      <p id="manage-last-note" class="workflow-note" hidden></p>
+
+      <form id="manage-details-form" class="workflow-form">
+        <label>Name
+          <input type="text" name="name" required>
+        </label>
+
+        <label>Stage name
+          <input type="text" name="stageName">
+        </label>
+
+        <label>Email
+          <input type="email" name="email" required>
+        </label>
+
+        <label>Mobile
+          <input type="text" name="mobile" required>
+        </label>
+
+        <label>Link
+          <input type="url" name="socials" placeholder="https://">
+        </label>
+
+        <label>Short set description
+          <textarea name="setDescription" rows="4" required></textarea>
+        </label>
+
+        <label>Gear / setup notes
+          <textarea name="gearNotes" rows="3"></textarea>
+        </label>
+
+        <label>Availability or change context
+          <textarea name="availability" rows="3"></textarea>
+        </label>
+
+        <button type="submit">Save details</button>
+      </form>
+    </section>
+
+    <section class="workflow-card">
+      <h2>Actions</h2>
+      <div class="action-row">
+        <button id="confirm-button" type="button" class="button-secondary">Confirm</button>
+        <button id="withdraw-button" type="button" class="button-danger">Withdraw</button>
+      </div>
+
+      <label>Change or withdrawal note
+        <textarea id="manage-action-note" rows="4" placeholder="Add context for organisers"></textarea>
+      </label>
+
+      <button id="request-change-button" type="button">Request changes</button>
+      <div id="manage-action-status" class="workflow-status" aria-live="polite"></div>
+    </section>
+
+    <section class="workflow-card">
+      <h2>Recent activity</h2>
+      <div id="manage-history" class="history-list"></div>
+    </section>
+  </section>
+</div>
+
+<script>
+  window.__WORKFLOW_CONFIG = {
+    apiBase: {{ workflowConfig.apiBase | dump | safe }}
+  };
+</script>
+<script type="module" src="/assets/js/perform-manage.js"></script>

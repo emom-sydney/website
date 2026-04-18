@@ -1,10 +1,15 @@
 {
   "type": "module",
+  "scripts": {
+    "admin:serve": "node scripts/admin-api.mjs"
+  },
   "dependencies": {
     "@11ty/eleventy-img": "^6.0.4",
     "@aws-sdk/client-s3": "^3.910.0",
+    "@aws-sdk/s3-request-presigner": "^3.910.0",
     "aws-sdk": "^2.1693.0",
     "csv-parse": "^6.1.0",
+    "nodemailer": "^8.0.2",
     "npm": "^11.6.2",
     "package.json": "^0.0.0",
     "sharp": "^0.34.5"

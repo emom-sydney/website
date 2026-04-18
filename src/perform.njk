@@ -1,33 +1,71 @@
 ---
 layout: "main.njk"
+pageTitle: "Perform"
 ---
-<h2>Performer Registration</h2>
 
-<p> Please <a href="mailto:emom.sydney@gmail.com">email us</a> if you'd like to play at emom.sydney.</p>
+<div class="workflow-stack">
+  <section class="workflow-card">
+    <h2>Register interest to perform</h2>
+    <p class="workflow-lead">Use this form for a specific event. We will email you a private link so you can confirm later, withdraw, or update details without needing an account.</p>
 
+    <form id="perform-interest-form" class="workflow-form">
+      <label>Name
+        <input type="text" name="name" autocomplete="name" required>
+      </label>
 
-<!-- 
-<p>If you wish to play at our event, you just need to show up on the night. That's what "open mic" means after all :) 
-<p>Having said that, we realise it's a bit different when you've got a boot load of gear to wrangle, so you can pre-register your intention to play by filling out this form. 
-<form id="web-form">
-      <input type="hidden" id="formtype" name="formtype" value="preregistration">
+      <label>Stage name
+        <input type="text" name="stageName" autocomplete="nickname">
+      </label>
 
-      <label for="name">Name:</label>
-      <input type="text" id="name" name="name" required>
+      <label>Email
+        <input type="email" name="email" autocomplete="email" required>
+      </label>
 
-      <label for="email">Email:</label>
-      <input type="email" id="email" name="email" required>
+      <label>Mobile
+        <input type="text" name="mobile" autocomplete="tel" required>
+      </label>
 
-      <label for="mobile">Mobile:</label>
-      <input type="text" id="mobile" name="mobile" required>
+      <label>Event
+        <select name="eventId" required>
+          <option value="">Choose an event</option>
+          {% for event in events %}
+          <option value="{{ event.ID }}">{{ event.EventName }}{% if event.Date %} ({{ event.Date }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
 
-      <label for="message">Brief description of your set:</label>
-      <textarea id="message" name="message" rows="5" required></textarea>
+      <label>Short set description
+        <textarea name="setDescription" rows="4" required></textarea>
+      </label>
 
-      <label for="url">Your preferred URL (social media, bandcamp, etc):</label>
-      <textarea id="url" name="url" rows="1" required></textarea>
-      
-      <button type="submit">Submit</button> 
-</form>
-<script src="/assets/scripts/process_forms.js"></script>
--->
+      <label>Gear / setup notes
+        <textarea name="gearNotes" rows="3"></textarea>
+      </label>
+
+      <label>Link
+        <input type="url" name="socials" placeholder="https://">
+      </label>
+
+      <button type="submit">Send interest</button>
+    </form>
+
+    <div id="perform-interest-status" class="workflow-status" aria-live="polite"></div>
+  </section>
+
+  <section class="workflow-card workflow-card-muted">
+    <h2>What happens next</h2>
+    <ul class="workflow-list">
+      <li>You submit interest for one event.</li>
+      <li>Organisers review it in a queue.</li>
+      <li>You receive an email with a private manage link.</li>
+      <li>From that link you can confirm, withdraw, request changes, or edit your details.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+  window.__WORKFLOW_CONFIG = {
+    apiBase: {{ workflowConfig.apiBase | dump | safe }}
+  };
+</script>
+<script type="module" src="/assets/js/perform-interest.js"></script>

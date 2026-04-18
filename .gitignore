@@ -4,5 +4,6 @@ package-lock.json
 _site
 .vscode
 .cache
+data
 assets/img/th/*
 assets/img/bg/*

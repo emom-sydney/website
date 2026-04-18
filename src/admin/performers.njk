@@ -1,0 +1,80 @@
+---
+layout: "main.njk"
+pageTitle: "Admin: Performer Workflow"
+---
+
+<div class="admin-panel">
+  <div class="admin-card">
+    <div class="workflow-summary">
+      <div>
+        <h2>Organiser queue</h2>
+        <p class="admin-help">Review performer interest, send templated replies, and manage confirmations without relying on email threads.</p>
+      </div>
+      <p><a href="/admin/index.html">Switch to media uploads</a></p>
+    </div>
+
+    <form id="workflow-admin-login-form" class="workflow-form workflow-form-tight">
+      <label>API base
+        <input name="apiBase" type="text" value="{{ adminConfig.apiBase }}" autocomplete="off">
+      </label>
+      <label>Username
+        <input name="username" type="text" autocomplete="username" required>
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit">Save credentials</button>
+    </form>
+
+    <div class="action-row">
+      <p id="workflow-admin-status" class="admin-status">Not authenticated</p>
+      <button id="workflow-refresh-button" type="button" class="button-secondary">Refresh queue</button>
+    </div>
+  </div>
+
+  <div id="workflow-queue" class="workflow-queue" aria-live="polite"></div>
+</div>
+
+<dialog id="workflow-action-dialog" class="workflow-dialog">
+  <form id="workflow-action-form" method="dialog" class="workflow-form">
+    <input type="hidden" name="interestId">
+    <input type="hidden" name="action">
+
+    <div class="workflow-summary">
+      <div>
+        <div class="workflow-eyebrow">Reply template</div>
+        <h2 id="workflow-action-title">Action</h2>
+      </div>
+      <button id="workflow-dialog-close" type="button" class="button-secondary">Close</button>
+    </div>
+
+    <label>Internal note
+      <textarea name="note" rows="4"></textarea>
+    </label>
+
+    <label class="checkbox-label">
+      <input type="checkbox" name="sendEmail">
+      Send email to performer
+    </label>
+
+    <label>Email subject
+      <input type="text" name="emailSubject">
+    </label>
+
+    <label>Email body
+      <textarea name="emailBody" rows="12"></textarea>
+    </label>
+
+    <div class="action-row">
+      <button type="submit">Apply action</button>
+      <p id="workflow-dialog-status" class="workflow-status"></p>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  window.__WORKFLOW_ADMIN_CONFIG = {
+    apiBase: {{ adminConfig.apiBase | dump | safe }}
+  };
+</script>
+<script type="module" src="/assets/js/admin-performers.js"></script>
