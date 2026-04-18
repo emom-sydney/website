@@ -91,7 +91,33 @@ body {
   max-width: 800px;
   margin: 0 auto;
   list-style: none;
-}  
+  padding-left: 0;
+}
+
+ul {
+  list-style: none;
+  padding-left: 1.2rem;
+}
+
+ul li {
+  position: relative;
+}
+
+ul li::before {
+  content: "";
+  position: absolute;
+  left: -0.8rem;
+  width: 8px;
+  height: 8px;
+  background: url('/assets/img/icons/li-bullet.png') no-repeat center / contain;
+
+  /* center on first line */
+  top: calc(0.5lh - 4px);   /* 4px = half of 8px bullet */
+}
+
+.galleryList li::before {
+  content: none;
+}
 
 .event-video {
   margin: 1.5rem 0 2rem;
