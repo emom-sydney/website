@@ -93,6 +93,24 @@ body {
   list-style: none;
 }  
 
+.event-video {
+  margin: 1.5rem 0 2rem;
+}
+
+.event-video-embed {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.event-video-embed iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 form label {
   display: block;
   margin-bottom: 10px;

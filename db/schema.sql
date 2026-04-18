@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS events (
   type_id integer NOT NULL REFERENCES event_types(id),
   event_name text NOT NULL,
   gallery_url text UNIQUE,
+  youtube_embed_url text,
   admin_selection_email_sent_at timestamptz
 );
 

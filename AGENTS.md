@@ -85,6 +85,7 @@ Important model details:
 - `action_tokens` powers all one-time emailed workflow links
 - `app_settings` stores configurable workflow values in `jsonb`
 - gallery identity comes from `events.gallery_url`
+- optional per-event gallery video is stored on `events.youtube_embed_url`
 
 ## Where Relational Data Is Used
 
@@ -100,6 +101,7 @@ Primary relational usage is concentrated in a few places:
   - crew detail pages
 - `src/gallery/gallery.11ty.js`
   - gallery pages use relational event/profile metadata plus live S3 media listings
+  - root event gallery pages may render an embedded YouTube video sourced from `events.youtube_embed_url`
 - `src/perform.njk`
   - performer registration start + token-backed submission page
 
@@ -124,6 +126,10 @@ Compatibility notes:
 - role cross-links are already attached in the loader:
   - artist pages may have `volunteerProfile`
   - volunteer pages may have `artistProfile`
+- gallery event metadata includes optional `YouTubeEmbedURL` on `eventsByGalleryUrl` entries
+  - accepted DB inputs include watch/share/embed/shorts/live URLs, raw 11-char IDs, or pasted iframe HTML
+  - rendering normalizes valid values to `https://www.youtube-nocookie.com/embed/<VIDEO_ID>`
+  - if normalization fails, gallery pages render an `Open event video` fallback link
 - public artist pages are filtered to approved, currently visible, non-expired profiles
 
 ## Shared Rendering Code
@@ -231,6 +237,7 @@ Notable migrations in the repo:
 - `2026-04-04-admin-selection-workflow.sql`
 - `2026-04-05-cooldown-backup-status.sql`
 - `2026-04-15-standby-reserve-status.sql`
+- `2026-04-17-events-youtube-embed.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 

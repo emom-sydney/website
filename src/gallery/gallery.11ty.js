@@ -17,6 +17,66 @@ const makeNode = () => ({ files: [], children: new Map() });
 // Helper: sanitize part for URL path (keep letters, numbers, - and _)
 const safePart = (s) => String(s).trim().replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function extractYouTubeVideoId(value) {
+  let input = String(value || "").trim();
+  if (!input) return null;
+
+  // Accept pasted iframe embed snippets from YouTube share dialogs.
+  if (input.toLowerCase().includes("<iframe")) {
+    const srcMatch = input.match(/src=(["'])(.*?)\1/i);
+    if (srcMatch && srcMatch[2]) {
+      input = srcMatch[2].trim();
+    }
+  }
+
+  // Allow a raw video ID for manual DB entry.
+  if (/^[A-Za-z0-9_-]{11}$/.test(input)) return input;
+
+  try {
+    const url = new URL(input);
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+
+    if (hostname === "youtu.be") {
+      return (url.pathname.split("/").filter(Boolean)[0] || "").trim() || null;
+    }
+
+    if (
+      hostname === "youtube.com" ||
+      hostname === "m.youtube.com" ||
+      hostname === "music.youtube.com" ||
+      hostname === "youtube-nocookie.com"
+    ) {
+      const pathParts = url.pathname.split("/").filter(Boolean);
+
+      if (pathParts[0] === "embed" || pathParts[0] === "shorts" || pathParts[0] === "live") {
+        return (pathParts[1] || "").trim() || null;
+      }
+
+      const watchId = url.searchParams.get("v");
+      if (watchId) return watchId.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getYouTubeNoCookieEmbedUrl(value) {
+  const videoId = extractYouTubeVideoId(value);
+  if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+  return `https://www.youtube-nocookie.com/embed/${videoId}`;
+}
+
 function getGalleryHeading(page, emom) {
   if (page?.topIndex) return "Event Galleries";
   if (!page) return "";
@@ -150,6 +210,9 @@ export default async function render(data) {
   const eventArtists = !pathParts.length && data.emom.eventsByGalleryUrl[gallery]
     ? data.emom.eventsByGalleryUrl[gallery].artists
     : [];
+  const eventYouTubeEmbedUrl = !pathParts.length && data.emom.eventsByGalleryUrl[gallery]
+    ? data.emom.eventsByGalleryUrl[gallery].YouTubeEmbedURL
+    : null;
 
   // Build breadcrumb trail:
   // - "Galleries" -> /gallery/index.html
@@ -175,6 +238,33 @@ export default async function render(data) {
 
   let html = `<p class="breadcrumbs">${bcHtml}</p>\n`;
   html += `<h2>Gallery: ${heading}</h2>\n`;
+
+  const normalizedEmbedUrl = getYouTubeNoCookieEmbedUrl(eventYouTubeEmbedUrl);
+  if (!pathParts.length && normalizedEmbedUrl) {
+    const embedTitle = escapeHtml(`${heading} video`);
+    html += `
+<section class="event-video">
+  <div class="event-video-embed">
+    <iframe
+      src="${normalizedEmbedUrl}"
+      title="${embedTitle}"
+      loading="lazy"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allowfullscreen>
+    </iframe>
+  </div>
+</section>
+`;
+  } else if (!pathParts.length && String(eventYouTubeEmbedUrl || "").trim()) {
+    const safeVideoUrl = escapeHtml(String(eventYouTubeEmbedUrl).trim());
+    html += `
+<section class="event-video">
+  <h3>Event Video</h3>
+  <p><a href="${safeVideoUrl}" target="_blank" rel="noopener">Open event video</a></p>
+</section>
+`;
+  }
 
   // If this is a root gallery page and there are artists, list them
   if (!pathParts.length && eventArtists.length) {

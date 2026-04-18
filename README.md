@@ -39,8 +39,21 @@ To add a gallery for an event:
  - sync to the test webserver `rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/test.emom.me/`
  - sync to the live webserver `rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/`
 
+To add an event video embed on a gallery page:
+ - set `events.youtube_embed_url` for the event row that has the matching `events.gallery_url`
+ - accepted values include:
+   - `https://www.youtube.com/watch?v=VIDEO_ID`
+   - `https://youtu.be/VIDEO_ID`
+   - `https://www.youtube.com/embed/VIDEO_ID`
+   - `https://www.youtube.com/shorts/VIDEO_ID`
+   - `https://www.youtube.com/live/VIDEO_ID`
+   - raw `VIDEO_ID` (11 chars)
+   - pasted iframe embed HTML (the `src` URL is extracted)
+ - the site normalizes valid inputs to a privacy-enhanced embed URL on render:
+   - `https://www.youtube-nocookie.com/embed/VIDEO_ID`
+ - if a value is present but cannot be normalized, gallery pages show a fallback `Open event video` link instead of an iframe
 
-## Postgres Runtime
+## Postgres runtime
 
 The site now reads relational data from Postgres through the SSH tunnel documented in [DB_SETUP.md](./DB_SETUP.md).
 
