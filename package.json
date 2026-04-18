@@ -3,7 +3,6 @@
   "dependencies": {
     "@11ty/eleventy-img": "^6.0.4",
     "npm": "^11.6.2",
-    "package.json": "^0.0.0",
     "pg": "^8.20.0",
     "sharp": "^0.34.5"
   },
@@ -16,5 +15,8 @@
     "deploy:forms:restart": "ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge-test'",
     "deploy:dev": "rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/test.emom.me/ && rsync -rv --delete forms_bridge/ root@sydney.emom.me:/opt/emom/website-test/forms_bridge/ && ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge-test'",
     "deploy:prod": "rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/ && rsync -rv --delete forms_bridge/ root@sydney.emom.me:/opt/emom/website/forms_bridge/ && ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge'"
+  },
+  "engines": {
+    "node": "24.15.0"
   }
 }

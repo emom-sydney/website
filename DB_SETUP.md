@@ -206,9 +206,9 @@ Add this to `~/.ssh/config` on the local machine:
 
 ```sshconfig
 Host emom-db
-    HostName your.server.example
+    HostName sydney.emom.me
     User emom-db-tunnel
-    IdentityFile ~/.ssh/emom_db_tunnel
+    IdentityFile ~/.ssh/{the private key who's public key you sent to Stewart}
     IdentitiesOnly yes
     LocalForward 15432 127.0.0.1:5432
 ```
