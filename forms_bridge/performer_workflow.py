@@ -3243,37 +3243,25 @@ def send_mail(to_address, subject, body):
 
 def render_denial_form(raw_token):
     safe_token = html.escape(raw_token, quote=True)
-    return (
-        """
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Deny performer profile</title>
-    <style>
-      body { font-family: sans-serif; max-width: 48rem; margin: 2rem auto; padding: 0 1rem; }
-      textarea { width: 100%; min-height: 12rem; }
-      .checkbox { display: flex; gap: 0.5rem; align-items: flex-start; margin-top: 1rem; }
-      button { margin-top: 1rem; }
-    </style>
-  </head>
-  <body>
-    <h1>Deny performer profile</h1>
-    <form method="post">
-      <input type="hidden" name="token" value=\""""
-        + safe_token
-        + """\">
-      <label for="reason">Reason</label>
-      <textarea id="reason" name="reason" required></textarea>
-      <label class="checkbox">
-        <input type="checkbox" name="include_edit_link" value="1" checked>
-        <span>Include a fresh one-time edit link in the email to the performer</span>
-      </label>
-      <button type="submit">Send denial</button>
-    </form>
-  </body>
-</html>
-"""
+    content_html = (
+        "<div class='token-form-card'>"
+        "<h1>Deny performer profile</h1>"
+        "<form method='post'>"
+        f"<input type='hidden' name='token' value='{safe_token}'>"
+        "<label for='reason'>Reason</label>"
+        "<textarea id='reason' name='reason' required></textarea>"
+        "<label class='checkbox'>"
+        "<input type='checkbox' name='include_edit_link' value='1' checked>"
+        "<span>Include a fresh one-time edit link in the email to the performer</span>"
+        "</label>"
+        "<button type='submit'>Send denial</button>"
+        "</form>"
+        "</div>"
+    )
+    return render_token_page(
+        title="Deny performer profile",
+        content_html=content_html,
+        layout_class="token-layout token-layout--narrow",
     )
 
 
@@ -3320,9 +3308,7 @@ def render_admin_selection_form(
     ) or "<tr><td colspan=\"6\">No performer requests are available for this event.</td></tr>"
 
     notice_block = (
-        f"<div class=\"summary\" style=\"background:#edf7ed;border-color:#c4e3c4;\">{html.escape(notice_message)}</div>"
-        if notice_message
-        else ""
+        f"<div class=\"summary notice-success\">{html.escape(notice_message)}</div>" if notice_message else ""
     )
     lock_notice = (
         f"<div class=\"summary lock-banner\"><strong>Editing lock active:</strong> {html.escape(active_editor_name)} is currently editing this lineup.</div>"
@@ -3330,112 +3316,86 @@ def render_admin_selection_form(
         else ""
     )
 
-    return (
-        """
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Admin lineup selection</title>
-    <style>
-      body { font-family: sans-serif; max-width: 72rem; margin: 2rem auto; padding: 0 1rem; }
-      .summary { padding: 0.75rem 1rem; background: #f3f3f3; border: 1px solid #ddd; margin: 1rem 0; }
-      .lock-banner {
-        background: #fff4d8;
-        border-color: #efc96a;
-        color: #4d3600;
-        font-size: 1rem;
-        font-weight: 600;
-      }
-      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-      th, td { text-align: left; vertical-align: top; padding: 0.6rem; border-bottom: 1px solid #ddd; }
-      select { width: 100%; max-width: 16rem; }
-      button { margin-top: 1rem; }
-    </style>
-  </head>
-  <body>
-    <h1>Admin lineup selection</h1>
-    <p><strong>Event:</strong> """
+    content_html = (
+        "<div class='token-form-card admin-selection-card'>"
+        "<h1>Admin lineup selection</h1>"
+        "<p><strong>Event:</strong> "
         + html.escape(event["event_name"])
-        + """</p>
-    <p><strong>Date:</strong> """
+        + "</p>"
+        "<p><strong>Date:</strong> "
         + html.escape(event["event_date"])
-        + """</p>
-    """
+        + "</p>"
         + notice_block
         + lock_notice
-        + """
-    <p>All requests for this event are shown below. Only confirmed performers can be assigned lineup status.</p>
-    <div class="summary">
-      <strong>Total selected to perform:</strong>
-      <span id="selected-count">0</span>
-      <span> / """
+        + "<p>All requests for this event are shown below. Only confirmed performers can be assigned lineup status.</p>"
+        "<div class='summary'>"
+        "<strong>Total selected to perform:</strong> "
+        "<span id='selected-count'>0</span>"
+        "<span> / "
         + html.escape(str(max_performers))
-        + """</span>
-    </div>
-    <form method="post">
-      <input type="hidden" name="token" value=\""""
+        + "</span>"
+        "</div>"
+        "<form method='post'>"
+        "<input type='hidden' name='token' value='"
         + html.escape(raw_token, quote=True)
-        + """\">
-      <table>
-        <thead>
-          <tr>
-            <th>Artist</th>
-            <th>Contact</th>
-            <th>Availability</th>
-            <th>Current lineup</th>
-            <th>Set lineup status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>"""
+        + "'>"
+        "<table>"
+        "<thead>"
+        "<tr>"
+        "<th>Artist</th>"
+        "<th>Contact</th>"
+        "<th>Availability</th>"
+        "<th>Current lineup</th>"
+        "<th>Set lineup status</th>"
+        "<th>Actions</th>"
+        "</tr>"
+        "</thead>"
+        "<tbody>"
         + candidate_rows
-        + """</tbody>
-      </table>
-      <button type="submit">Save lineup</button>
-    </form>
-    <script>
-      (function () {
-        const selects = [...document.querySelectorAll('[data-lineup-status]')];
-        const countNode = document.getElementById('selected-count');
-        const token = """
-        + json.dumps(raw_token)
-        + """;
-        const heartbeatUrl = `/api/forms/performer-registration/admin-selection/lock?token=${encodeURIComponent(token)}`;
-        const releaseUrl = `/api/forms/performer-registration/admin-selection/lock/release?token=${encodeURIComponent(token)}`;
-        function updateSelectedCount() {
-          const count = selects.filter((node) => node.value === 'selected').length;
-          countNode.textContent = String(count);
-        }
-        async function refreshLock() {
-          try {
-            const response = await fetch(heartbeatUrl, {
-              method: 'POST',
-              credentials: 'same-origin',
-              keepalive: true
-            });
-            if (response.status === 409) {
-              const payload = await response.json().catch(() => ({}));
-              window.alert(payload.error || 'Another admin is now editing this lineup.');
-              window.location.reload();
-            }
-          } catch (error) {
-            // Ignore transient network issues and keep the page usable.
-          }
-        }
-        selects.forEach((node) => node.addEventListener('change', updateSelectedCount));
-        updateSelectedCount();
-        window.setInterval(refreshLock, 60000);
-        window.addEventListener('beforeunload', () => {
-          if (navigator.sendBeacon) {
-            navigator.sendBeacon(releaseUrl);
-          }
-        });
-      }());
-    </script>
-  </body>
-</html>
-"""
+        + "</tbody>"
+        "</table>"
+        "<button type='submit'>Save lineup</button>"
+        "</form>"
+        "</div>"
+    )
+    extra_scripts = (
+        "<script>"
+        "(function () {"
+        "const selects = [...document.querySelectorAll('[data-lineup-status]')];"
+        "const countNode = document.getElementById('selected-count');"
+        f"const token = {json.dumps(raw_token)};"
+        "const heartbeatUrl = `/api/forms/performer-registration/admin-selection/lock?token=${encodeURIComponent(token)}`;"
+        "const releaseUrl = `/api/forms/performer-registration/admin-selection/lock/release?token=${encodeURIComponent(token)}`;"
+        "function updateSelectedCount() {"
+        "const count = selects.filter((node) => node.value === 'selected').length;"
+        "countNode.textContent = String(count);"
+        "}"
+        "async function refreshLock() {"
+        "try {"
+        "const response = await fetch(heartbeatUrl, { method: 'POST', credentials: 'same-origin', keepalive: true });"
+        "if (response.status === 409) {"
+        "const payload = await response.json().catch(() => ({}));"
+        "window.alert(payload.error || 'Another admin is now editing this lineup.');"
+        "window.location.reload();"
+        "}"
+        "} catch (error) {"
+        "// Ignore transient network issues and keep the page usable."
+        "}"
+        "}"
+        "selects.forEach((node) => node.addEventListener('change', updateSelectedCount));"
+        "updateSelectedCount();"
+        "window.setInterval(refreshLock, 60000);"
+        "window.addEventListener('beforeunload', () => {"
+        "if (navigator.sendBeacon) { navigator.sendBeacon(releaseUrl); }"
+        "});"
+        "}());"
+        "</script>"
+    )
+    return render_token_page(
+        title="Admin lineup selection",
+        content_html=content_html,
+        layout_class="token-layout token-layout--wide",
+        extra_scripts=extra_scripts,
     )
 
 
@@ -3447,7 +3407,7 @@ def render_backup_selection_form(raw_token, event, current_selected, backups):
 
     backup_rows = "\n".join(
         (
-            "<label style=\"display:flex; gap:0.75rem; align-items:flex-start; margin-bottom:0.75rem;\">"
+            "<label class=\"token-backup-option\">"
             f"<input type=\"radio\" name=\"requested_date_id\" value=\"{item['requested_date_id']}\" required>"
             f"<span><strong>{html.escape(item['display_name'])}</strong><br>"
             f"{html.escape(item['email'] or '')}<br>"
@@ -3458,61 +3418,105 @@ def render_backup_selection_form(raw_token, event, current_selected, backups):
         for item in backups
     ) or "<p>No standby performers are currently available.</p>"
 
-    return (
-        """
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Standby selection</title>
-    <style>
-      body { font-family: sans-serif; max-width: 56rem; margin: 2rem auto; padding: 0 1rem; }
-      button { margin-top: 1rem; }
-    </style>
-  </head>
-  <body>
-    <h1>Standby selection</h1>
-    <p><strong>Event:</strong> """
+    content_html = (
+        "<div class='token-form-card'>"
+        "<h1>Standby selection</h1>"
+        "<p><strong>Event:</strong> "
         + html.escape(event["event_name"])
-        + """</p>
-    <p><strong>Date:</strong> """
+        + "</p>"
+        "<p><strong>Date:</strong> "
         + html.escape(event["event_date"])
-        + """</p>
-    <h2>Current selected lineup</h2>
-    <ul>"""
+        + "</p>"
+        "<h2>Current selected lineup</h2>"
+        "<ul>"
         + selected_rows
-        + """</ul>
-    <h2>Available standby/reserve performers</h2>
-    <form method="post">
-      <input type="hidden" name="token" value=\""""
+        + "</ul>"
+        "<h2>Available standby/reserve performers</h2>"
+        "<form method='post'>"
+        "<input type='hidden' name='token' value='"
         + html.escape(raw_token, quote=True)
-        + """\">
-      """
+        + "'>"
         + backup_rows
-        + """
-      <button type="submit">Promote standby performer</button>
-    </form>
-  </body>
-</html>
-"""
+        + "<button type='submit'>Promote standby performer</button>"
+        "</form>"
+        "</div>"
+    )
+    return render_token_page(
+        title="Standby selection",
+        content_html=content_html,
+        layout_class="token-layout token-layout--default",
     )
 
 
 def html_success_page(title, message):
+    page_html = render_token_response_page(
+        title=title,
+        heading=title,
+        message=message,
+        is_error=False,
+    )
     return (
-        f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>{html.escape(title)}</title></head>"
-        f"<body><h1>{html.escape(title)}</h1><p>{html.escape(message)}</p></body></html>",
+        page_html,
         200,
         {"Content-Type": "text/html; charset=utf-8"},
     )
 
 
 def html_error_page(message, status_code):
+    page_html = render_token_response_page(
+        title="Error",
+        heading="Error",
+        message=message,
+        is_error=True,
+    )
     return (
-        f"<!doctype html><html lang='en'><head><meta charset='utf-8'><title>Error</title></head>"
-        f"<body><h1>Error</h1><p>{html.escape(message)}</p></body></html>",
+        page_html,
         status_code,
         {"Content-Type": "text/html; charset=utf-8"},
+    )
+
+
+def render_token_response_page(*, title, heading, message, is_error=False):
+    safe_title = html.escape(title)
+    safe_heading = html.escape(heading)
+    safe_message = html.escape(message)
+    status_class = "token-response-card error" if is_error else "token-response-card success"
+    content_html = (
+        f"<div class='{status_class}'>"
+        f"<h1>{safe_heading}</h1>"
+        f"<p>{safe_message}</p>"
+        "</div>"
+    )
+    return render_token_page(
+        title=title,
+        content_html=content_html,
+        layout_class="token-layout token-layout--default",
+    )
+
+
+def render_token_page(*, title, content_html, layout_class="token-layout token-layout--default", extra_scripts=""):
+    safe_title = html.escape(title)
+    safe_layout_class = html.escape(layout_class, quote=True)
+
+    return (
+        "<!doctype html>"
+        "<html lang='en'>"
+        "<head>"
+        "<meta charset='utf-8'>"
+        f"<title>{safe_title}</title>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<link rel='stylesheet' type='text/css' href='/assets/css/style.css'>"
+        "</head>"
+        "<body class='token-page'>"
+        f"<div class='{safe_layout_class}'>"
+        "<div class='token-banner'>"
+        "<img src='/assets/img/new_site_logo.png' alt='EMOM Sydney logo'>"
+        "</div>"
+        f"{content_html}"
+        f"{extra_scripts or ''}"
+        "</div>"
+        "</body>"
+        "</html>"
     )
 
 
