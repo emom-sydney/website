@@ -225,6 +225,7 @@ def register_performer_workflow_routes(app):
                     app,
                     draft["email"],
                     requested_events=draft["requested_events"],
+                    availability_confirmation_lead_days=settings["availability_confirmation_lead_days"],
                     final_selection_lead_days=settings["final_selection_lead_days"],
                 )
 
@@ -1043,7 +1044,7 @@ def get_existing_profile_by_email(cursor, email):
     if not rows:
         return None
     if len(rows) > 1:
-        raise ValueError("Multiple profiles already use that email address. Please contact EMOM.")
+        raise ValueError("Multiple profiles already use that email address. Please contact sydney.emom admin.")
 
     row = rows[0]
     profile = {
@@ -1109,7 +1110,7 @@ def get_existing_profile_by_display_name(cursor, display_name):
     if not rows:
         return None
     if len(rows) > 1:
-        raise ValueError("Multiple profiles already use that display name. Please contact EMOM.")
+        raise ValueError("Multiple profiles already use that display name. Please contact sydney.emom admin.")
 
     return get_existing_profile_by_id(cursor, rows[0][0])
 
@@ -2990,6 +2991,7 @@ def handle_selection_cancellation_if_needed(app, cursor, requested_date):
                 moderator_email=moderator["email"],
                 event_name=event["event_name"],
                 event_date=event["event_date"],
+                cancelled_performer_name=requested_date["display_name"],
                 backup_url=backup_url,
                 backups=backups,
                 expires_at=expires_at,
@@ -3033,7 +3035,7 @@ def send_registration_email(app, email, raw_token, expires_at):
         f"{register_url}\n\n"
         f"This link expires at {format_link_expiry_local(expires_at)}.\n"
     )
-    send_mail(email, "EMOM performer registration link", body)
+    send_mail(email, "sydney.emom | performer registration link", body)
 
 
 def send_moderation_emails(
@@ -3070,7 +3072,7 @@ def send_moderation_emails(
             f"Deny: {item['deny_url']}\n"
             f"\nCurrent status:\n{current_status_summary}\n"
         )
-        send_mail(item["email"], f"EMOM performer profile moderation request #{draft_id}", body)
+        send_mail(item["email"], f"sydney.emom | performer profile moderation request #{draft_id}", body)
 
 
 def format_existing_profile_for_moderation(existing_profile, matched_by):
@@ -3236,17 +3238,17 @@ def format_upcoming_event_status_summary(rows, *, event_date, event_name):
     return "\n".join(lines)
 
 
-def send_profile_approved_email(app, email, *, requested_events, final_selection_lead_days):
+def send_profile_approved_email(app, email, *, requested_events, availability_confirmation_lead_days, final_selection_lead_days):
     requested_dates_text = format_requested_events_for_email(
         requested_events, empty_text="- no requested dates recorded"
     )
     body = (
         "Your performer profile has been approved, and your requested performance dates have been noted.\n\n"
         f"Requested dates:\n{requested_dates_text}\n\n"
-        "We will be in touch once we have made our final selection, "
-        f"{final_selection_lead_days} days before the next event date.\n"
+        f"We will be in touch to confirm your availibility roughly {availability_confirmation_lead_days} days before the event."
+        f"After all performers have confirmed (or declined) we decide on the lineup and send out invitations to perform, roughly {final_selection_lead_days} days before the event.\n"
     )
-    send_mail(email, "EMOM performer profile approved", body)
+    send_mail(email, "sydney.emom | performer profile approved", body)
 
 
 def send_profile_denied_email(app, email, reason, *, edit_link=None):
@@ -3260,7 +3262,7 @@ def send_profile_denied_email(app, email, reason, *, edit_link=None):
             f"{edit_link['url']}\n\n"
             f"This link expires at {format_link_expiry_local(edit_link['expires_at'])}.\n"
         )
-    send_mail(email, "EMOM performer profile update", body)
+    send_mail(email, "sydney.emom | performer profile update", body)
 
 
 def send_availability_email(*, email, display_name, event_name, event_date, confirm_url, cancel_url, expires_at):
@@ -3272,7 +3274,7 @@ def send_availability_email(*, email, display_name, event_name, event_date, conf
         f"Cancel availability: {cancel_url}\n\n"
         f"These links expire at {format_link_expiry_local(expires_at)}.\n"
     )
-    send_mail(email, f"EMOM availability check for {event_name}", body)
+    send_mail(email, f"sydney.emom | availability check for {event_name}", body)
 
 
 def send_unapproved_request_reminder_email(*, moderator_emails, event_name, event_date, rows):
@@ -3287,7 +3289,7 @@ def send_unapproved_request_reminder_email(*, moderator_emails, event_name, even
     for moderator in moderator_emails:
         send_mail(
             moderator["email"],
-            f"EMOM moderator reminder: unapproved requesters for {event_name}",
+            f"sydney.emom | reminder: unapproved requesters for {event_name}",
             body,
         )
 
@@ -3298,7 +3300,7 @@ def send_admin_selection_email(*, admin_email, event_name, event_date, selection
         f"Open selection page: {selection_url}\n\n"
         f"This link expires at {format_link_expiry_local(expires_at)}.\n"
     )
-    send_mail(admin_email, f"EMOM lineup selection for {event_name}", body)
+    send_mail(admin_email, f"sydney.emom | lineup selection for {event_name}", body)
 
 
 def send_selected_performer_emails(event, candidates, selected_requested_date_ids):
@@ -3309,22 +3311,25 @@ def send_selected_performer_emails(event, candidates, selected_requested_date_id
         body = (
             f"Your performance slot for {event['event_name']} on {event['event_date']} has been confirmed.\n"
         )
-        send_mail(item["email"], f"EMOM performance confirmed for {event['event_name']}", body)
+        send_mail(item["email"], f"sydney.emom | performance confirmed for {event['event_name']}", body)
 
 
-def send_backup_selection_email(*, moderator_email, event_name, event_date, backup_url, backups, expires_at):
+def send_backup_selection_email(
+    *, moderator_email, event_name, event_date, cancelled_performer_name, backup_url, backups, expires_at
+):
     backup_lines = "\n".join(
         f"- {item['display_name']} <{item['email']}> [{format_selection_status_label(item.get('selection_status'))}]"
         for item in backups
     ) or "- none"
+    cancelled_name = cancelled_performer_name or "A selected performer"
     body = (
-        f"A selected performer has cancelled for {event_name} on {event_date}.\n\n"
+        f"{cancelled_name} has cancelled for {event_name} on {event_date}.\n\n"
         "Current standby/reserve pool:\n"
         f"{backup_lines}\n\n"
         f"Choose a standby performer to promote: {backup_url}\n\n"
         f"This link expires at {format_link_expiry_local(expires_at)}.\n"
     )
-    send_mail(moderator_email, f"EMOM standby selection needed for {event_name}", body)
+    send_mail(moderator_email, f"sydney.emom standby selection needed for {event_name}", body)
 
 
 def send_backup_promoted_email(event, promoted):
@@ -3333,7 +3338,7 @@ def send_backup_promoted_email(event, promoted):
     )
     send_mail(
         promoted["email"],
-        f"EMOM performance confirmed for {event['event_name']}",
+        f"sydney.emom | performance confirmed for {event['event_name']}",
         body,
     )
 
@@ -3348,7 +3353,7 @@ def send_open_slot_alert_email(*, moderator_emails, event_name, event_date, sele
     for moderator in moderator_emails:
         send_mail(
             moderator["email"],
-            f"EMOM open slot alert for {event_name}",
+            f"sydney.emom | open slot alert for {event_name}",
             body,
         )
 
@@ -3647,7 +3652,7 @@ def render_token_page(*, title, content_html, layout_class="token-layout token-l
         "<body class='token-page'>"
         f"<div class='{safe_layout_class}'>"
         "<div class='token-banner'>"
-        "<img src='/assets/img/new_site_logo.png' alt='EMOM Sydney logo'>"
+        "<img src='/assets/img/new_site_logo.png' alt='sydney.emom logo'>"
         "</div>"
         f"{content_html}"
         f"{extra_scripts or ''}"
