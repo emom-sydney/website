@@ -131,7 +131,8 @@ def register_newsletter_workflow_routes(app):
 
             return html_success_page(
                 "Subscription confirmed",
-                f"Thanks, {token_row['email']} has been subscribed to the newsletter. <a href=\"/\">return to sydney.emom</a>",
+                f"Thanks, {token_row['email']} has been subscribed to the newsletter.",
+                extra_html="<p><a href='/'>Return to sydney.emom</a></p>",
             )
         except ValueError as exc:
             return html_error_page(str(exc), 400)
@@ -398,26 +399,27 @@ def upsert_contact_in_keila(*, email, first_name=None, last_name=None):
     logger.info("keila_upsert updated email=%s", email)
 
 
-def html_success_page(title, message):
+def html_success_page(title, message, extra_html=None):
     return (
-        render_html_page(title=title, heading=title, message=message),
+        render_html_page(title=title, heading=title, message=message, extra_html=extra_html),
         200,
         {"Content-Type": "text/html; charset=utf-8"},
     )
 
 
-def html_error_page(message, status_code):
+def html_error_page(message, status_code, extra_html=None):
     return (
-        render_html_page(title="Error", heading="Error", message=message),
+        render_html_page(title="Error", heading="Error", message=message, extra_html=extra_html),
         status_code,
         {"Content-Type": "text/html; charset=utf-8"},
     )
 
 
-def render_html_page(*, title, heading, message):
+def render_html_page(*, title, heading, message, extra_html=None):
     safe_title = html.escape(title)
     safe_heading = html.escape(heading)
     safe_message = html.escape(message)
+    extra_markup = extra_html or ""
 
     return (
         "<!doctype html>"
@@ -426,17 +428,18 @@ def render_html_page(*, title, heading, message):
         "<meta charset='utf-8'>"
         f"<title>{safe_title}</title>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<style>"
-        "body{margin:0;padding:24px;background:#1b1b1b;color:#ddd;font-family:'Lucida Console','Courier New',monospace;}"
-        ".panel{width:min(100%,1000px);margin:24px auto;padding:24px;background:#fff;color:#333;border-radius:12px;}"
-        "h1{margin:0 0 0.8rem;line-height:1.2;}"
-        "p{margin:0;line-height:1.45;}"
-        "</style>"
+        "<link rel='stylesheet' type='text/css' href='/assets/css/style.css'>"
         "</head>"
-        "<body>"
-        "<div class='panel'>"
+        "<body class='newsletter-confirm-page'>"
+        "<div class='newsletter-confirm-layout'>"
+        "<div class='page_header'>"
+        "<a href='/'><img src='/assets/img/new_site_logo.png' alt='EMOM Sydney logo'></a>"
+        "</div>"
+        "<div class='newsletter-confirm-card'>"
         f"<h1>{safe_heading}</h1>"
         f"<p>{safe_message}</p>"
+        f"{extra_markup}"
+        "</div>"
         "</div>"
         "</body>"
         "</html>"

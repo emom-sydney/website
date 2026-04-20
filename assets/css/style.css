@@ -267,6 +267,33 @@ body.token-page {
   text-align: center;
 }
 
+body.newsletter-confirm-page {
+  padding: 20px;
+}
+
+.newsletter-confirm-layout {
+  width: min(100%, var(--content-row-width));
+  margin: 0 auto;
+}
+
+.newsletter-confirm-card {
+  margin: 0;
+  padding: 20px;
+  color: #333;
+  background: #FFF;
+  border-radius: 12px;
+}
+
+.newsletter-confirm-card h1 {
+  margin: 0 0 0.8rem;
+  line-height: 1.2;
+}
+
+.newsletter-confirm-card p {
+  margin: 0 0 0.8rem;
+  line-height: 1.45;
+}
+
 .galleryList {
   max-width: 800px;
   margin: 0 auto;
