@@ -4,25 +4,22 @@ layout: "main.njk"
 
 <h2>Subscribe to our mailing list</h2>
 
-<!--
-<p>We have no reason to share your email address with anyone else, so we won't!</p>
+<p>Subscribe to receive EMOM event announcements and related updates.</p>
+<p>We'll email you a confirmation link. Your subscription is only activated after you open that link.</p>
 
-<form id="web-form">
-    <input type="hidden" id="formtype" name="formtype" value="subscribe">
+<form id="newsletter-subscribe-form">
+  <label for="newsletter-email">Email</label>
+  <input type="email" id="newsletter-email" name="email" required>
 
-    <label for="name">Name (optional):</label>
-    <input type="text" id="name" name="name">
+  <label for="newsletter-first-name">First name (optional)</label>
+  <input type="text" id="newsletter-first-name" name="first_name">
 
-    <label for="email">Email:</label>
-    <input type="email" id="email" name="email" required>
+  <label for="newsletter-last-name">Last name (optional)</label>
+  <input type="text" id="newsletter-last-name" name="last_name">
 
-    <input type="hidden" id="subscribe" name="subscribe" value="subscribe-requested">
-
-    <button type="submit">Submit</button>
+  <button type="submit">Send confirmation link</button>
 </form>
--->
 
-<p>If you'd like to be added to our mailing list for event announcements and other news, please <a href="mailto:sydney.emom@gmail.com">email us</a> with 'SUBSCRIBE' in the subject line.
-<p>NB: this is not (yet) an automated system and you will not receive a confirmation email, but trust us you will be added to The Spreadsheet and included in the next mailout.</p>
+<p id="newsletter-subscribe-status" aria-live="polite"></p>
 
-<!-- <script src="/assets/scripts/process_forms.js"></script> -->
+<script src="/assets/scripts/newsletter_subscribe.js"></script>

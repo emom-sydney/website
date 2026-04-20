@@ -86,6 +86,17 @@ Then build normally with Eleventy.
 
 `DATABASE_URL` can be used instead of the individual `PG*` variables if preferred, but the current repo workflow uses `.pgenv`.
 
+## Forms Bridge Newsletter Subscribe
+
+The forms bridge now supports newsletter subscribe with time-limited email confirmation links.
+
+Required environment variables for this flow:
+
+- `FORMS_SITE_BASE_URL` (for confirmation link generation)
+- `KEILA_API_BASE_URL` (defaults to `https://keila.emom.me`)
+- `KEILA_API_KEY` (Bearer API key for Keila contacts API)
+- `NEWSLETTER_TOKEN_TTL_HOURS` (defaults to `24`)
+
 ## Forms Bridge
 
 The forms bridge is a small Flask app for handling a variety of form inputs on the site.
@@ -109,6 +120,17 @@ Bridge deployment and runtime details live in:
 
 - [FORMS.md](./FORMS.md)
 - [FORMS_API.md](./FORMS_API.md)
+
+## Forms Bridge Newsletter Subscribe
+
+The forms bridge now supports newsletter subscribe with time-limited email confirmation links.
+
+Required environment variables for this flow:
+
+- `FORMS_SITE_BASE_URL` (for confirmation link generation)
+- `KEILA_API_BASE_URL` (defaults to `https://keila.emom.me`)
+- `KEILA_API_KEY` (Bearer API key for Keila contacts API)
+- `NEWSLETTER_TOKEN_TTL_HOURS` (defaults to `24`)
 
 ## Public Data Rules
 

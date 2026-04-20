@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from flask import Flask, jsonify, request
 
 from forms_bridge.db import connect
+from forms_bridge.newsletter_workflow import register_newsletter_workflow_routes
 from forms_bridge.performer_workflow import register_performer_workflow_routes
 
 
@@ -102,6 +103,8 @@ def create_app():
         except Exception:
             app.logger.exception("Merch interest submission failed")
             return error_response("Unable to save submission right now.", 500)
+
+    register_newsletter_workflow_routes(app)
 
     register_performer_workflow_routes(app)
 
