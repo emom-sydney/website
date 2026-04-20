@@ -98,6 +98,28 @@ CREATE TABLE IF NOT EXISTS merch_interest_lines (
   UNIQUE (submission_id, merch_variant_id)
 );
 
+CREATE TABLE IF NOT EXISTS action_tokens (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  token_hash text NOT NULL UNIQUE,
+  action_type text NOT NULL,
+  email text,
+  profile_id integer REFERENCES profiles(id) ON DELETE CASCADE,
+  draft_id bigint,
+  requested_date_id bigint,
+  event_id integer REFERENCES events(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS newsletter_subscribe_requests (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  action_token_id bigint NOT NULL UNIQUE REFERENCES action_tokens(id) ON DELETE CASCADE,
+  first_name text,
+  last_name text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_type_id ON events(type_id);
 CREATE INDEX IF NOT EXISTS idx_events_gallery_url ON events(gallery_url) WHERE gallery_url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_performances_event_id ON performances(event_id);
@@ -118,6 +140,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_merch_variants_unique_option
 CREATE INDEX IF NOT EXISTS idx_merch_interest_lines_submission_id ON merch_interest_lines(submission_id);
 CREATE INDEX IF NOT EXISTS idx_merch_interest_lines_variant_id ON merch_interest_lines(merch_variant_id);
 CREATE INDEX IF NOT EXISTS idx_merch_interest_submissions_email ON merch_interest_submissions(email);
+CREATE INDEX IF NOT EXISTS idx_action_tokens_expires_at
+  ON action_tokens(expires_at)
+  WHERE used_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_action_tokens_event_action
+  ON action_tokens(event_id, action_type);
+CREATE INDEX IF NOT EXISTS idx_action_tokens_draft_action
+  ON action_tokens(draft_id, action_type);
+CREATE INDEX IF NOT EXISTS idx_newsletter_subscribe_requests_action_token_id
+  ON newsletter_subscribe_requests(action_token_id);
 
 CREATE OR REPLACE VIEW galleries AS
 SELECT

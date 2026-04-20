@@ -59,6 +59,17 @@ npx @11ty/eleventy
 
 `DATABASE_URL` can be used instead of the individual `PG*` variables if preferred, but the current repo workflow uses `.pgenv`.
 
+## Forms Bridge Newsletter Subscribe
+
+The forms bridge now supports newsletter subscribe with time-limited email confirmation links.
+
+Required environment variables for this flow:
+
+- `FORMS_SITE_BASE_URL` (for confirmation link generation)
+- `KEILA_API_BASE_URL` (defaults to `https://keila.emom.me`)
+- `KEILA_API_KEY` (Bearer API key for Keila contacts API)
+- `NEWSLETTER_TOKEN_TTL_HOURS` (defaults to `24`)
+
  TODO:
   - media uploads page
   - reinstate form submission but with python (or php?) (see #thoughts) 
