@@ -228,9 +228,15 @@ def register_performer_workflow_routes(app):
                     final_selection_lead_days=settings["final_selection_lead_days"],
                 )
 
+            artist_name = (
+                draft.get("display_name")
+                or " ".join(part for part in [draft.get("first_name"), draft.get("last_name")] if part).strip()
+                or draft.get("email")
+                or "the artist"
+            )
             return html_success_page(
                 "Profile approved",
-                f"Draft #{draft['id']} has been approved and the artist has been notified.",
+                f"Draft #{draft['id']} has been approved and {artist_name} has been notified.",
             )
         except ValueError as exc:
             return html_error_page(str(exc), 400)
@@ -2071,8 +2077,6 @@ def send_availability_confirmation_for_requested_date(app, cursor, *, requested_
     requested_date = get_requested_date_with_context(cursor, requested_date_id)
     if requested_date["event_id"] != event_id:
         raise ValueError("That performer request is not for this event.")
-    if not requested_date["is_profile_approved"]:
-        raise ValueError("Only approved performer requests can be emailed from this page.")
     if requested_date["status"] != "requested":
         raise ValueError("Only unconfirmed performer requests can be re-sent.")
     if not requested_date["email"]:
@@ -2224,6 +2228,133 @@ def send_due_admin_selection_emails(app, run_date=None):
         "target_event_date": target_date.isoformat(),
         "admin_selection_emails_sent": sent_count,
     }
+
+
+def send_expired_moderation_token_reminders(app):
+    reminders_sent = 0
+    drafts_renewed = set()
+
+    with connect() as connection:
+        with connection.cursor() as cursor:
+            settings = get_workflow_settings(cursor)
+            current_status_summary = get_upcoming_event_status_summary(cursor)
+            reminder_targets = get_expired_moderation_token_reminder_targets(cursor)
+
+            for target in reminder_targets:
+                draft = get_profile_submission_draft(cursor, target["draft_id"])
+                if draft["status"] != WORKFLOW_STATUS_PENDING:
+                    continue
+
+                moderator = {
+                    "profile_id": target["moderator_profile_id"],
+                    "email": target["moderator_email"],
+                }
+
+                moderation_links = create_moderation_links(
+                    cursor=cursor,
+                    app=app,
+                    draft_id=draft["id"],
+                    moderator_emails=[moderator],
+                    ttl_hours=settings["action_token_ttl_hours"],
+                )
+                mark_expired_moderation_tokens_replaced(
+                    cursor,
+                    draft_id=draft["id"],
+                    moderator_profile_id=target["moderator_profile_id"],
+                )
+
+                existing_profile, matched_by = get_existing_profile_for_submission(
+                    cursor,
+                    email=draft["email"],
+                    display_name=draft["display_name"],
+                )
+                send_moderation_emails(
+                    app=app,
+                    draft_id=draft["id"],
+                    email=draft["email"],
+                    draft_payload=draft,
+                    existing_profile=existing_profile,
+                    matched_by=matched_by,
+                    moderation_links=moderation_links,
+                    current_status_summary=current_status_summary,
+                )
+
+                reminders_sent += len(moderation_links)
+                drafts_renewed.add(draft["id"])
+
+        connection.commit()
+
+    return {
+        "moderation_reminders_sent": reminders_sent,
+        "drafts_renewed": len(drafts_renewed),
+    }
+
+
+def get_expired_moderation_token_reminder_targets(cursor):
+    cursor.execute(
+        """
+        SELECT
+          at.draft_id,
+          p.id AS moderator_profile_id,
+          p.email AS moderator_email
+        FROM action_tokens at
+        JOIN profile_submission_drafts d
+          ON d.id = at.draft_id
+        JOIN profiles p
+          ON p.id = at.profile_id
+        JOIN profile_roles pr
+          ON pr.profile_id = p.id
+         AND pr.role = 'volunteer'
+        WHERE at.action_type IN (%s, %s)
+          AND at.used_at IS NULL
+          AND at.expires_at <= now()
+          AND d.status = %s
+          AND p.is_moderator = true
+          AND p.email IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM action_tokens active
+            WHERE active.draft_id = at.draft_id
+              AND active.profile_id = at.profile_id
+              AND active.action_type IN (%s, %s)
+              AND active.used_at IS NULL
+              AND active.expires_at > now()
+          )
+        GROUP BY at.draft_id, p.id, p.email
+        ORDER BY at.draft_id, p.id
+        """,
+        (
+            ACTION_TYPE_MODERATION_APPROVE,
+            ACTION_TYPE_MODERATION_DENY,
+            WORKFLOW_STATUS_PENDING,
+            ACTION_TYPE_MODERATION_APPROVE,
+            ACTION_TYPE_MODERATION_DENY,
+        ),
+    )
+    return [
+        {"draft_id": row[0], "moderator_profile_id": row[1], "moderator_email": row[2]}
+        for row in cursor.fetchall()
+    ]
+
+
+def mark_expired_moderation_tokens_replaced(cursor, *, draft_id, moderator_profile_id):
+    cursor.execute(
+        """
+        UPDATE action_tokens
+        SET used_at = now()
+        WHERE draft_id = %s
+          AND profile_id = %s
+          AND action_type IN (%s, %s)
+          AND used_at IS NULL
+          AND expires_at <= now()
+        """,
+        (
+            draft_id,
+            moderator_profile_id,
+            ACTION_TYPE_MODERATION_APPROVE,
+            ACTION_TYPE_MODERATION_DENY,
+        ),
+    )
 
 
 def get_due_admin_selection_events(cursor, target_date):
@@ -2475,19 +2606,20 @@ def get_admin_selection_candidates(cursor, event_id):
           d.email,
           d.contact_phone,
           rd.status,
+          COALESCE(p.is_profile_approved, false),
           COALESCE(sel.status, ''),
           sel.slot_number
         FROM requested_dates rd
         JOIN profile_submission_drafts d
           ON d.id = rd.draft_id
-        JOIN profiles p
+        LEFT JOIN profiles p
           ON p.id = d.profile_id
         LEFT JOIN event_performer_selections sel
           ON sel.event_id = rd.event_id
          AND sel.profile_id = p.id
         WHERE rd.event_id = %s
           AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
-          AND p.is_profile_approved = true
+          AND d.status <> 'superseded'
         ORDER BY d.display_name, rd.id
         """,
         (event_id,),
@@ -2501,15 +2633,20 @@ def get_admin_selection_candidates(cursor, event_id):
             "email": row[4],
             "contact_phone": row[5],
             "availability_status": row[6],
-            "selection_status": row[7] or None,
-            "slot_number": row[8],
+            "is_profile_approved": row[7],
+            "selection_status": row[8] or None,
+            "slot_number": row[9],
         }
         for row in cursor.fetchall()
     ]
 
 
 def is_admin_selection_candidate_eligible(candidate):
-    return candidate.get("availability_status") == "availability_confirmed"
+    return (
+        candidate.get("availability_status") == "availability_confirmed"
+        and bool(candidate.get("is_profile_approved"))
+        and candidate.get("profile_id") is not None
+    )
 
 
 def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, max_performers):
