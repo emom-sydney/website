@@ -175,6 +175,25 @@ When updating documentation, verify against:
 - `src/crew/`
 - `src/gallery/`
 
+## Local Development (SQLite)
+
+You can run the site locally without the Postgres SSH tunnel by using a SQLite export:
+
+1. **Export from Postgres** (requires the tunnel to be running):
+   ```bash
+   npm run db:export
+   ```
+   This creates `emom.local.sqlite` in the repo root.
+
+2. **Run locally with SQLite**:
+   ```bash
+   npm run start:local   # dev server
+   npm run build:local   # build only
+   ```
+   These set `USE_SQLITE=true` and read from `emom.local.sqlite`.
+
+The SQLite schema is in `db/schema-sqlite.sql`. The data loader (`lib/data/loadEmomData.js`) supports both Postgres and SQLite backends via the `USE_SQLITE` env var. The export script is at `scripts/export-to-sqlite.js`.
+
 ## Notes For Future Agents
 
 - Do not reintroduce CSV assumptions; the current repo is Postgres-backed
