@@ -12,58 +12,12 @@ The recommended pattern is:
 - a dedicated SSH user and SSH key for tunneling only
 - SSH key restrictions that allow forwarding only to `127.0.0.1:5432`
 
-## 1. Create A Read-Only Postgres Role
+A local database will also work, in which case you will not need the tunnel (post 5432 is the standard PostGresQL port).
+See [LOCAL_DB.md](./LOCAL_DB.md) for setting up a local database.
 
-SSH to the remote host using your normal admin account, then open `psql` as a superuser or database owner.
+## 1. Create A Dedicated SSH User For Tunneling
 
-Create the read-only role:
-
-```sql
-CREATE ROLE emom_site_reader
-LOGIN
-PASSWORD 'choose-a-long-random-password'
-NOSUPERUSER
-NOCREATEDB
-NOCREATEROLE
-NOINHERIT;
-
-GRANT CONNECT ON DATABASE emomweb TO emom_site_reader;
-```
-
-Connect to the database and grant read access:
-
-```sql
-\c emomweb
-
-GRANT USAGE ON SCHEMA public TO emom_site_reader;
-
-GRANT SELECT ON TABLE
-  profiles,
-  profile_roles,
-  event_types,
-  social_platforms,
-  events,
-  performances,
-  profile_images,
-  profile_social_profiles
-TO emom_site_reader;
-
-GRANT SELECT ON galleries TO emom_site_reader;
-```
-
-Make future tables and views readable too:
-
-```sql
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-GRANT SELECT ON TABLES TO emom_site_reader;
-```
-
-Notes:
-
-- Run `ALTER DEFAULT PRIVILEGES` as the role that owns future schema objects.
-- Keep a separate write-capable role for imports and admin work.
-
-## 2. Create A Dedicated SSH User For Tunneling
+This should be named for the user doing the tunneling.
 
 On the remote host:
 
@@ -74,9 +28,9 @@ sudo chmod 700 /home/emom-db-tunnel/.ssh
 sudo chown -R emom-db-tunnel:emom-db-tunnel /home/emom-db-tunnel/.ssh
 ```
 
-## 3. Generate A Dedicated Local SSH Key
+## 2. Generate A Dedicated Local SSH Key
 
-On the local machine:
+On your local machine:
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/emom_db_tunnel -C "emom-db-tunnel"
@@ -84,7 +38,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/emom_db_tunnel -C "emom-db-tunnel"
 
 This key should be used only for the database tunnel, not for normal shell login.
 
-## 4. Restrict The Remote Authorized Key
+## 3. Restrict The Remote Authorized Key
 
 Add the public key to:
 
@@ -109,7 +63,7 @@ What this does:
 - `port-forwarding` re-enables forwarding
 - `permitopen="127.0.0.1:5432"` allows forwarding only to the local Postgres port on the remote host
 
-## 5. Check SSH Daemon Settings
+## 4. Check SSH Daemon Settings
 
 In `/etc/ssh/sshd_config`, make sure public key auth and TCP forwarding are allowed:
 
@@ -139,7 +93,7 @@ On some systems:
 sudo service ssh reload
 ```
 
-## 6. Add A Local SSH Config Entry
+## 5. Add A Local SSH Config Entry
 
 Add this to `~/.ssh/config` on the local machine:
 
@@ -162,7 +116,7 @@ This exposes the remote Postgres server locally on:
 
 - `127.0.0.1:15432`
 
-## 7. Validate The Tunnel
+## 6. Validate The Tunnel
 
 If `psql` is not installed locally, a quick connectivity check is:
 
@@ -191,7 +145,7 @@ INSERT INTO events (id, event_date, type_id, event_name, gallery_url)
 VALUES (999, CURRENT_DATE, 1, 'x', NULL);
 ```
 
-## 8. App Connection Settings
+## 7. App Connection Settings
 
 Once the tunnel is running, local tools can connect with:
 
@@ -209,7 +163,7 @@ PGUSER=emom_site_reader
 PGPASSWORD=...
 ```
 
-For this repo, those values can live in a local `.pgenv` file. A sanitized template is provided in `.pgenv-example`.
+For this repo, those values can live in a local `.pgenv` file. A sanitized template is provided in `.pgenv-example`. *Do not* check your local `.pgenv` file in to GitHub!
 
 Typical usage:
 

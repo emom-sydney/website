@@ -5,6 +5,8 @@
 #   set -a
 #   source ./.pgenv
 #   set +a
+#
+# Do not check it in to github.
 
 PGHOST=127.0.0.1
 PGPORT=15432

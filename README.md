@@ -42,7 +42,7 @@ Relevant files:
 
 - Schema: `db/schema.sql`
 - Runtime loader: `lib/data/loadEmomData.js`
-- Local tunnel env template: `.pgenv-example`
+- Local pg config template: `.pgenv-example`
 
 To run the site:
 
