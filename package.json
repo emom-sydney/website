@@ -9,6 +9,7 @@
   },
   "scripts": {
     "db:export": "node scripts/export-to-sqlite.js",
+    "db:seed": "sqlite3 emom.local.sqlite < db/seed.sql",
     "start:dev": "PGDATABASE=emomtest npx @11ty/eleventy --serve --quiet",
     "start:prod": "PGDATABASE=emomweb MY_ENVIRONMENT=production npx @11ty/eleventy --serve --quiet",
     "start:local": "USE_SQLITE=true npx @11ty/eleventy --serve --quiet",
