@@ -1,20 +1,8 @@
 -- Seed data for local development
--- Run against an existing SQLite database: sqlite3 emom.local.sqlite < db/seed.sql
+-- This is applied after db/schema-sqlite.sql which creates/drops tables
+-- Usage: npm run db:seed
 
 PRAGMA foreign_keys = OFF;
-
-DELETE FROM merch_interest_lines;
-DELETE FROM merch_interest_submissions;
-DELETE FROM merch_variants;
-DELETE FROM merch_items;
-DELETE FROM profile_social_profiles;
-DELETE FROM profile_images;
-DELETE FROM performances;
-DELETE FROM events;
-DELETE FROM social_platforms;
-DELETE FROM event_types;
-DELETE FROM profile_roles;
-DELETE FROM profiles;
 
 -- Event Types
 INSERT INTO event_types (id, description) VALUES
