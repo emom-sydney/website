@@ -9,3 +9,7 @@ assets/img/bg/*
 .pgenv
 __pycache__/
 *.pyc
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
