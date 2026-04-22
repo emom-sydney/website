@@ -720,6 +720,7 @@ def register_performer_workflow_routes(app):
                 with connection.cursor() as cursor:
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_BACKUP_SELECTION)
                     event = get_event_selection_context(cursor, token_row["event_id"])
+                    settings = get_workflow_settings(cursor)
                     promoted = promote_backup_selection(
                         cursor,
                         event_id=token_row["event_id"],
@@ -727,8 +728,15 @@ def register_performer_workflow_routes(app):
                         admin_profile_id=token_row["profile_id"],
                     )
                     invalidate_backup_selection_tokens_for_event(cursor, token_row["event_id"])
+                    availability_links = create_availability_action_links(
+                        app=app,
+                        cursor=cursor,
+                        requested_date_id=promoted["requested_date_id"],
+                        event_id=token_row["event_id"],
+                        ttl_hours=settings["action_token_ttl_hours"],
+                    )
 
-                send_backup_promoted_email(event, promoted)
+                send_backup_promoted_email(event, promoted, availability_links)
 
             return html_success_page(
                 "Standby performer promoted",
@@ -2084,10 +2092,46 @@ def send_availability_confirmation_for_requested_date(app, cursor, *, requested_
         raise ValueError("This performer request has no email address to send to.")
 
     settings = get_workflow_settings(cursor)
+    availability_links = create_availability_action_links(
+        app=app,
+        cursor=cursor,
+        requested_date_id=requested_date_id,
+        event_id=event_id,
+        ttl_hours=settings["action_token_ttl_hours"],
+    )
+
+    send_availability_email(
+        email=requested_date["email"],
+        display_name=requested_date["display_name"],
+        event_name=requested_date["event_name"],
+        event_date=requested_date["event_date"],
+        confirm_url=availability_links["confirm_url"],
+        cancel_url=availability_links["cancel_url"],
+        expires_at=availability_links["expires_at"],
+    )
+    cursor.execute(
+        """
+        UPDATE requested_dates
+        SET availability_email_sent_at = now()
+        WHERE id = %s
+        """,
+        (requested_date["id"],),
+    )
+
+    return {"display_name": requested_date["display_name"], "email": requested_date["email"]}
+
+
+def create_availability_action_links(app, cursor, *, requested_date_id, event_id, ttl_hours):
+    requested_date = get_requested_date_with_context(cursor, requested_date_id)
+    if requested_date["event_id"] != event_id:
+        raise ValueError("That performer request is not for this event.")
+    if not requested_date["email"]:
+        raise ValueError("This performer request has no email address to send to.")
+
     invalidate_availability_tokens_for_requested_date(cursor, requested_date_id)
     confirm_token, confirm_hash = generate_token_pair()
     cancel_token, cancel_hash = generate_token_pair()
-    expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
+    expires_at = now_utc() + timedelta(hours=ttl_hours)
 
     cursor.execute(
         """
@@ -2140,32 +2184,15 @@ def send_availability_confirmation_for_requested_date(app, cursor, *, requested_
         ),
     )
 
-    confirm_url = build_absolute_url(
-        app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
-    )
-    cancel_url = build_absolute_url(
-        app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
-    )
-
-    send_availability_email(
-        email=requested_date["email"],
-        display_name=requested_date["display_name"],
-        event_name=requested_date["event_name"],
-        event_date=requested_date["event_date"],
-        confirm_url=confirm_url,
-        cancel_url=cancel_url,
-        expires_at=expires_at,
-    )
-    cursor.execute(
-        """
-        UPDATE requested_dates
-        SET availability_email_sent_at = now()
-        WHERE id = %s
-        """,
-        (requested_date["id"],),
-    )
-
-    return {"display_name": requested_date["display_name"], "email": requested_date["email"]}
+    return {
+        "confirm_url": build_absolute_url(
+            app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
+        ),
+        "cancel_url": build_absolute_url(
+            app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
+        ),
+        "expires_at": expires_at,
+    }
 
 
 def send_due_admin_selection_emails(app, run_date=None):
@@ -3245,7 +3272,7 @@ def send_profile_approved_email(app, email, *, requested_events, availability_co
     body = (
         "Your performer profile has been approved, and your requested performance dates have been noted.\n\n"
         f"Requested dates:\n{requested_dates_text}\n\n"
-        f"We will be in touch to confirm your availibility roughly {availability_confirmation_lead_days} days before the event."
+        f"We will be in touch to confirm your availibility roughly {availability_confirmation_lead_days} days before the event.\n\n"
         f"After all performers have confirmed (or declined) we decide on the lineup and send out invitations to perform, roughly {final_selection_lead_days} days before the event.\n"
     )
     send_mail(email, "sydney.emom | performer profile approved", body)
@@ -3309,7 +3336,8 @@ def send_selected_performer_emails(event, candidates, selected_requested_date_id
         if item["requested_date_id"] not in selected_set:
             continue
         body = (
-            f"Your performance slot for {event['event_name']} on {event['event_date']} has been confirmed.\n"
+            f"Yay! Your appearance at {event['event_name']} on {event['event_date']} has been confirmed.\n"
+            "Please see our <a href=\"/perform/faq\">FAQ</a> for everything you need to know, and of course feel free to <a href=\"mailto:admin@sydney.emom.me\">email us</a> with any further questions.\n"
         )
         send_mail(item["email"], f"sydney.emom | performance confirmed for {event['event_name']}", body)
 
@@ -3332,9 +3360,13 @@ def send_backup_selection_email(
     send_mail(moderator_email, f"sydney.emom standby selection needed for {event_name}", body)
 
 
-def send_backup_promoted_email(event, promoted):
+def send_backup_promoted_email(event, promoted, availability_links):
     body = (
         f"You have been promoted from standby to the confirmed lineup for {event['event_name']} on {event['event_date']}.\n"
+        "Please confirm whether you can still perform using one of the links below:\n\n"
+        f"Confirm availability: {availability_links['confirm_url']}\n"
+        f"Cancel availability: {availability_links['cancel_url']}\n\n"
+        f"These links expire at {format_link_expiry_local(availability_links['expires_at'])}.\n"
     )
     send_mail(
         promoted["email"],
