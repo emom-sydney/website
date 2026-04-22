@@ -174,7 +174,7 @@ if (form) {
         throw new Error(result.error || "Submission failed.");
       }
 
-      window.location.href = "/merch/thanks/index.html";
+      notify("Thanks for registering your interest. We will be in touch when merch is available.", "success");
     } catch (error) {
       notify(error.message || "Submission failed. Please try again later.", "error");
     }
