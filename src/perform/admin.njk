@@ -19,17 +19,18 @@ permalink: "/perform/admin/index.html"
   <button type="submit">Send admin link</button>
 </form>
 
-<div id="performer-admin-status" aria-live="polite"></div>
-
 <script>
   (function () {
-    const statusNode = document.getElementById("performer-admin-status");
     const form = document.getElementById("performer-admin-start-form");
     const eventSelect = document.getElementById("performer-admin-event");
     const emailInput = document.getElementById("performer-admin-email");
 
-    function setStatus(message) {
-      statusNode.textContent = message || "";
+    function setStatus(message, kind) {
+      const text = String(message || "").trim();
+      if (!text) return;
+      if (typeof window.showToast === "function") {
+        window.showToast(text, { kind: kind || "info" });
+      }
     }
 
     function extractToken(value) {
@@ -45,7 +46,7 @@ permalink: "/perform/admin/index.html"
 
     function openToken(token) {
       if (!token) {
-        setStatus("A valid admin token is required.");
+        setStatus("A valid admin token is required.", "error");
         return;
       }
       window.location.assign(`/api/forms/performer-registration/admin-selection?token=${encodeURIComponent(token)}`);
@@ -65,7 +66,6 @@ permalink: "/perform/admin/index.html"
         if (!events.length) {
           eventSelect.innerHTML = "<option value=\"\">No upcoming Open Mic dates available</option>";
           eventSelect.disabled = true;
-          setStatus("");
           return;
         }
 
@@ -77,11 +77,10 @@ permalink: "/perform/admin/index.html"
           option.textContent = `${eventItem.event_date} - ${eventItem.event_name}`;
           eventSelect.appendChild(option);
         }
-        setStatus("");
       } catch (error) {
         eventSelect.innerHTML = "<option value=\"\">Unable to load event dates</option>";
         eventSelect.disabled = true;
-        setStatus(error.message || "Unable to load event dates.");
+        setStatus(error.message || "Unable to load event dates.", "error");
       }
     }
 
@@ -97,11 +96,11 @@ permalink: "/perform/admin/index.html"
       const eventId = Number.parseInt(eventSelect?.value || "0", 10);
 
       if (!/^\S+@\S+\.\S+$/.test(email)) {
-        setStatus("Please enter a valid admin email address.");
+        setStatus("Please enter a valid admin email address.", "error");
         return;
       }
       if (!(eventId > 0)) {
-        setStatus("Please choose an event date.");
+        setStatus("Please choose an event date.", "error");
         return;
       }
 
@@ -121,9 +120,9 @@ permalink: "/perform/admin/index.html"
         if (!response.ok || !result.ok) {
           throw new Error(result.error || "Unable to send admin link.");
         }
-        setStatus(result.message || "If the email belongs to a site admin, a fresh link has been sent.");
+        setStatus(result.message || "If the email belongs to a site admin, a fresh link has been sent.", "success");
       } catch (error) {
-        setStatus(error.message || "Unable to send admin link.");
+        setStatus(error.message || "Unable to send admin link.", "error");
       }
     });
 

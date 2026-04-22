@@ -3,7 +3,6 @@ const appNode = document.getElementById("performer-registration-app");
 if (appNode) {
   const startSection = document.getElementById("performer-registration-start");
   const sessionSection = document.getElementById("performer-registration-session");
-  const statusNode = document.getElementById("performer-registration-status");
   const startForm = document.getElementById("performer-registration-start-form");
   const sessionForm = document.getElementById("performer-registration-session-form");
   const emailDisplay = document.getElementById("performer-email-display");
@@ -26,8 +25,11 @@ if (appNode) {
   let availableEvents = [];
 
   function setStatus(message, kind = "") {
-    statusNode.textContent = message || "";
-    statusNode.dataset.statusKind = kind;
+    const text = String(message || "").trim();
+    if (!text) return;
+    if (typeof window.showToast === "function") {
+      window.showToast(text, { kind: kind || "info" });
+    }
   }
 
   function formatDate(value) {
