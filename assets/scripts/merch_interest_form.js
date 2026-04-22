@@ -154,7 +154,7 @@ if (form) {
       return;
     }
 
-    notify("Submitting...");
+    // notify("Submitting...");
 
     try {
       const response = await fetch("/api/forms/merch-interest", {
@@ -174,7 +174,7 @@ if (form) {
         throw new Error(result.error || "Submission failed.");
       }
 
-      notify("Thanks for registering your interest. We will be in touch when merch is available.", "success");
+      notify("Thanks for registering your interest - we'll be in touch when merch is available.", "success");
     } catch (error) {
       notify(error.message || "Submission failed. Please try again later.", "error");
     }

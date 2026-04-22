@@ -257,7 +257,7 @@ if (appNode) {
   }
 
   async function loadSession(token) {
-    setStatus("Loading registration form...");
+    // setStatus("Loading registration form...");
     try {
       const response = await fetch(`/api/forms/performer-registration/session?token=${encodeURIComponent(token)}`);
       const result = await response.json();

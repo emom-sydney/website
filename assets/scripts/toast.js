@@ -60,8 +60,7 @@
     clampToasts(root);
 
     if (durationMs > 0) {
-      const timer = window.setTimeout(() => removeToast(toast), durationMs);
-      toast.addEventListener("mouseenter", () => window.clearTimeout(timer), { once: true });
+      window.setTimeout(() => removeToast(toast), durationMs);
     }
   }
 
