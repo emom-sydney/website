@@ -1,4 +1,4 @@
-import { renderContactLine, renderProfileIntro } from "../../lib/render/profilePage.js";
+import { escapeHtml, renderContactLine, renderProfileIntro } from "../../lib/render/profilePage.js";
 
 function getArtistReferenceName(profile) {
   if (!profile.isNamePublic) return profile.stageName;
@@ -30,7 +30,8 @@ export default async function render(data) {
     socialLinks,
     image,
   };
-  let html = await renderProfileIntro(profilePage, {
+  let html = `<h2>${escapeHtml(artist.stageName)}</h2>\n`;
+  html += await renderProfileIntro(profilePage, {
     missingImageThumbnailUrl: data.missingImageThumbnailUrl
   });
 

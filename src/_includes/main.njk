@@ -2,8 +2,10 @@
 <html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ siteName }} | {{ pageTitle }}</title>
   <link rel="stylesheet" type="text/css" href="/assets/css/style.css">
+  <script src="/assets/scripts/toast.js"></script>
   <style>
     /* fallback and variable used for background image */
     :root {
@@ -33,6 +35,58 @@
       {{ content | safe }}    
     </div>
   </div>
+  <div id="toast-root" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+  <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
+    <div class="mobile-menu-grid">
+      <div class="mobile-menu-column">
+        <h2 class="mobile-menu-heading">Explore</h2>
+        <nav class="mobile-menu-nav" aria-label="Main navigation">
+          {% include "nav_main.njk" %}
+        </nav>
+      </div>
+      <div class="mobile-menu-column">
+        <h2 class="mobile-menu-heading">Get Involved</h2>
+        <nav class="mobile-menu-nav" aria-label="Get involved">
+          {% include "nav_involved.njk" %}
+          {% include "nav_external.njk" %}
+        </nav>
+      </div>
+    </div>
+    <div class="mobile-menu-social">
+      {% include "social_links.njk" %}
+    </div>
+  </div>
   {% include "page_footer.njk" %}
+  <script>
+    (function () {
+      var toggle = document.querySelector('.menu-toggle');
+      var menu = document.getElementById('mobile-menu');
+      if (!toggle || !menu) return;
+
+      var scrollY = 0;
+
+      toggle.addEventListener('click', function () {
+        var expanded = toggle.getAttribute('aria-expanded') === 'true';
+        toggle.setAttribute('aria-expanded', String(!expanded));
+        menu.classList.toggle('nav-open', !expanded);
+        menu.setAttribute('aria-hidden', String(expanded));
+        document.body.classList.toggle('menu-open', !expanded);
+
+        if (!expanded) {
+          // Opening menu: lock scroll and save position
+          scrollY = window.scrollY;
+          document.body.style.position = 'fixed';
+          document.body.style.top = '-' + scrollY + 'px';
+          document.body.style.width = '100%';
+        } else {
+          // Closing menu: unlock scroll and restore position
+          document.body.style.position = '';
+          document.body.style.top = '';
+          document.body.style.width = '';
+          window.scrollTo(0, scrollY);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

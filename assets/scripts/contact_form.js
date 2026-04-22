@@ -1,4 +1,4 @@
-const form = document.getElementById("newsletter-subscribe-form");
+const form = document.getElementById("contact-us-form");
 
 function normalizeValue(value) {
   return String(value || "").trim();
@@ -16,43 +16,50 @@ if (form) {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    const email = normalizeValue(document.getElementById("newsletter-email")?.value);
-    const firstName = normalizeValue(document.getElementById("newsletter-first-name")?.value);
-    const lastName = normalizeValue(document.getElementById("newsletter-last-name")?.value);
+    const name = normalizeValue(document.getElementById("contact-name")?.value);
+    const email = normalizeValue(document.getElementById("contact-email")?.value);
+    const message = normalizeValue(document.getElementById("contact-message")?.value);
     const emailRegex = /^\S+@\S+\.\S+$/;
 
+    if (!name) {
+      notify("Please enter your name.", "error");
+      return;
+    }
     if (!emailRegex.test(email)) {
       notify("Please enter a valid email address.", "error");
       return;
     }
-
-    notify("Sending confirmation email...");
+    if (!message) {
+      notify("Please enter a message.", "error");
+      return;
+    }
 
     const submitButton = form.querySelector("button[type='submit']");
     if (submitButton) submitButton.disabled = true;
+    notify("Sending your message...");
 
     try {
-      const response = await fetch("/api/forms/newsletter-subscribe/start", {
+      const response = await fetch("/api/forms/contact-us", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          name,
           email,
-          first_name: firstName || null,
-          last_name: lastName || null,
+          message,
         }),
       });
 
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Unable to send confirmation email right now.");
+        throw new Error(result.error || "Unable to send your message right now.");
       }
 
-      notify(result.message || "Thanks. Please check your email and click the confirmation link.", "success");
+      notify(result.message || "Thanks. Your message has been sent.", "success");
       form.reset();
     } catch (error) {
-      notify(error.message || "Unable to send confirmation email right now.", "error");
+      notify(error.message || "Unable to send your message right now.", "error");
     } finally {
       if (submitButton) submitButton.disabled = false;
     }
