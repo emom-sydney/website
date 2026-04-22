@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ siteName }} | {{ pageTitle }}</title>
   <link rel="stylesheet" type="text/css" href="/assets/css/style.css">
+  <script src="/assets/scripts/toast.js"></script>
   <style>
     /* fallback and variable used for background image */
     :root {
@@ -34,6 +35,7 @@
       {{ content | safe }}    
     </div>
   </div>
+  <div id="toast-root" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
   <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
     <div class="mobile-menu-grid">
       <div class="mobile-menu-column">

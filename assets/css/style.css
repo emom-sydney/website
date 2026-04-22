@@ -372,17 +372,92 @@ form button:hover {
   background-color: #0069d9;
 }
 
-.performer-registration-status {
-  margin-bottom: 1rem;
-  font-weight: 600;
+.toast-stack {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  width: min(420px, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  z-index: 10000;
+  pointer-events: none;
 }
 
-.performer-registration-status[data-status-kind="error"] {
-  color: #9b1c1c;
+.toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid #444;
+  background: #202020;
+  color: #f2f2f2;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.performer-registration-status[data-status-kind="success"] {
-  color: #176b2c;
+.toast--closing {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.toast--success {
+  background: #0f2b18;
+  border-color: #2f7d4a;
+}
+
+.toast--error {
+  background: #351616;
+  border-color: #b34b4b;
+}
+
+.toast--info {
+  background: #1f2531;
+  border-color: #4d6996;
+}
+
+.toast__message {
+  line-height: 1.4;
+  font-size: 0.95rem;
+}
+
+.toast__close {
+  width: 1.8rem;
+  min-width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  border: 1px solid #777;
+  background: rgba(0, 0, 0, 0.22);
+  color: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
+}
+
+.toast__close:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@media (max-width: 640px) {
+  .toast-stack {
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    bottom: calc(0.9rem + env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
 }
 
 .performer-registration-panel {

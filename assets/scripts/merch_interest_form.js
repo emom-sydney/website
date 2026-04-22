@@ -1,5 +1,4 @@
 const form = document.getElementById("merch-interest-form");
-const statusNode = document.getElementById("merch-form-status");
 
 function normalizeValue(value) {
   return String(value || "").trim().toLowerCase();
@@ -94,7 +93,15 @@ function updateFieldsetPreview(fieldset) {
   }
 }
 
-if (form && statusNode) {
+function notify(message, kind = "info") {
+  const text = String(message || "").trim();
+  if (!text) return;
+  if (typeof window.showToast === "function") {
+    window.showToast(text, { kind });
+  }
+}
+
+if (form) {
   [...form.querySelectorAll("[data-merch-item-select]")].forEach((select) => {
     select.addEventListener("change", () => updateFieldsetPreview(select.closest("fieldset")));
   });
@@ -115,7 +122,7 @@ if (form && statusNode) {
     const emailRegex = /^\S+@\S+\.\S+$/;
 
     if (!emailRegex.test(email)) {
-      statusNode.textContent = "Please enter a valid email address.";
+      notify("Please enter a valid email address.", "error");
       return;
     }
 
@@ -138,16 +145,16 @@ if (form && statusNode) {
 
     const invalidPrice = lines.some((line) => !/^\d+(\.\d{1,2})?$/.test(line.submitted_price));
     if (invalidPrice) {
-      statusNode.textContent = "Please enter a valid suggested price using numbers only.";
+      notify("Please enter a valid suggested price using numbers only.", "error");
       return;
     }
 
     if (!lines.length) {
-      statusNode.textContent = "Please enter a quantity for at least one merch item.";
+      notify("Please enter a quantity for at least one merch item.", "error");
       return;
     }
 
-    statusNode.textContent = "Submitting...";
+    notify("Submitting...");
 
     try {
       const response = await fetch("/api/forms/merch-interest", {
@@ -169,7 +176,7 @@ if (form && statusNode) {
 
       window.location.href = "/merch/thanks/index.html";
     } catch (error) {
-      statusNode.textContent = error.message || "Submission failed. Please try again later.";
+      notify(error.message || "Submission failed. Please try again later.", "error");
     }
   });
 }

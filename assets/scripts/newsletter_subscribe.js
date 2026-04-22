@@ -1,11 +1,18 @@
 const form = document.getElementById("newsletter-subscribe-form");
-const statusNode = document.getElementById("newsletter-subscribe-status");
 
 function normalizeValue(value) {
   return String(value || "").trim();
 }
 
-if (form && statusNode) {
+function notify(message, kind = "info") {
+  const text = String(message || "").trim();
+  if (!text) return;
+  if (typeof window.showToast === "function") {
+    window.showToast(text, { kind });
+  }
+}
+
+if (form) {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -15,11 +22,11 @@ if (form && statusNode) {
     const emailRegex = /^\S+@\S+\.\S+$/;
 
     if (!emailRegex.test(email)) {
-      statusNode.textContent = "Please enter a valid email address.";
+      notify("Please enter a valid email address.", "error");
       return;
     }
 
-    statusNode.textContent = "Sending confirmation email...";
+    notify("Sending confirmation email...");
 
     const submitButton = form.querySelector("button[type='submit']");
     if (submitButton) submitButton.disabled = true;
@@ -42,11 +49,10 @@ if (form && statusNode) {
         throw new Error(result.error || "Unable to send confirmation email right now.");
       }
 
-      statusNode.textContent =
-        result.message || "Thanks. Please check your email and click the confirmation link.";
+      notify(result.message || "Thanks. Please check your email and click the confirmation link.", "success");
       form.reset();
     } catch (error) {
-      statusNode.textContent = error.message || "Unable to send confirmation email right now.";
+      notify(error.message || "Unable to send confirmation email right now.", "error");
     } finally {
       if (submitButton) submitButton.disabled = false;
     }
