@@ -375,7 +375,7 @@ form button:hover {
 .toast-stack {
   position: fixed;
   right: 1rem;
-  bottom: calc(1rem + env(safe-area-inset-bottom));
+  top: calc(1rem + env(safe-area-inset-top));
   width: min(420px, calc(100vw - 2rem));
   display: flex;
   flex-direction: column;
@@ -450,7 +450,7 @@ form button:hover {
     left: 1rem;
     right: 1rem;
     width: auto;
-    bottom: calc(0.9rem + env(safe-area-inset-bottom));
+    top: calc(0.9rem + env(safe-area-inset-top));
   }
 }
 
