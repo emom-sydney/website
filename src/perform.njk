@@ -1,33 +1,89 @@
 ---
 layout: "main.njk"
+pageTitle: "Performer Registration"
 ---
 <h2>Performer Registration</h2>
 
-<p> Please <a href="mailto:emom.sydney@gmail.com">email us</a> if you'd like to play at emom.sydney.</p>
+<div id="performer-registration-app" class="performer-registration">
+  <div id="performer-registration-status" class="performer-registration-status" aria-live="polite"></div>
 
+  <section id="performer-registration-start" class="performer-registration-panel">
+    <p>
+      If you would like to register interest in playing at a future sydney.emom, enter your email address below.
+      We will send you a one-time link that lets you create or update your profile and select the event dates you are available for.
+      Your profile goes live on the day of the first event you play, and (for now at least) it is free and in perpetuity.
+    </p>
+    <p>
+      <b>NB: this system is under active development and may contain bugs.</b> If you encounter any issues please <a href="/contact">contact us.
+      <b>NB # 2:</b> We are having some issues</b> with Apple email addresses (@icloud, @mac, @me) not receiving our emails and are working to rectify. Please use another account if possible, or <a href="/contact">contact us directly</a> thanks!
+    </p>
+    <form id="performer-registration-start-form">
+      <label for="performer-registration-email">Email address</label>
+      <input type="email" id="performer-registration-email" name="email" required>
+      <button type="submit">Send registration link</button>
+    </form>
+  </section>
 
-<!-- 
-<p>If you wish to play at our event, you just need to show up on the night. That's what "open mic" means after all :) 
-<p>Having said that, we realise it's a bit different when you've got a boot load of gear to wrangle, so you can pre-register your intention to play by filling out this form. 
-<form id="web-form">
-      <input type="hidden" id="formtype" name="formtype" value="preregistration">
+  <section id="performer-registration-session" class="performer-registration-panel" hidden>
+    <p>How it works: about 10 days before each event, we email artists who have nominated that date to confirm availability. 
+      From there, one week before the event we curate and invite a lineup for that night. If we have more performers than spots and you're not invited for that date, 
+      your nomination gets 'standby' status in case someone can't make it and a spot opens up. To keep it fresh, we won't invite acts that have already played 
+      at one of three previous events, but we give those 'backup' status, again in the event of not having enough acts to complete a lineup (usually 7-8 acts)</p>
 
-      <label for="name">Name:</label>
-      <input type="text" id="name" name="name" required>
+    <form id="performer-registration-session-form">
+      <label for="performer-email-display">Email address</label>
+      <input type="email" id="performer-email-display" readonly>
 
-      <label for="email">Email:</label>
-      <input type="email" id="email" name="email" required>
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" id="performer-is-email-public" name="is_email_public">
+        <span>Show email on your profile page</span>
+      </label>
 
-      <label for="mobile">Mobile:</label>
-      <input type="text" id="mobile" name="mobile" required>
+      <label for="performer-profile-type">Profile type</label>
+      <select id="performer-profile-type" name="profile_type" required>
+        <option value="person">Person</option>
+        <option value="group">Group</option>
+      </select>
 
-      <label for="message">Brief description of your set:</label>
-      <textarea id="message" name="message" rows="5" required></textarea>
+      <label for="performer-display-name">Display / stage name</label>
+      <input type="text" id="performer-display-name" name="display_name" required>
 
-      <label for="url">Your preferred URL (social media, bandcamp, etc):</label>
-      <textarea id="url" name="url" rows="1" required></textarea>
-      
-      <button type="submit">Submit</button> 
-</form>
-<script src="/assets/scripts/process_forms.js"></script>
--->
+      <label for="performer-first-name">First name</label>
+      <input type="text" id="performer-first-name" name="first_name">
+
+      <label for="performer-last-name">Last name</label>
+      <input type="text" id="performer-last-name" name="last_name">
+
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" id="performer-is-name-public" name="is_name_public">
+        <span>Show full name on your profile page</span>
+      </label>
+
+      <label for="performer-contact-phone">Contact phone number</label>
+      <input type="text" id="performer-contact-phone" name="contact_phone" required>
+      <p class="performer-registration-note">Not displayed on your profile, only required in case we need to contact you urgently on the day of the event.</p>
+
+      <label for="performer-artist-bio">Artist bio (visible on profile page)</label>
+      <textarea id="performer-artist-bio" name="artist_bio" rows="6"></textarea>
+
+      <label for="performer-additional-info">Additional info (not shown on profile)</label>
+      <textarea id="performer-additional-info" name="additional_info" rows="4" placeholder="Put here anything else we might need to know, technical requirements, accessibility needs etc"></textarea>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Social links</legend>
+        <div id="performer-social-links"></div>
+        <button type="button" id="performer-add-social-link">Add social link</button>
+      </fieldset>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Nominate the dates you're able to play</legend>
+        <p id="performer-events-note" class="performer-registration-note"></p>
+        <div id="performer-event-options"></div>
+      </fieldset>
+
+      <button type="submit">Submit for moderation</button>
+    </form>
+  </section>
+</div>
+
+<script src="/assets/scripts/performer_registration_form.js"></script>

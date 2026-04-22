@@ -1,249 +1,101 @@
 # Forms Guide
 
-This repo is a statically generated Eleventy site. That matters for forms: the browser cannot write directly to Postgres, and there is no Node/Express app sitting behind the pages.
+This repo is a statically generated Eleventy site, so browser forms cannot write directly to Postgres. All runtime writes go through the small Python bridge in `forms_bridge/`.
 
-The pattern used here is:
+## Current Pattern
 
-1. build a static page in `src/`
-2. optionally load build-time data from Postgres through Eleventy
-3. submit the form with browser-side JavaScript to a same-origin API path
-4. handle the POST in the small Python bridge in `forms_bridge/`
-5. write to Postgres there
+The current stack for forms and tokenized workflows is:
 
-## Current Example
+1. static page in `src/`
+2. browser-side JavaScript in `assets/scripts/`
+3. same-origin request to `/api/forms/...`
+4. Flask handler in `forms_bridge/`
+5. Postgres write and email/token workflow there
 
-The reference implementation is the merch interest form.
+## Current Implementations
+
+There are currently two active form areas:
+
+- merch interest
+- performer registration and scheduling workflow
 
 Relevant files:
 
 - `src/merch/index.njk`
-- `src/merch/thanks.njk`
 - `assets/scripts/merch_interest_form.js`
-- `lib/data/loadEmomData.js`
+- `src/perform.njk`
+- `assets/scripts/performer_registration_form.js`
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
+- `forms_bridge/performer_workflow.py`
+- `forms_bridge/send_availability_reminders.py`
+- `forms_bridge/send_admin_selection_links.py`
 - `FORMS_API.md`
 
-The merch page is static HTML generated at build time. The form submits JSON to:
+## Repo Layers
 
-- `POST /api/forms/merch-interest`
+### Static page layer
 
-That endpoint is served by the Python bridge, not by Eleventy.
-
-## Repo Structure
-
-There are three distinct layers.
-
-### 1. Static page layer
-
-This is the Eleventy page the user sees.
-
-Typical location:
-
-- `src/<section>/index.njk`
-- or `src/<page>.njk`
-
-This layer is responsible for:
+Files in `src/` define:
 
 - page layout
 - form fields
-- success/error UI
-- loading any build-time options from `emom.*` data
-
-### 2. Browser script layer
-
-This is the client-side JavaScript that collects the form fields and submits them.
-
-Typical location:
-
-- `assets/scripts/<form_name>.js`
-
-This layer is responsible for:
-
-- reading form values from the DOM
-- light validation
-- shaping the JSON payload
-- `fetch()` POST to `/api/forms/...`
-- redirecting or showing errors
-
-### 3. Forms bridge layer
-
-This is the Python service that accepts the POST and writes to Postgres.
-
-Files:
-
-- `forms_bridge/app.py`
-- `forms_bridge/db.py`
-
-This layer is responsible for:
-
-- request validation
-- database validation
-- transaction boundaries
-- writing rows to Postgres
-- returning JSON responses
-
-## How Eleventy Fits In
-
-Eleventy reads files in `src/` and generates static HTML into `_site/`.
-
-Some forms need only fixed fields. In that case, you can build the page entirely in Nunjucks and skip the data loader.
-
-Other forms need build-time options from the database. The merch form does that by loading data through:
-
-- `src/_data/emom.js`
-- `lib/data/loadEmomData.js`
-
-That data is available to Nunjucks as `emom`.
-
-Example from the merch page:
-
-```njk
-{% set merchItems = emom.merchItems %}
-```
-
-If you need a new form that uses relational data at build time, the usual place to extend is:
-
-- `lib/data/loadEmomData.js`
-
-Do not fetch directly from the database in a template.
-
-## Standard Workflow For A New Form
-
-For a new form, work in this order.
-
-### 1. Define the database tables
-
-Add the schema change in:
-
-- `db/schema.sql`
-
-Add a migration in:
-
-- `db/migrations/`
-
-Also decide on the database writer role for the new form. Do not automatically reuse the merch writer role for unrelated forms.
-
-The recommended pattern is one DB role per logical form area, for example:
-
-- `emom_merch_writer`
-- `emom_contact_writer`
-- `emom_volunteer_writer`
-
-### 2. Decide whether the form needs build-time DB data
-
-If the form is simple, you may not need any loader changes.
-
-If the form needs options from Postgres, add those to:
-
-- `lib/data/loadEmomData.js`
-
-and expose them through `emom`.
-
-Keep the loader data normalized for the template. Do not put template-specific DOM logic in the loader.
-
-### 3. Create the static page
-
-Add a new page in `src/`.
+- any static copy or helper text
+- success/error presentation
 
 Examples:
 
 - `src/merch/index.njk`
-- `src/volunteer.njk`
+- `src/perform.njk`
 
-At minimum, set:
+### Browser script layer
 
-```yaml
----
-layout: "main.njk"
-pageTitle: "My Form"
----
-```
+Files in `assets/scripts/` define:
 
-Then build the form HTML in Nunjucks.
+- DOM reads/writes
+- light client-side validation
+- JSON payload shaping
+- `fetch()` calls to `/api/forms/...`
+- in-page success/error updates
 
-### 4. Add a browser script
+Examples:
 
-Create a script in:
+- `assets/scripts/merch_interest_form.js`
+- `assets/scripts/performer_registration_form.js`
 
-- `assets/scripts/`
+### Forms bridge layer
 
-The usual shape is:
+Files in `forms_bridge/` define:
 
-- find the form node
-- read values
-- validate obvious errors client-side
-- send JSON to `/api/forms/<endpoint>`
-- handle success and error states
+- request validation
+- DB validation and writes
+- token creation and invalidation
+- email sending
+- HTML responses for token-driven moderation/admin actions
 
-The current merch script is a good template if you need:
-
-- dynamic field resolution
-- JSON submission
-- redirect-on-success
-
-### 5. Add a Python endpoint
-
-Add a route in:
+Main files:
 
 - `forms_bridge/app.py`
+- `forms_bridge/db.py`
+- `forms_bridge/performer_workflow.py`
 
-The current app uses Flask and a very direct style:
+## Build-Time Data
 
-- validate `request.is_json`
-- parse the payload
-- normalize values
-- write inside one transaction
-- return JSON
+If a form page needs build-time relational data, load it through:
 
-For simple forms, copying the merch route and then narrowing it to the new payload is a sensible approach.
+- `src/_data/emom.js`
+- `lib/data/loadEmomData.js`
 
-Keep shared helpers small and local. If a pattern repeats across multiple forms, then extract a helper.
+Do not fetch directly from Postgres in Nunjucks templates.
 
-### 6. Deploy both parts
+Important distinction:
 
-A form usually has two deploy surfaces:
+- Eleventy build-time data changes require a rebuild and redeploy
+- forms bridge requests read Postgres live at request time
 
-1. the static site
-2. the Python bridge
+## Current Browser Submission Pattern
 
-Static page changes require:
-
-- Eleventy rebuild
-- redeploy `_site/`
-
-Forms bridge changes require:
-
-- sync `forms_bridge/`
-- restart `emom-forms-bridge`
-
-Current deploy scripts live in:
-
-- `package.json`
-
-## Build-Time Data Pattern
-
-If your form needs DB-backed choices, the merch flow is the reference.
-
-The path is:
-
-1. `loadEmomData()` queries Postgres
-2. the returned object is exposed through `src/_data/emom.js`
-3. the Nunjucks page reads from `emom`
-
-That means the HTML is baked at build time.
-
-Important implication:
-
-- changing form option data in Postgres does not update the live page until the site is rebuilt and redeployed
-
-This is different from the Python bridge, which reads the database at request time.
-
-## Browser Submission Pattern
-
-The browser script should post to a same-origin path, not to a hardcoded hostname.
-
-Current pattern:
+Use same-origin paths, not hardcoded hostnames:
 
 ```js
 await fetch("/api/forms/merch-interest", {
@@ -255,64 +107,73 @@ await fetch("/api/forms/merch-interest", {
 });
 ```
 
-That keeps the same static build portable between:
+That keeps the same build portable between environments such as `test.emom.me` and `sydney.emom.me`, assuming nginx proxies `/api/forms/` correctly.
 
-- `test.emom.me`
-- `sydney.emom.me`
+## Current Bridge Pattern
 
-as long as nginx proxies `/api/forms/` to the forms bridge on that host.
+The bridge currently exposes:
 
-## Python Bridge Pattern
-
-The forms bridge currently exposes:
-
-- `GET /health`
+- `GET /api/forms/health`
 - `POST /api/forms/merch-interest`
+- performer registration start/session/submit
+- moderation approve/deny actions
+- availability confirm/cancel actions
+- admin lineup selection
+- standby promotion
 
 The bridge uses:
 
 - Flask
 - `psycopg`
 - direct SQL
+- SMTP relay for outbound email
 
 Database connections come from:
 
 - `DATABASE_URL`
 - or `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`
 
-See:
+Bridge mail configuration comes from:
 
-- `forms_bridge/db.py`
+- `FORMS_EMAIL_FROM`
+- `FORMS_SMTP_HOST`
+- `FORMS_SMTP_PORT`
+- `FORMS_SITE_BASE_URL`
 
-The current code keeps the API logic inside `forms_bridge/app.py`. That is fine for a small number of forms. If the bridge grows, the next cleanup would be splitting routes or handlers into separate modules.
+## Performer Workflow Notes
 
-## Response Pattern
+The performer registration system is no longer just a simple form POST. It is a tokenized workflow built around:
 
-The current convention is JSON like this.
+- email-first registration
+- moderated profile drafts
+- requested Open Mic dates
+- availability reminders
+- final lineup selection
+- standby and reserve states
 
-Success:
+Current pre-event lineup state lives in:
 
-```json
-{
-  "ok": true,
-  "submission_id": 123
-}
-```
+- `event_performer_selections`
 
-Error:
+Actual played sets should still be written later to:
 
-```json
-{
-  "ok": false,
-  "error": "A valid email address is required."
-}
-```
+- `performances`
 
-Try to keep future endpoints consistent with this shape. It makes browser-side handling simpler.
+## Standard Workflow For A New Form
+
+When adding a new form area:
+
+1. define schema in `db/schema.sql`
+2. add migration in `db/migrations/`
+3. update grants/default privileges if needed
+4. create the static page in `src/`
+5. create the browser script in `assets/scripts/`
+6. add bridge handlers in `forms_bridge/`
+7. deploy both the static site and the bridge
+
+Do not assume rebuilding Eleventy is enough if the logic lives in the bridge.
 
 ## Validation Guidance
-
-Split validation across the two layers:
 
 ### Browser-side validation
 
@@ -322,54 +183,40 @@ Use this for:
 - obvious formatting checks
 - friendly immediate feedback
 
-Do not rely on it for correctness.
-
 ### Server-side validation
 
 Use this for:
 
 - type validation
 - integrity checks
-- verifying foreign keys against active rows
-- deduping or normalization
+- foreign key validation
+- deduping and normalization
+- token validation
 - final acceptance or rejection
 
-The server must be able to reject a bad request even if the browser script is bypassed.
+The server must be able to reject bad requests even if the browser script is bypassed.
 
-## Suggested Checklist For A New Form
+## Deployment Surfaces
 
-When adding a form, verify all of these:
+Most form changes affect one or both of:
 
-1. schema exists in `db/schema.sql`
-2. migration exists in `db/migrations/`
-3. write-role permissions are correct
-4. static page exists in `src/`
-5. browser script exists in `assets/scripts/`
-6. API route exists in `forms_bridge/app.py`
-7. nginx exposes `/api/forms/...`
-8. the forms bridge has been redeployed and restarted
-9. the static site has been rebuilt and redeployed
-10. `curl` can submit a valid payload successfully
+1. static site output in `_site/`
+2. `forms_bridge` runtime code
 
-## Example: Minimal New Form
+Typical checklist:
 
-Suppose you want a simple contact form.
-
-You would typically:
-
-1. add `contact_messages` table + migration
-2. create `src/contact/index.njk`
-3. create `assets/scripts/contact_form.js`
-4. add `POST /api/forms/contact` in `forms_bridge/app.py`
-5. create a DB role such as `emom_contact_writer`
-6. grant only the required privileges
-7. deploy the static page and the bridge
-
-If the contact form has no dynamic options, you do not need to touch `loadEmomData.js`.
+1. schema/migration updated
+2. grants updated
+3. static page exists
+4. browser script exists
+5. bridge route/helper exists
+6. site rebuilt with Eleventy
+7. `_site/` redeployed
+8. bridge code redeployed
+9. bridge service restarted
+10. end-to-end request tested with browser and `curl`
 
 ## Operational Notes
-
-The bridge is intended to run behind nginx and `systemd`.
 
 Deployment templates live in:
 
@@ -380,27 +227,17 @@ Deployment templates live in:
 See:
 
 - `FORMS_API.md`
+- `DB_SETUP.md`
 
-for the environment and runtime setup details.
+for runtime and DB role details.
 
-## Current Limitations
-
-A few repo-specific limitations are worth knowing:
-
-- the forms bridge is small and intentionally direct; it is not a full application framework
-- changes to build-time form options require an Eleventy rebuild
-- the current deploy scripts sync `forms_bridge/`, but do not automatically reinstall Python dependencies on the server
-- the bridge currently logs server-side exceptions, but there is no richer admin dashboard or audit UI yet
-
-## Recommended Style For Future Work
+## Recommended Style
 
 When adding forms in this repo:
 
 - keep the public page static
 - keep runtime writes in the Python bridge
-- keep DB-driven option lists in `loadEmomData.js`
-- use one DB writer role per logical form area
-- prefer small explicit SQL over heavy abstraction
-- keep frontend scripts small and purpose-built
-
-That matches how the repo works today and should scale cleanly to a few more forms without introducing unnecessary complexity.
+- keep DB-backed option lists in `loadEmomData.js` when they are build-time concerns
+- use explicit SQL
+- prefer purpose-built browser scripts over generic abstractions
+- document token/email workflows clearly when a “form” is really a multi-step process

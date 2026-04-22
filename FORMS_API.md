@@ -2,21 +2,34 @@
 
 This repo now includes a small Python bridge for writing static-site form submissions into Postgres.
 
-Current endpoint:
+Current endpoints:
 
 - `POST /api/forms/merch-interest`
+- `POST /api/forms/performer-registration/start`
+- `GET /api/forms/performer-registration/session?token=...`
+- `POST /api/forms/performer-registration/submit`
+- `GET /api/forms/performer-registration/moderation/approve?token=...`
+- `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
+- `GET /api/forms/performer-registration/availability/confirm?token=...`
+- `GET /api/forms/performer-registration/availability/cancel?token=...`
+- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&requested_date_id=...`
+- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
 
 The bridge code lives in:
 
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
+- `forms_bridge/performer_workflow.py`
+- `forms_bridge/send_availability_reminders.py`
+- `forms_bridge/send_admin_selection_links.py`
 - `forms_bridge/requirements.txt`
 
 ## Purpose
 
 The website is statically generated with Eleventy, so browser forms cannot write directly to Postgres. This bridge is the server-side component that accepts form submissions and inserts rows into the database.
 
-The merch endpoint is intentionally narrow, but the app structure is reusable for future forms.
+The merch endpoint is still supported, but the main active workflow area is performer registration and scheduling.
 
 ## Environment
 
@@ -30,6 +43,17 @@ Optional:
 - `FORMS_API_ALLOWED_ORIGINS`
   - comma-separated list of allowed origins for CORS
   - if unset, the app reflects any incoming origin
+- `FORMS_SITE_BASE_URL`
+  - base public site URL used to build performer registration and moderation links
+- `FORMS_EMAIL_FROM`
+  - sender address for performer workflow emails
+- `FORMS_SMTP_HOST`
+  - SMTP relay host for bridge-generated emails
+- `FORMS_SMTP_PORT`
+  - SMTP relay port, defaults to `25`
+- `ADMIN_SELECTION_LOCK_MINUTES`
+  - lock TTL for admin lineup editing sessions
+  - defaults to `30`
 
 ## Install
 
@@ -54,7 +78,7 @@ Or with Python directly:
 python -m flask --app forms_bridge.app run --host 127.0.0.1 --port 5001
 ```
 
-In production, run it behind a reverse proxy or WSGI server. The intended pattern is to expose it under the same site/domain so frontend forms can post to a same-origin path such as `/api/forms/merch-interest`.
+In production, run it behind a reverse proxy or WSGI server. The intended pattern is to expose it under the same site/domain so frontend forms can post to same-origin paths such as `/api/forms/merch-interest` and `/api/forms/performer-registration/...`.
 
 ## Debian / systemd / nginx
 
@@ -115,6 +139,16 @@ The expected public paths are:
 
 - `GET /api/forms/health`
 - `POST /api/forms/merch-interest`
+- `POST /api/forms/performer-registration/start`
+- `GET /api/forms/performer-registration/session?token=...`
+- `POST /api/forms/performer-registration/submit`
+- `GET /api/forms/performer-registration/moderation/approve?token=...`
+- `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
+- `GET /api/forms/performer-registration/availability/confirm?token=...`
+- `GET /api/forms/performer-registration/availability/cancel?token=...`
+- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&requested_date_id=...`
+- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
 
 ## Request Shape
 
@@ -168,3 +202,80 @@ Error:
 - `merch_variants`
 
 The API validates the submitted variant ids against `merch_variants` and inserts rows into the submissions/lines tables in one transaction.
+
+## Performer Registration
+
+The performer workflow is now staged through the forms bridge:
+
+- `POST /api/forms/performer-registration/start`
+  - accepts `{ "email": "artist@example.com" }`
+  - creates a 24-hour token in `action_tokens`
+  - sends a registration email via the configured SMTP relay
+- `GET /api/forms/performer-registration/session?token=...`
+  - validates the registration token
+  - returns prefill data from the latest relevant submission for that email, social platform options, and currently eligible future Open Mic events
+- `POST /api/forms/performer-registration/submit`
+  - accepts the token plus draft profile fields, social links, and requested event ids
+  - `artist_bio` is treated as public profile bio content
+  - optional `additional_info` is stored for moderators/admins only and is not shown on public profiles
+  - writes into `profile_submission_drafts`, `profile_submission_social_profiles`, and `requested_dates`
+  - emails moderators one-time approve/deny links
+- moderation links:
+  - approval applies the draft to the live profile and artist role
+  - denial presents a small reason form and can include a fresh one-time edit link in the email to the artist
+- moderator emails:
+  - include the submitted draft, current live profile snapshot, requested event dates, clickable social links, and a compact next-event status summary
+- availability links:
+  - confirm marks `requested_dates.status = 'availability_confirmed'`
+  - cancel marks `requested_dates.status = 'availability_cancelled'`
+
+Availability reminder job:
+
+- script: `python -m forms_bridge.send_availability_reminders`
+- optional override: `python -m forms_bridge.send_availability_reminders --run-date 2026-04-04`
+- behavior:
+  - reads `availability_confirmation_lead_days` from `app_settings`
+  - finds due Open Mic events
+  - emails all unsent requesters one-time confirm/cancel links
+  - emails moderators if any requesters for that event are still unapproved
+
+Admin selection workflow:
+
+- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+  - tokenized admin page for the 7-day lineup selection
+  - event-level edit lock prevents concurrent edits from multiple admins
+  - if another admin already holds the lock, the page returns a friendly lock message with that admin's name
+  - lock is auto-refreshed while the page is open and released on save/close (with TTL fallback)
+  - selected candidates are stored as `selected`
+  - all other eligible confirmed candidates are stored as `standby`
+  - later requested dates inside the configured cooldown window can be marked as `reserve`
+- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
+  - tokenized moderator/admin page used after a selected performer cancels
+  - promotes one standby performer into the lineup
+  - ordinary `standby` entries are preferred over `reserve`
+
+Admin selection reminder job:
+
+- script: `python -m forms_bridge.send_admin_selection_links`
+- optional override: `python -m forms_bridge.send_admin_selection_links --run-date 2026-04-04`
+- behavior:
+  - reads `final_selection_lead_days` from `app_settings`
+  - finds due Open Mic events
+  - emails admins one-time lineup selection links
+
+Cancellation behavior:
+
+- if a selected performer cancels availability:
+  - their selection row is marked `cancelled`
+  - if standby/reserve candidates exist, moderators receive a one-time backup-selection link
+  - if no standby/reserve candidates exist and selected count is now below slot count, moderators receive an open-slot alert
+
+Current performer flow environment assumptions:
+
+- the database already has the new performer workflow schema
+- the current migrations have been applied, including admin selection and `reserve`
+- moderator profiles exist in `profiles` with `is_moderator = true`
+- moderator profiles also have the `volunteer` role in `profile_roles`
+- admin profiles exist in `profiles` with `is_admin = true`
+- admin profiles also have the `volunteer` role in `profile_roles`
+- the host can relay mail through the configured SMTP server
