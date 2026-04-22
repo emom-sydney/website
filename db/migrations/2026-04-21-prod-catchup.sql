@@ -222,6 +222,18 @@ SELECT setval(
   false
 );
 
+SELECT setval(
+  pg_get_serial_sequence('public.profiles', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.profiles), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.profile_social_profiles', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.profile_social_profiles), 0) + 1,
+  false
+);
+
 
 ALTER TABLE events
 	ADD COLUMN admin_selection_email_sent_at timestamp with time zone;

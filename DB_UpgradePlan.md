@@ -194,6 +194,7 @@ SELECT count(*) FROM events;
 SELECT count(*) FROM app_settings;
 SELECT count(*) FROM profile_submission_drafts;
 SELECT count(*) FROM action_tokens;
+SELECT count(*) FROM newsletter_subscribe_requests;
 
 -- as admin
 SELECT count(*) FROM event_performer_selections;
@@ -423,6 +424,58 @@ SELECT 'profile_social_profiles_id_seq' AS sequence_name,
   - row values changed; inspect migration/update statements and app writes during the window.
 - Sequence last value behind max ID:
   - run `setval(...)` to advance sequence before resuming normal writes.
+
+If sequence sanity fails, run this repair block:
+
+```sql
+SELECT setval(
+  pg_get_serial_sequence('public.profiles', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.profiles), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.profile_social_profiles', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.profile_social_profiles), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.profile_submission_drafts', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.profile_submission_drafts), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.profile_submission_social_profiles', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.profile_submission_social_profiles), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.requested_dates', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.requested_dates), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.moderation_actions', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.moderation_actions), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.event_performer_selections', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.event_performer_selections), 0) + 1,
+  false
+);
+
+SELECT setval(
+  pg_get_serial_sequence('public.action_tokens', 'id'),
+  COALESCE((SELECT MAX(id) FROM public.action_tokens), 0) + 1,
+  false
+);
+```
 
 ## Rollback Plan
 

@@ -41,6 +41,7 @@ BEGIN
         requested_dates,
         moderation_actions,
         event_performer_selections,
+        newsletter_subscribe_requests,
         merch_interest_submissions,
         merch_interest_lines,
         merch_variants
