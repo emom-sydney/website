@@ -80,6 +80,7 @@ Confirm all of the following before applying anywhere:
 - No accidental `DROP TABLE`/`DROP COLUMN` on live data.
 - No renames that should have been additive changes.
 - Grants include new tables/sequences for forms bridge role.
+- New surrogate key columns expected to auto-generate IDs (`id`) are identity/default-backed (not plain `NOT NULL`).
 
 ## Phase 2: Postgres-Only Staging Rehearsal
 
@@ -145,6 +146,35 @@ diff -u db/target-schema.sql /tmp/stage-schema.sql > /tmp/schema-stage-vs-target
 
 Expected: empty diff or only accepted non-functional ordering differences.
 
+Identity/default check for workflow tables (required):
+
+```sql
+SELECT
+  c.table_name,
+  c.column_name,
+  c.is_identity,
+  c.column_default
+FROM information_schema.columns c
+WHERE c.table_schema = 'public'
+  AND c.column_name = 'id'
+  AND c.table_name IN (
+    'profile_submission_drafts',
+    'profile_submission_social_profiles',
+    'requested_dates',
+    'moderation_actions',
+    'event_performer_selections',
+    'action_tokens'
+  )
+ORDER BY c.table_name;
+```
+
+Expected:
+
+- `is_identity = YES` for all rows above
+- no `NULL` default for those `id` columns
+
+If any row shows `is_identity = NO` and no default/sequence, fix it before runtime tests by adding identity and reseeding sequence.
+
 ### 6. Runtime sanity checks against staging DB
 
 Run these as each role where possible:
@@ -167,6 +197,90 @@ SELECT count(*) FROM action_tokens;
 
 -- as admin
 SELECT count(*) FROM event_performer_selections;
+```
+
+If your cloned production data has no moderator/admin profiles yet, seed one in **staging only** before testing performer moderation and admin-selection flows:
+
+```sql
+DO $$
+DECLARE
+  v_profile_id integer;
+  v_profiles_seq text;
+BEGIN
+  -- Ensure profiles.id sequence/default is ahead of existing rows.
+  v_profiles_seq := pg_get_serial_sequence('public.profiles', 'id');
+  IF v_profiles_seq IS NOT NULL THEN
+    EXECUTE format(
+      'SELECT setval(%L, COALESCE((SELECT MAX(id) FROM public.profiles), 0) + 1, false)',
+      v_profiles_seq
+    );
+  END IF;
+
+  SELECT p.id
+  INTO v_profile_id
+  FROM profiles p
+  WHERE lower(p.email) = lower('moderator+stage@sydney.emom.me')
+  LIMIT 1;
+
+  IF v_profile_id IS NULL THEN
+    INSERT INTO profiles (
+      profile_type,
+      display_name,
+      first_name,
+      last_name,
+      email,
+      is_email_public,
+      is_name_public,
+      is_profile_approved,
+      is_moderator,
+      is_admin,
+      profile_visible_from,
+      profile_expires_on
+    )
+    VALUES (
+      'person',
+      'Stage Moderator',
+      'Stage',
+      'Moderator',
+      'moderator+stage@sydney.emom.me',
+      false,
+      false,
+      true,
+      false,
+      false,
+      NULL,
+      CURRENT_DATE + INTERVAL '100 years'
+    )
+    RETURNING id INTO v_profile_id;
+  END IF;
+
+  -- Staff profiles must also have volunteer role.
+  INSERT INTO profile_roles (profile_id, role)
+  VALUES (v_profile_id, 'volunteer')
+  ON CONFLICT (profile_id, role) DO NOTHING;
+
+  UPDATE profiles
+  SET
+    profile_type = 'person',
+    is_moderator = true,
+    is_admin = true
+  WHERE id = v_profile_id;
+END;
+$$;
+```
+
+Verification:
+
+```sql
+SELECT id, email, is_moderator, is_admin
+FROM profiles
+WHERE lower(email) = lower('moderator+stage@sydney.emom.me');
+
+SELECT profile_id, role
+FROM profile_roles
+WHERE profile_id IN (
+  SELECT id FROM profiles WHERE lower(email) = lower('moderator+stage@sydney.emom.me')
+);
 ```
 
 Optional app-level smoke:

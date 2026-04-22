@@ -124,6 +124,61 @@ Notes:
 - `emom_forms_writer` is the intended DB role for `forms_bridge`, including the performer registration, moderation, reminder, and admin-selection workflows.
 - If you already have older roles such as `emom_merch_writer`, migrate the bridge config over to `emom_forms_writer` rather than continuing to widen the merch-only role.
 
+## 1A. Promote An Existing Profile To Moderator/Admin
+
+If you are promoting an existing profile, do it in this order:
+
+1. ensure the profile is a `person`
+2. ensure it has a `volunteer` role in `profile_roles`
+3. then set `is_moderator` / `is_admin`
+
+That order matters because trigger validation requires moderator/admin profiles to also be volunteers.
+
+```sql
+\c emomweb
+
+BEGIN;
+
+-- Replace this value with the target profile id.
+-- You can also locate by email first:
+-- SELECT id, profile_name, email FROM profiles WHERE lower(email) = lower('person@example.com');
+
+UPDATE profiles
+SET profile_type = 'person'
+WHERE id = 123;
+
+INSERT INTO profile_roles (profile_id, role)
+VALUES (123, 'volunteer')
+ON CONFLICT (profile_id, role) DO NOTHING;
+
+UPDATE profiles
+SET is_moderator = TRUE,
+    is_admin = TRUE
+WHERE id = 123;
+
+COMMIT;
+```
+
+Verify:
+
+```sql
+SELECT
+  p.id,
+  p.profile_name,
+  p.email,
+  p.profile_type,
+  p.is_moderator,
+  p.is_admin,
+  EXISTS (
+    SELECT 1
+    FROM profile_roles pr
+    WHERE pr.profile_id = p.id
+      AND pr.role = 'volunteer'
+  ) AS has_volunteer_role
+FROM profiles p
+WHERE p.id = 123;
+```
+
 ## 2. Create A Dedicated SSH User For Tunneling
 
 On the remote host:
