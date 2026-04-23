@@ -7,7 +7,7 @@
     "sharp": "^0.34.5"
   },
   "scripts": {
-    "dev": "bash -c '[ -f .pgenv ] && source .pgenv; npx @11ty/eleventy --serve --quiet'",
+    "dev": "bash -c 'set -a; [ -f .pgenv ] && source .pgenv; set +a; npx @11ty/eleventy --serve --quiet'",
     "start:dev": "PGDATABASE=emomtest npx @11ty/eleventy --serve --quiet",
     "start:prod": "PGDATABASE=emomweb MY_ENVIRONMENT=production npx @11ty/eleventy --serve --quiet",
     "build:dev": "PGDATABASE=emomtest npx @11ty/eleventy",

@@ -4,6 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ siteName }} | {{ pageTitle }}</title>
+  {% set metaDescription = description or siteDescription or 'Sydney EMOM - Electronic Music Open Mic' %}
+  <meta name="description" content="{{ metaDescription }}">
+  <meta property="og:site_name" content="{{ siteName }}">
+  <meta property="og:title" content="{{ siteName }} | {{ pageTitle }}">
+  <meta property="og:description" content="{{ metaDescription }}">
+  <meta property="og:type" content="{{ ogType or 'website' }}">
+  <meta property="og:url" content="{{ siteUrl }}{{ page.url }}">
+  {% set metaImage = ogImage or '/assets/img/emom-social.png' %}
+  {% if metaImage and (metaImage.startsWith('http') or metaImage.startsWith('//')) %}
+    {% set fullMetaImage = metaImage %}
+  {% else %}
+    {% set fullMetaImage = siteUrl + metaImage %}
+  {% endif %}
+  <meta property="og:image" content="{{ fullMetaImage }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ siteName }} | {{ pageTitle }}">
+  <meta name="twitter:description" content="{{ metaDescription }}">
+  <meta name="twitter:image" content="{{ fullMetaImage }}">
+  <link rel="canonical" href="{{ siteUrl }}{{ page.url }}">
   <link rel="stylesheet" type="text/css" href="/assets/css/style.css">
   <script src="/assets/scripts/toast.js"></script>
   <style>

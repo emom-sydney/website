@@ -10,3 +10,4 @@ assets/img/bg/*
 __pycache__/
 *.pyc
 dev.sh
+emom.local.sqlite
