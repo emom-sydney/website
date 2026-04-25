@@ -9,3 +9,5 @@ assets/img/bg/*
 .pgenv
 __pycache__/
 *.pyc
+dev.sh
+emom.local.sqlite

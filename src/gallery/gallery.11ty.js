@@ -182,7 +182,15 @@ export const data = async () => {
         const heading = getGalleryHeading(data.page, data.emom);
         if (data.page?.topIndex) return heading;
         return `gallery | ${heading}`;
-      }
+      },
+      description: (data) => {
+        const page = data.page;
+        if (page?.topIndex) return "Photo and video galleries from sydney.emom events.";
+        const event = data.emom?.eventsByGalleryUrl?.[page.gallery];
+        const eventName = event?.EventName || page.gallery;
+        return `Gallery: ${eventName} - Photos and videos from sydney.emom`;
+      },
+      ogType: () => "website"
     },
     // ensure each paginated item controls its own output path
     permalink: data => data.page.permalink,
