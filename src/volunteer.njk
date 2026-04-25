@@ -44,12 +44,6 @@ description: "Register as an EMOM volunteer and claim event roles such as sound,
         <span>Show email on your crew profile page</span>
       </label>
 
-      <label for="volunteer-profile-type">Profile type</label>
-      <select id="volunteer-profile-type" name="profile_type" required>
-        <option value="person">Person</option>
-        <option value="group">Group</option>
-      </select>
-
       <label for="volunteer-display-name">Display name</label>
       <input type="text" id="volunteer-display-name" name="display_name" required>
 
@@ -83,7 +77,16 @@ description: "Register as an EMOM volunteer and claim event roles such as sound,
       <fieldset class="performer-registration-fieldset">
         <legend>Claim volunteer roles</legend>
         <p class="performer-registration-note">Select every role/date you are available for. Filled roles will become standby claims.</p>
+        <label for="volunteer-event-selector">Event date</label>
+        <select id="volunteer-event-selector" name="event_selector"></select>
+        <p id="volunteer-selected-claims-note" class="performer-registration-note"></p>
         <div id="volunteer-role-claims"></div>
+      </fieldset>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Claim ongoing volunteer roles</legend>
+        <p class="performer-registration-note">These roles are not tied to a specific event date.</p>
+        <div id="volunteer-general-role-claims"></div>
       </fieldset>
 
       <button type="submit">Submit volunteer registration</button>

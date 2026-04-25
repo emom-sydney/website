@@ -314,7 +314,9 @@ Core endpoints:
 - `GET /api/forms/volunteer-registration/session?token=...`
   - returns profile prefill, social platforms, future events, and role availability by event
 - `POST /api/forms/volunteer-registration/submit`
-  - accepts profile fields, social links, and `role_claims: [{ event_id, role_key }]`
+  - accepts profile fields, social links, and:
+    - `event_role_claims: [{ event_id, role_key }]`
+    - `general_role_claims: [role_key]`
   - auto-approves immediately when the matched profile is already approved and already has volunteer role
   - otherwise sends moderator approve/deny links
 - `GET /api/forms/volunteer-registration/moderation/approve?token=...`
@@ -333,7 +335,9 @@ Role/capacity model:
 - global role definitions: `volunteer_roles`
 - optional per-event capacity/description overrides: `event_volunteer_role_overrides`
 - pending draft claims: `profile_submission_volunteer_claims`
+- pending draft general claims: `profile_submission_volunteer_general_claims`
 - live claim state: `event_volunteer_role_claims`
+- live general claim state: `volunteer_general_role_claims`
 
 Selection rule:
 

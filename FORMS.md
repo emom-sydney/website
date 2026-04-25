@@ -169,7 +169,9 @@ The volunteer role-bidding workflow is similarly tokenized and uses:
 - `volunteer_roles` (global role defaults)
 - `event_volunteer_role_overrides` (per-event overrides)
 - `profile_submission_volunteer_claims` (pending claims on draft)
+- `profile_submission_volunteer_general_claims` (pending non-event claims on draft)
 - `event_volunteer_role_claims` (live selected/standby/cancelled claims)
+- `volunteer_general_role_claims` (live active/withdrawn non-event claims)
 
 Actual played sets should still be written later to:
 

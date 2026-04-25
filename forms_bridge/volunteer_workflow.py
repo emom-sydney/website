@@ -50,6 +50,8 @@ ACTION_TYPE_VOLUNTEER_CLAIMS_LINK = "volunteer_claims_link"
 CLAIM_STATUS_SELECTED = "selected"
 CLAIM_STATUS_STANDBY = "standby"
 CLAIM_STATUS_CANCELLED = "cancelled"
+GENERAL_CLAIM_STATUS_ACTIVE = "active"
+GENERAL_CLAIM_STATUS_WITHDRAWN = "withdrawn"
 
 
 def register_volunteer_workflow_routes(app):
@@ -114,7 +116,8 @@ def register_volunteer_workflow_routes(app):
                     )
                     email = token_row["email"]
                     live_profile = get_existing_profile_by_email(cursor, email)
-                    latest_draft = get_latest_prefill_submission_by_email(cursor, email)
+                    live_profile = apply_volunteer_role_bio_to_profile(cursor, live_profile)
+                    latest_draft = get_latest_volunteer_prefill_submission_by_email(cursor, email)
                     profile = serialize_prefill_profile(latest_draft) if latest_draft else live_profile
                     social_platforms = get_social_platforms(cursor)
                     available_events = get_future_events(cursor)
@@ -122,7 +125,15 @@ def register_volunteer_workflow_routes(app):
                         cursor,
                         profile_id=profile["id"] if profile and profile.get("id") else None,
                     )
+                    general_role_options = get_general_role_options(
+                        cursor,
+                        profile_id=profile["id"] if profile and profile.get("id") else None,
+                    )
                     existing_claims = get_active_claim_pairs(
+                        cursor,
+                        profile_id=profile["id"] if profile and profile.get("id") else None,
+                    )
+                    existing_general_claims = get_active_general_claim_keys(
                         cursor,
                         profile_id=profile["id"] if profile and profile.get("id") else None,
                     )
@@ -135,7 +146,9 @@ def register_volunteer_workflow_routes(app):
                     "social_platforms": social_platforms,
                     "available_events": available_events,
                     "role_availability": role_availability,
+                    "general_role_options": general_role_options,
                     "existing_claims": existing_claims,
+                    "existing_general_claims": existing_general_claims,
                 }
             )
         except ValueError as exc:
@@ -174,8 +187,9 @@ def register_volunteer_workflow_routes(app):
                     )
 
                     future_event_ids = {event["id"] for event in get_future_events(cursor)}
-                    ensure_claim_events_are_allowed(draft_payload["role_claims"], future_event_ids)
-                    ensure_roles_exist(cursor, [item["role_key"] for item in draft_payload["role_claims"]])
+                    ensure_claim_events_are_allowed(draft_payload["event_role_claims"], future_event_ids)
+                    ensure_event_roles_exist(cursor, [item["role_key"] for item in draft_payload["event_role_claims"]])
+                    ensure_general_roles_exist(cursor, draft_payload["general_role_keys"])
                     ensure_social_platforms_exist(
                         cursor,
                         [item["social_platform_id"] for item in draft_payload["social_links"]],
@@ -189,7 +203,10 @@ def register_volunteer_workflow_routes(app):
                         draft_payload=draft_payload,
                     )
                     insert_profile_submission_social_links(cursor, draft_id, draft_payload["social_links"])
-                    insert_profile_submission_volunteer_claims(cursor, draft_id, draft_payload["role_claims"])
+                    insert_profile_submission_volunteer_claims(cursor, draft_id, draft_payload["event_role_claims"])
+                    insert_profile_submission_volunteer_general_claims(
+                        cursor, draft_id, draft_payload["general_role_keys"]
+                    )
 
                     auto_approve = bool(
                         profile
@@ -225,12 +242,14 @@ def register_volunteer_workflow_routes(app):
                     mark_action_token_used(cursor, token_row["id"])
                     stored_draft = get_profile_submission_draft(cursor, draft_id)
                     stored_claims = get_profile_submission_volunteer_claims(cursor, draft_id)
+                    stored_general_claims = get_profile_submission_volunteer_general_claims(cursor, draft_id)
 
                 if auto_approve:
                     send_volunteer_profile_approved_email(
                         email=email,
                         display_name=draft_payload["display_name"],
                         role_claims=stored_claims,
+                        general_role_claims=stored_general_claims,
                     )
                 else:
                     send_volunteer_moderation_emails(
@@ -238,6 +257,7 @@ def register_volunteer_workflow_routes(app):
                         email=email,
                         draft_payload=stored_draft,
                         draft_claims=stored_claims,
+                        draft_general_claims=stored_general_claims,
                         existing_profile=profile,
                         matched_by=matched_by,
                         moderation_links=moderation_links,
@@ -287,11 +307,13 @@ def register_volunteer_workflow_routes(app):
                     )
                     invalidate_volunteer_moderation_tokens_for_draft(cursor, draft["id"])
                     role_claims = get_profile_submission_volunteer_claims(cursor, draft["id"])
+                    general_role_claims = get_profile_submission_volunteer_general_claims(cursor, draft["id"])
 
                 send_volunteer_profile_approved_email(
                     email=draft["email"],
                     display_name=draft["display_name"],
                     role_claims=role_claims,
+                    general_role_claims=general_role_claims,
                 )
 
             person_name = draft.get("display_name") or draft.get("email") or "the volunteer"
@@ -457,7 +479,7 @@ def register_volunteer_workflow_routes(app):
                 with connection.cursor() as cursor:
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_VOLUNTEER_CLAIMS_LINK)
                     claims = get_claims_for_profile(cursor, token_row["profile_id"])
-            return jsonify({"ok": True, "claims": claims})
+            return jsonify({"ok": True, **claims})
         except ValueError as exc:
             return error_response(str(exc), 400)
         except Exception:
@@ -473,37 +495,67 @@ def register_volunteer_workflow_routes(app):
         try:
             payload = get_json_payload()
             raw_token = normalize_text(payload.get("token"))
+            claim_type = normalize_text(payload.get("claim_type")) or "event"
             claim_id = payload.get("claim_id")
+            general_role_key = normalize_text(payload.get("general_role_key"))
             if not raw_token:
                 return error_response("A claims token is required.", 400)
-            if not isinstance(claim_id, int):
+            if claim_type not in {"event", "general"}:
+                return error_response("A valid claim type is required.", 400)
+            if claim_type == "event" and not isinstance(claim_id, int):
                 return error_response("A valid claim id is required.", 400)
+            if claim_type == "general" and not general_role_key:
+                return error_response("A valid general role key is required.", 400)
 
             promoted = None
             with connect() as connection:
                 with connection.cursor() as cursor:
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_VOLUNTEER_CLAIMS_LINK)
-                    claim = get_claim_by_id_for_profile(cursor, claim_id=claim_id, profile_id=token_row["profile_id"])
-                    if claim["status"] == CLAIM_STATUS_CANCELLED:
-                        raise ValueError("This claim has already been cancelled.")
-
-                    cursor.execute(
-                        """
-                        UPDATE event_volunteer_role_claims
-                        SET
-                          status = %s,
-                          cancelled_at = now()
-                        WHERE id = %s
-                        """,
-                        (CLAIM_STATUS_CANCELLED, claim_id),
-                    )
-
-                    if claim["status"] == CLAIM_STATUS_SELECTED:
-                        promoted = promote_oldest_standby_claim(
+                    if claim_type == "general":
+                        claim = get_general_claim_for_profile(
                             cursor,
-                            event_id=claim["event_id"],
-                            role_key=claim["role_key"],
+                            profile_id=token_row["profile_id"],
+                            role_key=general_role_key.lower(),
                         )
+                        if claim["status"] == GENERAL_CLAIM_STATUS_WITHDRAWN:
+                            raise ValueError("This claim has already been cancelled.")
+                        cursor.execute(
+                            """
+                            UPDATE volunteer_general_role_claims
+                            SET
+                              status = %s,
+                              withdrawn_at = now()
+                            WHERE profile_id = %s
+                              AND role_key = %s
+                            """,
+                            (
+                                GENERAL_CLAIM_STATUS_WITHDRAWN,
+                                token_row["profile_id"],
+                                general_role_key.lower(),
+                            ),
+                        )
+                    else:
+                        claim = get_claim_by_id_for_profile(cursor, claim_id=claim_id, profile_id=token_row["profile_id"])
+                        if claim["status"] == CLAIM_STATUS_CANCELLED:
+                            raise ValueError("This claim has already been cancelled.")
+
+                        cursor.execute(
+                            """
+                            UPDATE event_volunteer_role_claims
+                            SET
+                              status = %s,
+                              cancelled_at = now()
+                            WHERE id = %s
+                            """,
+                            (CLAIM_STATUS_CANCELLED, claim_id),
+                        )
+
+                        if claim["status"] == CLAIM_STATUS_SELECTED:
+                            promoted = promote_oldest_standby_claim(
+                                cursor,
+                                event_id=claim["event_id"],
+                                role_key=claim["role_key"],
+                            )
 
                 if promoted:
                     send_volunteer_standby_promoted_email(promoted)
@@ -528,7 +580,7 @@ def get_json_payload():
 
 
 def normalize_volunteer_submission_payload(payload, email):
-    profile_type = normalize_text(payload.get("profile_type"))
+    profile_type = "person"
     display_name = normalize_text(payload.get("display_name"))
     first_name = normalize_text(payload.get("first_name"))
     last_name = normalize_text(payload.get("last_name"))
@@ -536,16 +588,19 @@ def normalize_volunteer_submission_payload(payload, email):
     volunteer_bio = normalize_text(payload.get("volunteer_bio") or payload.get("artist_bio"))
     additional_info = normalize_text(payload.get("additional_info"))
     social_links = payload.get("social_links") or []
-    role_claims = payload.get("role_claims") or []
+    role_claims = payload.get("event_role_claims")
+    if role_claims is None:
+        role_claims = payload.get("role_claims") or []
+    general_role_claims = payload.get("general_role_claims") or []
 
-    if profile_type not in {"person", "group"}:
-        raise ValueError("Profile type must be either 'person' or 'group'.")
     if not display_name:
         raise ValueError("A display name is required.")
     if not contact_phone:
         raise ValueError("A contact phone number is required.")
-    if not isinstance(role_claims, list) or not role_claims:
-        raise ValueError("At least one volunteer role claim is required.")
+    if not isinstance(role_claims, list):
+        raise ValueError("Event role claims must be an array.")
+    if not isinstance(general_role_claims, list):
+        raise ValueError("General role claims must be an array.")
     if not isinstance(social_links, list):
         raise ValueError("Social links must be an array.")
 
@@ -568,8 +623,8 @@ def normalize_volunteer_submission_payload(payload, email):
             }
         )
 
-    normalized_claims = []
-    seen_claim_keys = set()
+    normalized_event_claims = []
+    seen_event_claim_keys = set()
     for item in role_claims:
         if not isinstance(item, dict):
             raise ValueError("Each role claim must be an object.")
@@ -581,17 +636,29 @@ def normalize_volunteer_submission_payload(payload, email):
             raise ValueError("Each role claim must include a role_key.")
         role_key = role_key.lower()
         dedupe_key = (event_id, role_key)
-        if dedupe_key in seen_claim_keys:
+        if dedupe_key in seen_event_claim_keys:
             continue
-        seen_claim_keys.add(dedupe_key)
-        normalized_claims.append(
+        seen_event_claim_keys.add(dedupe_key)
+        normalized_event_claims.append(
             {
                 "event_id": event_id,
                 "role_key": role_key,
             }
         )
 
-    if not normalized_claims:
+    normalized_general_role_keys = []
+    seen_general_role_keys = set()
+    for raw_role_key in general_role_claims:
+        role_key = normalize_text(raw_role_key)
+        if not role_key:
+            continue
+        role_key = role_key.lower()
+        if role_key in seen_general_role_keys:
+            continue
+        seen_general_role_keys.add(role_key)
+        normalized_general_role_keys.append(role_key)
+
+    if not normalized_event_claims and not normalized_general_role_keys:
         raise ValueError("At least one volunteer role claim is required.")
 
     return {
@@ -607,7 +674,8 @@ def normalize_volunteer_submission_payload(payload, email):
         "is_artist_bio_public": True,
         "additional_info": additional_info,
         "social_links": normalized_social_links,
-        "role_claims": normalized_claims,
+        "event_role_claims": normalized_event_claims,
+        "general_role_keys": normalized_general_role_keys,
     }
 
 
@@ -628,6 +696,56 @@ def get_future_events(cursor):
         }
         for row in cursor.fetchall()
     ]
+
+
+def get_latest_volunteer_prefill_submission_by_email(cursor, email):
+    cursor.execute(
+        """
+        SELECT d.id
+        FROM profile_submission_drafts d
+        WHERE lower(d.email) = lower(%s)
+          AND d.status IN (%s, %s, %s)
+          AND EXISTS (
+            SELECT 1 FROM profile_submission_volunteer_claims pvc WHERE pvc.draft_id = d.id
+            UNION ALL
+            SELECT 1 FROM profile_submission_volunteer_general_claims pvg WHERE pvg.draft_id = d.id
+          )
+        ORDER BY d.submitted_at DESC, d.id DESC
+        LIMIT 1
+        """,
+        (
+            email,
+            WORKFLOW_STATUS_PENDING,
+            WORKFLOW_STATUS_DENIED,
+            WORKFLOW_STATUS_APPROVED,
+        ),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    return get_profile_submission_draft(cursor, row[0])
+
+
+def apply_volunteer_role_bio_to_profile(cursor, profile):
+    if not profile or not profile.get("id"):
+        return profile
+
+    cursor.execute(
+        """
+        SELECT bio, is_bio_public
+        FROM profile_roles
+        WHERE profile_id = %s
+          AND role = 'volunteer'
+        """,
+        (profile["id"],),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return profile
+
+    profile["artist_bio"] = row[0]
+    profile["is_artist_bio_public"] = row[1]
+    return profile
 
 
 def ensure_claim_events_are_allowed(role_claims, future_event_ids):
@@ -653,7 +771,7 @@ def ensure_social_platforms_exist(cursor, social_platform_ids):
         raise ValueError(f"Unknown social platform ids: {', '.join(str(item) for item in missing_ids)}")
 
 
-def ensure_roles_exist(cursor, role_keys):
+def ensure_event_roles_exist(cursor, role_keys):
     if not role_keys:
         return
     cursor.execute(
@@ -661,6 +779,26 @@ def ensure_roles_exist(cursor, role_keys):
         SELECT role_key
         FROM volunteer_roles
         WHERE is_active = true
+          AND role_scope = 'event'
+          AND role_key = ANY(%s)
+        """,
+        (role_keys,),
+    )
+    found_keys = {row[0] for row in cursor.fetchall()}
+    missing_keys = sorted(set(role_keys) - found_keys)
+    if missing_keys:
+        raise ValueError(f"Unknown volunteer role keys: {', '.join(missing_keys)}")
+
+
+def ensure_general_roles_exist(cursor, role_keys):
+    if not role_keys:
+        return
+    cursor.execute(
+        """
+        SELECT role_key
+        FROM volunteer_roles
+        WHERE is_active = true
+          AND role_scope = 'general'
           AND role_key = ANY(%s)
         """,
         (role_keys,),
@@ -683,6 +821,18 @@ def insert_profile_submission_volunteer_claims(cursor, draft_id, role_claims):
         )
 
 
+def insert_profile_submission_volunteer_general_claims(cursor, draft_id, role_keys):
+    for role_key in role_keys:
+        cursor.execute(
+            """
+            INSERT INTO profile_submission_volunteer_general_claims (draft_id, role_key)
+            VALUES (%s, %s)
+            ON CONFLICT (draft_id, role_key) DO NOTHING
+            """,
+            (draft_id, role_key),
+        )
+
+
 def get_profile_submission_volunteer_claims(cursor, draft_id):
     cursor.execute(
         """
@@ -698,6 +848,8 @@ def get_profile_submission_volunteer_claims(cursor, draft_id):
         JOIN events e
           ON e.id = pvc.event_id
         WHERE pvc.draft_id = %s
+          AND pvc.event_id IS NOT NULL
+          AND vr.role_scope = 'event'
         ORDER BY e.event_date, e.id, vr.sort_order, vr.role_key
         """,
         (draft_id,),
@@ -709,6 +861,30 @@ def get_profile_submission_volunteer_claims(cursor, draft_id):
             "role_display_name": row[2],
             "event_name": row[3],
             "event_date": row[4].isoformat(),
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def get_profile_submission_volunteer_general_claims(cursor, draft_id):
+    cursor.execute(
+        """
+        SELECT
+          pvg.role_key,
+          vr.display_name
+        FROM profile_submission_volunteer_general_claims pvg
+        JOIN volunteer_roles vr
+          ON vr.role_key = pvg.role_key
+        WHERE pvg.draft_id = %s
+          AND vr.role_scope = 'general'
+        ORDER BY vr.sort_order, vr.role_key
+        """,
+        (draft_id,),
+    )
+    return [
+        {
+            "role_key": row[0],
+            "role_display_name": row[1],
         }
         for row in cursor.fetchall()
     ]
@@ -811,11 +987,21 @@ def upsert_volunteer_role(cursor, profile_id, bio, is_bio_public):
 
 def materialize_draft_claims(cursor, *, draft_id, profile_id):
     claims = get_profile_submission_volunteer_claims(cursor, draft_id)
+    general_claims = get_profile_submission_volunteer_general_claims(cursor, draft_id)
     materialized = []
     for claim in claims:
         upserted = materialize_single_claim(
             cursor,
             event_id=claim["event_id"],
+            role_key=claim["role_key"],
+            profile_id=profile_id,
+            source_draft_id=draft_id,
+        )
+        if upserted:
+            materialized.append(upserted)
+    for claim in general_claims:
+        upserted = materialize_single_general_claim(
+            cursor,
             role_key=claim["role_key"],
             profile_id=profile_id,
             source_draft_id=draft_id,
@@ -892,7 +1078,14 @@ def choose_claim_status(cursor, *, event_id, role_key):
         raise ValueError("That event no longer exists.")
 
     cursor.execute(
-        "SELECT role_key FROM volunteer_roles WHERE role_key = %s AND is_active = true FOR UPDATE",
+        """
+        SELECT role_key
+        FROM volunteer_roles
+        WHERE role_key = %s
+          AND is_active = true
+          AND role_scope = 'event'
+        FOR UPDATE
+        """,
         (role_key,),
     )
     if cursor.fetchone() is None:
@@ -918,6 +1111,7 @@ def choose_claim_status(cursor, *, event_id, role_key):
           ON ov.role_key = vr.role_key
          AND ov.event_id = %s
         WHERE vr.role_key = %s
+          AND vr.role_scope = 'event'
         """,
         (event_id, role_key),
     )
@@ -939,6 +1133,55 @@ def choose_claim_status(cursor, *, event_id, role_key):
     )
     selected_count = len(cursor.fetchall())
     return CLAIM_STATUS_SELECTED if selected_count < capacity else CLAIM_STATUS_STANDBY
+
+
+def materialize_single_general_claim(cursor, *, role_key, profile_id, source_draft_id):
+    cursor.execute(
+        """
+        SELECT role_key
+        FROM volunteer_roles
+        WHERE role_key = %s
+          AND is_active = true
+          AND role_scope = 'general'
+        """,
+        (role_key,),
+    )
+    if cursor.fetchone() is None:
+        raise ValueError("That volunteer role is not available.")
+
+    cursor.execute(
+        """
+        INSERT INTO volunteer_general_role_claims (
+          role_key,
+          profile_id,
+          source_draft_id,
+          status,
+          claimed_at,
+          withdrawn_at
+        )
+        VALUES (%s, %s, %s, %s, now(), NULL)
+        ON CONFLICT (role_key, profile_id)
+        DO UPDATE SET
+          source_draft_id = EXCLUDED.source_draft_id,
+          status = %s,
+          claimed_at = CASE
+            WHEN volunteer_general_role_claims.status = %s THEN now()
+            ELSE volunteer_general_role_claims.claimed_at
+          END,
+          withdrawn_at = NULL
+        RETURNING role_key, status
+        """,
+        (
+            role_key,
+            profile_id,
+            source_draft_id,
+            GENERAL_CLAIM_STATUS_ACTIVE,
+            GENERAL_CLAIM_STATUS_ACTIVE,
+            GENERAL_CLAIM_STATUS_WITHDRAWN,
+        ),
+    )
+    row = cursor.fetchone()
+    return {"role_key": row[0], "status": row[1], "claim_type": "general"}
 
 
 def get_role_availability_by_event(cursor, *, profile_id=None):
@@ -983,6 +1226,7 @@ def get_role_availability_by_event(cursor, *, profile_id=None):
          AND uc.status IN ('selected', 'standby')
         WHERE e.event_date > CURRENT_DATE
           AND vr.is_active = true
+          AND vr.role_scope = 'event'
         ORDER BY e.event_date, e.id, vr.sort_order, vr.role_key
         """,
         (profile_id,),
@@ -1015,6 +1259,45 @@ def get_role_availability_by_event(cursor, *, profile_id=None):
     return list(events.values())
 
 
+def get_general_role_options(cursor, *, profile_id=None):
+    cursor.execute(
+        """
+        SELECT
+          vr.role_key,
+          vr.display_name,
+          vr.description,
+          COALESCE(active_claims.active_count, 0) AS active_count,
+          uc.status AS user_claim_status
+        FROM volunteer_roles vr
+        LEFT JOIN (
+          SELECT role_key, COUNT(*) AS active_count
+          FROM volunteer_general_role_claims
+          WHERE status = 'active'
+          GROUP BY role_key
+        ) active_claims
+          ON active_claims.role_key = vr.role_key
+        LEFT JOIN volunteer_general_role_claims uc
+          ON uc.role_key = vr.role_key
+         AND uc.profile_id = %s
+         AND uc.status IN ('active')
+        WHERE vr.is_active = true
+          AND vr.role_scope = 'general'
+        ORDER BY vr.sort_order, vr.role_key
+        """,
+        (profile_id,),
+    )
+    return [
+        {
+            "role_key": row[0],
+            "display_name": row[1],
+            "description": row[2],
+            "active_count": row[3],
+            "user_claim_status": row[4],
+        }
+        for row in cursor.fetchall()
+    ]
+
+
 def get_active_claim_pairs(cursor, *, profile_id):
     if profile_id is None:
         return []
@@ -1035,6 +1318,21 @@ def get_active_claim_pairs(cursor, *, profile_id):
         }
         for row in cursor.fetchall()
     ]
+
+
+def get_active_general_claim_keys(cursor, *, profile_id):
+    if profile_id is None:
+        return []
+    cursor.execute(
+        """
+        SELECT role_key
+        FROM volunteer_general_role_claims
+        WHERE profile_id = %s
+          AND status = %s
+        """,
+        (profile_id, GENERAL_CLAIM_STATUS_ACTIVE),
+    )
+    return [row[0] for row in cursor.fetchall()]
 
 
 def create_volunteer_moderation_links(*, cursor, app, draft_id, moderator_emails, ttl_hours):
@@ -1145,13 +1443,15 @@ def get_claims_for_profile(cursor, profile_id):
           ON e.id = c.event_id
         WHERE c.profile_id = %s
           AND e.event_date >= CURRENT_DATE
+          AND vr.role_scope = 'event'
         ORDER BY e.event_date, e.id, vr.sort_order, c.id
         """,
         (profile_id,),
     )
-    return [
+    event_claims = [
         {
             "claim_id": row[0],
+            "claim_type": "event",
             "event_id": row[1],
             "role_key": row[2],
             "role_display_name": row[3],
@@ -1164,6 +1464,37 @@ def get_claims_for_profile(cursor, profile_id):
         }
         for row in cursor.fetchall()
     ]
+
+    cursor.execute(
+        """
+        SELECT
+          c.role_key,
+          vr.display_name,
+          c.status,
+          c.claimed_at,
+          c.withdrawn_at
+        FROM volunteer_general_role_claims c
+        JOIN volunteer_roles vr
+          ON vr.role_key = c.role_key
+        WHERE c.profile_id = %s
+          AND vr.role_scope = 'general'
+        ORDER BY vr.sort_order, vr.role_key
+        """,
+        (profile_id,),
+    )
+    general_claims = [
+        {
+            "claim_type": "general",
+            "role_key": row[0],
+            "role_display_name": row[1],
+            "status": row[2],
+            "claimed_at": row[3].isoformat() if row[3] else None,
+            "withdrawn_at": row[4].isoformat() if row[4] else None,
+        }
+        for row in cursor.fetchall()
+    ]
+
+    return {"event_claims": event_claims, "general_claims": general_claims}
 
 
 def get_claim_by_id_for_profile(cursor, *, claim_id, profile_id):
@@ -1186,6 +1517,23 @@ def get_claim_by_id_for_profile(cursor, *, claim_id, profile_id):
         "role_key": row[2],
         "status": row[3],
     }
+
+
+def get_general_claim_for_profile(cursor, *, profile_id, role_key):
+    cursor.execute(
+        """
+        SELECT role_key, status
+        FROM volunteer_general_role_claims
+        WHERE profile_id = %s
+          AND role_key = %s
+        FOR UPDATE
+        """,
+        (profile_id, role_key),
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("That claim no longer exists.")
+    return {"role_key": row[0], "status": row[1]}
 
 
 def promote_oldest_standby_claim(cursor, *, event_id, role_key):
@@ -1257,6 +1605,7 @@ def send_volunteer_moderation_emails(
     email,
     draft_payload,
     draft_claims,
+    draft_general_claims,
     existing_profile,
     matched_by,
     moderation_links,
@@ -1266,7 +1615,8 @@ def send_volunteer_moderation_emails(
 
     existing_profile_block = format_existing_profile_for_moderation(existing_profile, matched_by)
     social_lines = format_social_lines(draft_payload.get("social_links", []))
-    claim_lines = format_claim_lines(draft_claims)
+    event_claim_lines = format_claim_lines(draft_claims)
+    general_claim_lines = format_general_claim_lines(draft_general_claims)
 
     for link in moderation_links:
         body = (
@@ -1283,7 +1633,8 @@ def send_volunteer_moderation_emails(
             f"Name public: {'yes' if draft_payload['is_name_public'] else 'no'}\n"
             f"Bio:\n{draft_payload.get('artist_bio') or '(none)'}\n\n"
             f"Additional info (not shown on profile):\n{draft_payload.get('additional_info') or '(none)'}\n\n"
-            f"Claimed roles:\n{claim_lines}\n\n"
+            f"Event role claims:\n{event_claim_lines}\n\n"
+            f"General role claims:\n{general_claim_lines}\n\n"
             f"Social links:\n{social_lines}\n\n"
             f"Approve: {link['approve_url']}\n"
             f"Deny: {link['deny_url']}\n"
@@ -1322,13 +1673,21 @@ def format_claim_lines(claims):
     return "\n".join(lines) or "- none selected"
 
 
-def send_volunteer_profile_approved_email(*, email, display_name, role_claims):
+def format_general_claim_lines(claims):
+    lines = [f"- {item['role_display_name']}" for item in claims]
+    return "\n".join(lines) or "- none selected"
+
+
+def send_volunteer_profile_approved_email(*, email, display_name, role_claims, general_role_claims):
     claims_text = format_claim_lines(role_claims)
+    general_claims_text = format_general_claim_lines(general_role_claims)
     body = (
         f"Hello {display_name or 'volunteer'},\n\n"
         "Your volunteer profile submission has been approved.\n\n"
-        "Your current role claims:\n"
+        "Your current event role claims:\n"
         f"{claims_text}\n\n"
+        "Your current general role claims:\n"
+        f"{general_claims_text}\n\n"
         "If you need to cancel a role claim, request a claims-management link from the volunteer page.\n"
     )
     send_mail(email, "sydney.emom | volunteer profile approved", body)

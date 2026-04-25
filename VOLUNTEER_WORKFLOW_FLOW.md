@@ -14,21 +14,22 @@ flowchart TD
     F[/GET volunteer-registration/session?token/] --> G[validate registration token]
     G --> H[load prefill profile and social platforms]
     H --> I[load future events]
-    I --> J[load role availability by event and role]
-    J --> K[return session JSON]
+    I --> J[load event role availability by event and role]
+    J --> K[load non-event general role options]
+    K --> L[return session JSON]
 
-    L[/POST volunteer-registration/submit/] --> M[validate registration token and payload]
-    M --> N[match profile by email then display name]
-    N --> O[validate event ids and role keys]
-    O --> P[insert draft and social links]
-    P --> Q[insert draft volunteer role claims]
-    Q --> R{approved volunteer profile already exists?}
-    R -- yes --> S[apply volunteer draft to profile]
-    S --> T[materialize role claims into live claims table]
-    T --> U[mark draft approved]
-    U --> V[send volunteer approved email]
-    R -- no --> W[create volunteer moderation tokens]
-    W --> X[send moderation emails]
+    M[/POST volunteer-registration/submit/] --> N[validate registration token and payload]
+    N --> O[match profile by email then display name]
+    O --> P[validate event role claims and general role claims]
+    P --> Q[insert draft and social links]
+    Q --> R[insert draft event claims and draft general claims]
+    R --> S{approved volunteer profile already exists?}
+    S -- yes --> T[apply volunteer draft to profile]
+    T --> U[materialize event and general claims into live claim tables]
+    U --> V[mark draft approved]
+    V --> W[send volunteer approved email]
+    S -- no --> X[create volunteer moderation tokens]
+    X --> Y[send moderation emails]
 
     Y[/GET volunteer-registration/moderation/approve?token/] --> Z[validate approve token]
     Z --> ZA[apply volunteer draft to profile]
@@ -61,11 +62,12 @@ flowchart TD
 
 ## Data Notes
 
-- Effective role capacity uses:
+- Effective event role capacity uses:
   - `event_volunteer_role_overrides.capacity_override` when present
   - otherwise `volunteer_roles.default_capacity`
-- New claims become:
+- New event-role claims become:
   - `selected` while selected count is below capacity
   - `standby` once capacity is full
-- Cancellation sets claim status to `cancelled`.
-- Selected cancellation auto-promotes the oldest standby claim for the same event and role.
+- Non-event general roles are stored as active/withdrawn claims independent of event dates.
+- Cancellation sets event-role claim status to `cancelled`.
+- Selected event-role cancellation auto-promotes the oldest standby claim for the same event and role.

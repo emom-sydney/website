@@ -10,7 +10,6 @@ if (appNode) {
   const sessionForm = document.getElementById("volunteer-registration-session-form");
 
   const emailDisplay = document.getElementById("volunteer-email-display");
-  const profileTypeField = document.getElementById("volunteer-profile-type");
   const displayNameField = document.getElementById("volunteer-display-name");
   const firstNameField = document.getElementById("volunteer-first-name");
   const lastNameField = document.getElementById("volunteer-last-name");
@@ -22,13 +21,21 @@ if (appNode) {
   const socialLinksNode = document.getElementById("volunteer-social-links");
   const addSocialLinkButton = document.getElementById("volunteer-add-social-link");
   const roleClaimsNode = document.getElementById("volunteer-role-claims");
+  const generalRoleClaimsNode = document.getElementById("volunteer-general-role-claims");
+  const eventSelector = document.getElementById("volunteer-event-selector");
+  const selectedClaimsNoteNode = document.getElementById("volunteer-selected-claims-note");
   const claimsListNode = document.getElementById("volunteer-claims-list");
 
   let registrationToken = new URLSearchParams(window.location.search).get("token") || "";
   let claimsToken = new URLSearchParams(window.location.search).get("claims_token") || "";
   let socialPlatforms = [];
   let roleAvailability = [];
+  let generalRoleOptions = [];
   let existingClaimKeys = new Set();
+  let existingGeneralRoleKeys = new Set();
+  let selectedClaimKeys = new Set();
+  let selectedGeneralRoleKeys = new Set();
+  let selectedEventId = null;
 
   function setStatus(message, kind = "") {
     const text = String(message || "").trim();
@@ -202,52 +209,158 @@ if (appNode) {
     createSocialLinkRow();
   }
 
-  function renderRoleClaims(events) {
-    roleClaimsNode.innerHTML = "";
+  function parseClaimKey(value) {
+    const text = String(value || "");
+    const parts = text.split("::");
+    if (parts.length !== 2) return null;
+    const eventId = Number.parseInt(parts[0], 10);
+    const roleKey = String(parts[1] || "").toLowerCase();
+    if (!(eventId > 0) || !roleKey) return null;
+    return { event_id: eventId, role_key: roleKey };
+  }
+
+  function updateSelectedClaimsNote() {
+    const eventCount = selectedClaimKeys.size;
+    const generalCount = selectedGeneralRoleKeys.size;
+    const totalCount = eventCount + generalCount;
+    if (!selectedClaimsNoteNode) return;
+    if (totalCount > 0) {
+      selectedClaimsNoteNode.textContent =
+        `You currently have ${eventCount} event role claim${eventCount === 1 ? "" : "s"} and ` +
+        `${generalCount} ongoing role claim${generalCount === 1 ? "" : "s"} selected.`;
+      return;
+    }
+    selectedClaimsNoteNode.textContent = "You have no role claims selected yet.";
+  }
+
+  function renderEventSelector(events) {
+    if (!eventSelector) return;
+    eventSelector.innerHTML = "";
     roleAvailability = events || [];
 
     if (!roleAvailability.length) {
-      roleClaimsNode.innerHTML = "<p>No future events are currently available.</p>";
+      eventSelector.disabled = true;
+      eventSelector.innerHTML = "<option value=\"\">No future event dates available</option>";
+      selectedEventId = null;
+      renderRoleClaimsForSelectedEvent();
       return;
     }
 
+    eventSelector.disabled = false;
     for (const eventItem of roleAvailability) {
-      const container = document.createElement("section");
-      container.className = "volunteer-role-event";
-      container.innerHTML = `
-        <h3>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small></h3>
-        <div class="volunteer-role-grid"></div>
-      `;
-      const grid = container.querySelector(".volunteer-role-grid");
-
-      for (const role of eventItem.roles || []) {
-        const key = claimKey(eventItem.event_id, role.role_key);
-        const isChecked = existingClaimKeys.has(key);
-        const isFilled = Boolean(role.is_filled) && role.user_claim_status !== "selected";
-        const statusText = isFilled
-          ? "Filled (new claims become standby)"
-          : `${role.selected_count}/${role.capacity} selected`;
-
-        const card = document.createElement("label");
-        card.className = "volunteer-role-card";
-        card.innerHTML = `
-          <input type="checkbox" data-role-claim data-event-id="${eventItem.event_id}" data-role-key="${escapeHtml(role.role_key)}"${isChecked ? " checked" : ""}>
-          <span>
-            <strong>${escapeHtml(role.display_name)}</strong>
-            <small>${escapeHtml(statusText)}${role.standby_count ? ` • ${role.standby_count} standby` : ""}</small>
-            <small>${escapeHtml(role.description || "")}</small>
-          </span>
-        `;
-        grid.appendChild(card);
-      }
-
-      roleClaimsNode.appendChild(container);
+      const option = document.createElement("option");
+      option.value = String(eventItem.event_id);
+      option.textContent = `${eventItem.event_name} (${formatDate(eventItem.event_date)})`;
+      eventSelector.appendChild(option);
     }
+
+    selectedEventId = roleAvailability[0].event_id;
+    eventSelector.value = String(selectedEventId);
+    renderRoleClaimsForSelectedEvent();
+  }
+
+  function renderRoleClaimsForSelectedEvent() {
+    roleClaimsNode.innerHTML = "";
+    if (!selectedEventId) {
+      roleClaimsNode.innerHTML = "<p>No future events are currently available.</p>";
+      updateSelectedClaimsNote();
+      return;
+    }
+
+    const eventItem = roleAvailability.find((item) => Number(item.event_id) === Number(selectedEventId));
+    if (!eventItem) {
+      roleClaimsNode.innerHTML = "<p>Selected event is not available.</p>";
+      updateSelectedClaimsNote();
+      return;
+    }
+
+    const container = document.createElement("section");
+    container.className = "volunteer-role-event";
+    container.innerHTML = `
+      <h3>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small></h3>
+      <div class="volunteer-role-grid"></div>
+    `;
+    const grid = container.querySelector(".volunteer-role-grid");
+
+    for (const role of eventItem.roles || []) {
+      const key = claimKey(eventItem.event_id, role.role_key);
+      const isChecked = selectedClaimKeys.has(key);
+      const isFilled = Boolean(role.is_filled) && role.user_claim_status !== "selected";
+      const statusText = isFilled
+        ? "Filled (new claims become standby)"
+        : `${role.selected_count}/${role.capacity} selected`;
+
+      const card = document.createElement("label");
+      card.className = "volunteer-role-card";
+      card.innerHTML = `
+        <input type="checkbox" data-role-claim data-event-id="${eventItem.event_id}" data-role-key="${escapeHtml(role.role_key)}"${isChecked ? " checked" : ""}>
+        <span>
+          <strong>${escapeHtml(role.display_name)}</strong>
+          <small>${escapeHtml(statusText)}${role.standby_count ? ` • ${role.standby_count} standby` : ""}</small>
+          <small>${escapeHtml(role.description || "")}</small>
+        </span>
+      `;
+      const checkbox = card.querySelector("[data-role-claim]");
+      checkbox?.addEventListener("change", () => {
+        if (checkbox.checked) {
+          selectedClaimKeys.add(key);
+        } else {
+          selectedClaimKeys.delete(key);
+        }
+        updateSelectedClaimsNote();
+      });
+      grid.appendChild(card);
+    }
+
+    roleClaimsNode.appendChild(container);
+    updateSelectedClaimsNote();
+  }
+
+  function renderGeneralRoleClaims(options) {
+    if (!generalRoleClaimsNode) return;
+    generalRoleClaimsNode.innerHTML = "";
+    generalRoleOptions = options || [];
+
+    if (!generalRoleOptions.length) {
+      generalRoleClaimsNode.innerHTML = "<p>No ongoing volunteer roles are currently available.</p>";
+      updateSelectedClaimsNote();
+      return;
+    }
+
+    const container = document.createElement("div");
+    container.className = "volunteer-role-grid";
+
+    for (const role of generalRoleOptions) {
+      const roleKey = String(role.role_key || "").toLowerCase();
+      const isChecked = selectedGeneralRoleKeys.has(roleKey);
+      const card = document.createElement("label");
+      card.className = "volunteer-role-card";
+      card.innerHTML = `
+        <input type="checkbox" data-general-role-claim data-role-key="${escapeHtml(roleKey)}"${isChecked ? " checked" : ""}>
+        <span>
+          <strong>${escapeHtml(role.display_name)}</strong>
+          <small>${escapeHtml(role.description || "")}</small>
+          <small>${escapeHtml(String(role.active_count || 0))} active volunteer${Number(role.active_count || 0) === 1 ? "" : "s"}</small>
+        </span>
+      `;
+      const checkbox = card.querySelector("[data-general-role-claim]");
+      checkbox?.addEventListener("change", () => {
+        if (checkbox.checked) {
+          selectedGeneralRoleKeys.add(roleKey);
+        } else {
+          selectedGeneralRoleKeys.delete(roleKey);
+        }
+        updateSelectedClaimsNote();
+      });
+      container.appendChild(card);
+    }
+
+    generalRoleClaimsNode.appendChild(container);
+    updateSelectedClaimsNote();
   }
 
   function applyProfile(profile, email) {
     emailDisplay.value = email || "";
-    profileTypeField.value = profile?.profile_type || "person";
     displayNameField.value = profile?.display_name || "";
     firstNameField.value = profile?.first_name || "";
     lastNameField.value = profile?.last_name || "";
@@ -276,10 +389,13 @@ if (appNode) {
   }
 
   function getSelectedRoleClaims() {
-    return [...roleClaimsNode.querySelectorAll("[data-role-claim]:checked")].map((node) => ({
-      event_id: Number.parseInt(node.getAttribute("data-event-id") || "0", 10),
-      role_key: String(node.getAttribute("data-role-key") || "").toLowerCase(),
-    })).filter((item) => item.event_id > 0 && item.role_key);
+    return [...selectedClaimKeys]
+      .map((item) => parseClaimKey(item))
+      .filter((item) => item && item.event_id > 0 && item.role_key);
+  }
+
+  function getSelectedGeneralRoleClaims() {
+    return [...selectedGeneralRoleKeys];
   }
 
   async function loadRegistrationSession(token) {
@@ -294,9 +410,13 @@ if (appNode) {
       existingClaimKeys = new Set(
         (result.existing_claims || []).map((item) => claimKey(item.event_id, item.role_key))
       );
+      existingGeneralRoleKeys = new Set((result.existing_general_claims || []).map((item) => String(item || "").toLowerCase()));
+      selectedClaimKeys = new Set(existingClaimKeys);
+      selectedGeneralRoleKeys = new Set(existingGeneralRoleKeys);
 
       applyProfile(result.profile, result.email);
-      renderRoleClaims(result.role_availability || []);
+      renderEventSelector(result.role_availability || []);
+      renderGeneralRoleClaims(result.general_role_options || []);
 
       startSection.hidden = true;
       claimsSection.hidden = true;
@@ -309,9 +429,11 @@ if (appNode) {
     }
   }
 
-  function renderClaimsList(claims) {
+  function renderClaimsList(result) {
+    const eventClaims = result?.event_claims || [];
+    const generalClaims = result?.general_claims || [];
     claimsListNode.innerHTML = "";
-    if (!claims || !claims.length) {
+    if (!eventClaims.length && !generalClaims.length) {
       claimsListNode.innerHTML = "<p>No volunteer claims found.</p>";
       return;
     }
@@ -319,7 +441,7 @@ if (appNode) {
     const list = document.createElement("div");
     list.className = "volunteer-claims-list";
 
-    for (const claim of claims) {
+    for (const claim of eventClaims) {
       const item = document.createElement("article");
       item.className = "volunteer-claim-item";
       item.innerHTML = `
@@ -341,6 +463,7 @@ if (appNode) {
               },
               body: JSON.stringify({
                 token: claimsToken,
+                claim_type: "event",
                 claim_id: claim.claim_id,
               }),
             });
@@ -364,6 +487,48 @@ if (appNode) {
       list.appendChild(item);
     }
 
+    for (const claim of generalClaims) {
+      const item = document.createElement("article");
+      item.className = "volunteer-claim-item";
+      item.innerHTML = `
+        <h3>Ongoing role</h3>
+        <p><strong>${escapeHtml(claim.role_display_name)}</strong></p>
+        <p>Status: ${escapeHtml(claim.status)}</p>
+      `;
+
+      if (claim.status === "active") {
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.textContent = "Cancel claim";
+        cancelButton.addEventListener("click", async () => {
+          try {
+            const response = await fetch("/api/forms/volunteer-registration/claims/cancel", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                token: claimsToken,
+                claim_type: "general",
+                general_role_key: claim.role_key,
+              }),
+            });
+            const cancelResult = await response.json();
+            if (!response.ok || !cancelResult.ok) {
+              throw new Error(cancelResult.error || "Unable to cancel claim.");
+            }
+            setStatus("Claim cancelled.", "success");
+            await loadClaimsSession(claimsToken);
+          } catch (error) {
+            setStatus(error.message || "Unable to cancel claim.", "error");
+          }
+        });
+        item.appendChild(cancelButton);
+      }
+
+      list.appendChild(item);
+    }
+
     claimsListNode.appendChild(list);
   }
 
@@ -375,7 +540,7 @@ if (appNode) {
         throw new Error(result.error || "Unable to load volunteer claims.");
       }
 
-      renderClaimsList(result.claims || []);
+      renderClaimsList(result);
       startSection.hidden = true;
       sessionSection.hidden = true;
       claimsSection.hidden = false;
@@ -449,7 +614,8 @@ if (appNode) {
     event.preventDefault();
 
     const roleClaims = getSelectedRoleClaims();
-    if (!roleClaims.length) {
+    const generalRoleClaims = getSelectedGeneralRoleClaims();
+    if (!roleClaims.length && !generalRoleClaims.length) {
       setStatus("Please select at least one volunteer role claim.", "error");
       return;
     }
@@ -471,7 +637,7 @@ if (appNode) {
 
     const payload = {
       token: registrationToken,
-      profile_type: profileTypeField.value,
+      profile_type: "person",
       display_name: String(displayNameField.value || "").trim(),
       first_name: String(firstNameField.value || "").trim() || null,
       last_name: String(lastNameField.value || "").trim() || null,
@@ -481,7 +647,8 @@ if (appNode) {
       volunteer_bio: String(bioField.value || "").trim() || null,
       additional_info: String(additionalInfoField.value || "").trim() || null,
       social_links: socialLinks,
-      role_claims: roleClaims,
+      event_role_claims: roleClaims,
+      general_role_claims: generalRoleClaims,
     };
 
     if (!payload.display_name) {
@@ -517,6 +684,10 @@ if (appNode) {
       sessionForm.reset();
       populateSocialLinks([]);
       roleClaimsNode.innerHTML = "";
+      if (generalRoleClaimsNode) generalRoleClaimsNode.innerHTML = "";
+      selectedClaimKeys = new Set();
+      selectedGeneralRoleKeys = new Set();
+      selectedEventId = null;
       registrationToken = "";
       const url = new URL(window.location.href);
       url.searchParams.delete("token");
@@ -534,4 +705,9 @@ if (appNode) {
   } else if (registrationToken) {
     loadRegistrationSession(registrationToken);
   }
+
+  eventSelector?.addEventListener("change", () => {
+    selectedEventId = Number.parseInt(eventSelector.value || "0", 10);
+    renderRoleClaimsForSelectedEvent();
+  });
 }
