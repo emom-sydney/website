@@ -569,6 +569,55 @@ form button:hover {
   font-style: italic;
 }
 
+.volunteer-role-event {
+  margin-bottom: 1.25rem;
+}
+
+.volunteer-role-event h3 {
+  margin-bottom: 0.5rem;
+}
+
+.volunteer-role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.7rem;
+}
+
+.volunteer-role-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0.6rem;
+}
+
+.volunteer-role-card input {
+  width: auto;
+  margin: 0.1rem 0 0;
+}
+
+.volunteer-role-card span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.volunteer-role-card small {
+  color: #555;
+}
+
+.volunteer-claims-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.volunteer-claim-item {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0.85rem;
+}
+
 .AINotice p {
   font-size: 0.5em;
   color: #666;

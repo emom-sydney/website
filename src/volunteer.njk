@@ -1,21 +1,99 @@
 ---
 layout: "main.njk"
-pageTitle: "Volunteer"
-description: "Join the sydney.emom crew! Volunteer roles include MC, stage manager, lighting, VJ, sound, video, live stream, and more."
+pageTitle: "Volunteer Registration"
+description: "Register as an EMOM volunteer and claim event roles such as sound, VJ, door, stagehand, MC, and catering."
 ---
 <h2>Volunteer Registration</h2>
-<p>If you're interested in helping out, <a href="/contact/index.html">we'd love to hear from you!</a> We want to assemble a team of volunteers that can support all aspects of the night to make it run smoothly, and have enough people that no single person gets stuck with any particular tasks.</p>
-<p>Some of the roles that we could use a hand with are:</p>
-<ul>
-  <li> <b>MC:</b> Our regular MC Olly does an <i>awesome</i> job but we'd like to be able to give him a break from time to time. If you've got enthusiasm and personality and enjoy holding the mic.. get in touch.</li>
-  <li> <b>Stage manager:</b> Help organise the acts to make the changeovers as smooth as possible.</li>
-  <li> <b>Lighting:</b> If you're an LD with a bit of spare time, come have a play with Mothership's system while enjoying the good vibes!<br>(Bonus if you have some spare fixtures you'd like to set up and show off.. <i>hint:</i> lasers look brilliant in the space ;)</li>
-  <li> <b>VJ:</b> If you're a live video type person, bring your kit and enjoy riffing off the different styles of music presented. We'll provide the projector.</li>
-  <li> <b>Sound:</b> Critical to the success of the whole night. If you know your dBs from your DIs, get in touch.</li>
-  <li> <b>Video:</b> Mike & Pingo have been doing a great job capturing extra footage on their DJI cams, but if you can help out so they can have a night off that would be great.</li>
-  <li> <b>Live Stream:</b> If you know your way around OBS, why not come and direct the live stream for us.</li>
-  <li> <b>Door Bitch:</b> Someone to hold the door open for our guests and guide them in with wit and charm! (and scan their Humanitix)</li>
-  <li> <b>Web site:</b> We're using the <a href="https://11ty.dev">11ty</a> framework with static hosting on S3 and working toward a full CI/CD pipeline out of Github - if you know what any of that means and would like to help, you can <a href="https://github.com/emom-sydney/website">find us on GitHub</a> (for now)</li>
-</ul>
 
-<p>You'll get to work with a great bunch of folk with one purpose in mind - to make all the acts appearing on the night feel welcomed, and to look and sound their very best. </p>
+<div id="volunteer-registration-app" class="performer-registration">
+  <section id="volunteer-registration-start" class="performer-registration-panel">
+    <p>
+      Enter your email address and we will send you a one-time link to create or update your volunteer profile
+      and claim roles for upcoming events.
+    </p>
+    <form id="volunteer-registration-start-form">
+      <label for="volunteer-registration-email">Email address</label>
+      <input type="email" id="volunteer-registration-email" name="email" required>
+      <button type="submit">Send registration link</button>
+    </form>
+
+    <hr>
+
+    <p>
+      Already volunteering and need to manage existing claims? Request a claims-management link.
+    </p>
+    <form id="volunteer-claims-start-form">
+      <label for="volunteer-claims-email">Email address</label>
+      <input type="email" id="volunteer-claims-email" name="email" required>
+      <button type="submit">Send claims link</button>
+    </form>
+  </section>
+
+  <section id="volunteer-registration-session" class="performer-registration-panel" hidden>
+    <p>
+      Choose one or more event role claims. If a role is already full for a date, your claim will be placed on standby.
+      If a selected volunteer cancels, the oldest standby claim is promoted automatically.
+    </p>
+
+    <form id="volunteer-registration-session-form">
+      <label for="volunteer-email-display">Email address</label>
+      <input type="email" id="volunteer-email-display" readonly>
+
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" id="volunteer-is-email-public" name="is_email_public">
+        <span>Show email on your crew profile page</span>
+      </label>
+
+      <label for="volunteer-profile-type">Profile type</label>
+      <select id="volunteer-profile-type" name="profile_type" required>
+        <option value="person">Person</option>
+        <option value="group">Group</option>
+      </select>
+
+      <label for="volunteer-display-name">Display name</label>
+      <input type="text" id="volunteer-display-name" name="display_name" required>
+
+      <label for="volunteer-first-name">First name</label>
+      <input type="text" id="volunteer-first-name" name="first_name">
+
+      <label for="volunteer-last-name">Last name</label>
+      <input type="text" id="volunteer-last-name" name="last_name">
+
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" id="volunteer-is-name-public" name="is_name_public">
+        <span>Show full name on your crew profile page</span>
+      </label>
+
+      <label for="volunteer-contact-phone">Contact phone number</label>
+      <input type="text" id="volunteer-contact-phone" name="contact_phone" required>
+      <p class="performer-registration-note">Not shown publicly. Used if we need to contact you urgently on event day.</p>
+
+      <label for="volunteer-bio">Volunteer bio (visible on crew profile)</label>
+      <textarea id="volunteer-bio" name="volunteer_bio" rows="6"></textarea>
+
+      <label for="volunteer-additional-info">Additional info (not shown on profile)</label>
+      <textarea id="volunteer-additional-info" name="additional_info" rows="4" placeholder="Share anything useful for scheduling, accessibility, logistics, etc."></textarea>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Social links</legend>
+        <div id="volunteer-social-links"></div>
+        <button type="button" id="volunteer-add-social-link">Add social link</button>
+      </fieldset>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Claim volunteer roles</legend>
+        <p class="performer-registration-note">Select every role/date you are available for. Filled roles will become standby claims.</p>
+        <div id="volunteer-role-claims"></div>
+      </fieldset>
+
+      <button type="submit">Submit volunteer registration</button>
+    </form>
+  </section>
+
+  <section id="volunteer-claims-session" class="performer-registration-panel" hidden>
+    <p>Your current role claims are listed below.</p>
+    <div id="volunteer-claims-list"></div>
+  </section>
+</div>
+
+<script src="/assets/scripts/volunteer_registration_form.js"></script>

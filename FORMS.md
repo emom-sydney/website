@@ -18,6 +18,7 @@ There are currently two active form areas:
 
 - merch interest
 - performer registration and scheduling workflow
+- volunteer role-bidding workflow
 
 Relevant files:
 
@@ -28,6 +29,7 @@ Relevant files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
+- `forms_bridge/volunteer_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
 - `forms_bridge/send_admin_selection_links.py`
 - `forms_bridge/send_moderation_token_reminders.py`
@@ -123,6 +125,9 @@ The bridge currently exposes:
 - admin selection lock heartbeat + release
 - admin confirmation resend action
 - standby promotion
+- volunteer registration start/session/submit
+- volunteer moderation approve/deny actions
+- volunteer claims-link start/session/cancel actions
 
 The bridge uses:
 
@@ -158,6 +163,13 @@ The performer registration system is no longer just a simple form POST. It is a 
 Current pre-event lineup state lives in:
 
 - `event_performer_selections`
+
+The volunteer role-bidding workflow is similarly tokenized and uses:
+
+- `volunteer_roles` (global role defaults)
+- `event_volunteer_role_overrides` (per-event overrides)
+- `profile_submission_volunteer_claims` (pending claims on draft)
+- `event_volunteer_role_claims` (live selected/standby/cancelled claims)
 
 Actual played sets should still be written later to:
 
