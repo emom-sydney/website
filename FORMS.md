@@ -30,6 +30,7 @@ Relevant files:
 - `forms_bridge/performer_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
 - `forms_bridge/send_admin_selection_links.py`
+- `forms_bridge/send_moderation_token_reminders.py`
 - `FORMS_API.md`
 
 ## Repo Layers
@@ -118,7 +119,9 @@ The bridge currently exposes:
 - performer registration start/session/submit
 - moderation approve/deny actions
 - availability confirm/cancel actions
-- admin lineup selection
+- admin lineup selection (events/start/page/save)
+- admin selection lock heartbeat + release
+- admin confirmation resend action
 - standby promotion
 
 The bridge uses:
@@ -150,6 +153,7 @@ The performer registration system is no longer just a simple form POST. It is a 
 - availability reminders
 - final lineup selection
 - standby and reserve states
+- event-level admin editing locks
 
 Current pre-event lineup state lives in:
 
@@ -227,6 +231,7 @@ Deployment templates live in:
 See:
 
 - `FORMS_API.md`
+- `PERFORMER_WORKFLOW_FLOW.md`
 - `DB_SETUP.md`
 
 for runtime and DB role details.
