@@ -16,17 +16,6 @@ description: "Register as an EMOM volunteer and claim event roles such as sound,
       <input type="email" id="volunteer-registration-email" name="email" required>
       <button type="submit">Send registration link</button>
     </form>
-
-    <hr>
-
-    <p>
-      Already volunteering and need to manage existing claims? Request a claims-management link.
-    </p>
-    <form id="volunteer-claims-start-form">
-      <label for="volunteer-claims-email">Email address</label>
-      <input type="email" id="volunteer-claims-email" name="email" required>
-      <button type="submit">Send claims link</button>
-    </form>
   </section>
 
   <section id="volunteer-registration-session" class="performer-registration-panel" hidden>
@@ -77,8 +66,8 @@ description: "Register as an EMOM volunteer and claim event roles such as sound,
       <fieldset class="performer-registration-fieldset">
         <legend>Claim volunteer roles</legend>
         <p class="performer-registration-note">Select every role/date you are available for. Filled roles will become standby claims.</p>
-        <label for="volunteer-event-selector">Event date</label>
-        <select id="volunteer-event-selector" name="event_selector"></select>
+        <p class="performer-registration-note">Event date</p>
+        <div id="volunteer-event-tabs" class="volunteer-event-tabs" role="tablist" aria-label="Event dates"></div>
         <p id="volunteer-selected-claims-note" class="performer-registration-note"></p>
         <div id="volunteer-role-claims"></div>
       </fieldset>
@@ -93,10 +82,6 @@ description: "Register as an EMOM volunteer and claim event roles such as sound,
     </form>
   </section>
 
-  <section id="volunteer-claims-session" class="performer-registration-panel" hidden>
-    <p>Your current role claims are listed below.</p>
-    <div id="volunteer-claims-list"></div>
-  </section>
 </div>
 
 <script src="/assets/scripts/volunteer_registration_form.js"></script>

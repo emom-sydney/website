@@ -3,10 +3,8 @@ const appNode = document.getElementById("volunteer-registration-app");
 if (appNode) {
   const startSection = document.getElementById("volunteer-registration-start");
   const sessionSection = document.getElementById("volunteer-registration-session");
-  const claimsSection = document.getElementById("volunteer-claims-session");
 
   const startForm = document.getElementById("volunteer-registration-start-form");
-  const claimsStartForm = document.getElementById("volunteer-claims-start-form");
   const sessionForm = document.getElementById("volunteer-registration-session-form");
 
   const emailDisplay = document.getElementById("volunteer-email-display");
@@ -22,17 +20,13 @@ if (appNode) {
   const addSocialLinkButton = document.getElementById("volunteer-add-social-link");
   const roleClaimsNode = document.getElementById("volunteer-role-claims");
   const generalRoleClaimsNode = document.getElementById("volunteer-general-role-claims");
-  const eventSelector = document.getElementById("volunteer-event-selector");
+  const eventTabsNode = document.getElementById("volunteer-event-tabs");
   const selectedClaimsNoteNode = document.getElementById("volunteer-selected-claims-note");
-  const claimsListNode = document.getElementById("volunteer-claims-list");
 
   let registrationToken = new URLSearchParams(window.location.search).get("token") || "";
-  let claimsToken = new URLSearchParams(window.location.search).get("claims_token") || "";
   let socialPlatforms = [];
   let roleAvailability = [];
   let generalRoleOptions = [];
-  let existingClaimKeys = new Set();
-  let existingGeneralRoleKeys = new Set();
   let selectedClaimKeys = new Set();
   let selectedGeneralRoleKeys = new Set();
   let selectedEventId = null;
@@ -233,30 +227,50 @@ if (appNode) {
     selectedClaimsNoteNode.textContent = "You have no role claims selected yet.";
   }
 
-  function renderEventSelector(events) {
-    if (!eventSelector) return;
-    eventSelector.innerHTML = "";
+  function renderEventTabs(events) {
+    if (!eventTabsNode) return;
+    eventTabsNode.innerHTML = "";
     roleAvailability = events || [];
 
     if (!roleAvailability.length) {
-      eventSelector.disabled = true;
-      eventSelector.innerHTML = "<option value=\"\">No future event dates available</option>";
+      eventTabsNode.innerHTML = "<p>No future event dates available.</p>";
       selectedEventId = null;
       renderRoleClaimsForSelectedEvent();
       return;
     }
 
-    eventSelector.disabled = false;
     for (const eventItem of roleAvailability) {
-      const option = document.createElement("option");
-      option.value = String(eventItem.event_id);
-      option.textContent = `${eventItem.event_name} (${formatDate(eventItem.event_date)})`;
-      eventSelector.appendChild(option);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "volunteer-event-tab";
+      button.setAttribute("role", "tab");
+      button.dataset.eventId = String(eventItem.event_id);
+      button.textContent = `${eventItem.event_name} (${formatDate(eventItem.event_date)})`;
+      button.addEventListener("click", () => {
+        selectedEventId = Number.parseInt(button.dataset.eventId || "0", 10);
+        renderEventTabs(roleAvailability);
+        renderRoleClaimsForSelectedEvent();
+      });
+      eventTabsNode.appendChild(button);
     }
 
-    selectedEventId = roleAvailability[0].event_id;
-    eventSelector.value = String(selectedEventId);
+    const hasSelected = roleAvailability.some((item) => Number(item.event_id) === Number(selectedEventId));
+    if (!hasSelected) {
+      selectedEventId = roleAvailability[0].event_id;
+    }
+    renderEventTabsSelectionState();
     renderRoleClaimsForSelectedEvent();
+  }
+
+  function renderEventTabsSelectionState() {
+    if (!eventTabsNode) return;
+    const tabs = [...eventTabsNode.querySelectorAll(".volunteer-event-tab")];
+    tabs.forEach((tab) => {
+      const eventId = Number.parseInt(tab.dataset.eventId || "0", 10);
+      const isActive = Number(selectedEventId) === eventId;
+      tab.classList.toggle("is-active", isActive);
+      tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
   }
 
   function renderRoleClaimsForSelectedEvent() {
@@ -398,6 +412,24 @@ if (appNode) {
     return [...selectedGeneralRoleKeys];
   }
 
+  function getAvailableEventClaimKeys(events) {
+    const allowedKeys = new Set();
+    for (const eventItem of events || []) {
+      for (const role of eventItem.roles || []) {
+        if (!eventItem?.event_id || !role?.role_key) continue;
+        allowedKeys.add(claimKey(eventItem.event_id, role.role_key));
+      }
+    }
+    return allowedKeys;
+  }
+
+  function pruneSelectedEventClaims(events) {
+    const allowedKeys = getAvailableEventClaimKeys(events);
+    selectedClaimKeys = new Set(
+      [...selectedClaimKeys].filter((key) => allowedKeys.has(key))
+    );
+  }
+
   async function loadRegistrationSession(token) {
     try {
       const response = await fetch(`/api/forms/volunteer-registration/session?token=${encodeURIComponent(token)}`);
@@ -407,148 +439,22 @@ if (appNode) {
       }
 
       socialPlatforms = result.social_platforms || [];
-      existingClaimKeys = new Set(
+      selectedClaimKeys = new Set(
         (result.existing_claims || []).map((item) => claimKey(item.event_id, item.role_key))
       );
-      existingGeneralRoleKeys = new Set((result.existing_general_claims || []).map((item) => String(item || "").toLowerCase()));
-      selectedClaimKeys = new Set(existingClaimKeys);
-      selectedGeneralRoleKeys = new Set(existingGeneralRoleKeys);
+      selectedGeneralRoleKeys = new Set((result.existing_general_claims || []).map((item) => String(item || "").toLowerCase()));
+      pruneSelectedEventClaims(result.role_availability || []);
 
       applyProfile(result.profile, result.email);
-      renderEventSelector(result.role_availability || []);
+      renderEventTabs(result.role_availability || []);
       renderGeneralRoleClaims(result.general_role_options || []);
 
       startSection.hidden = true;
-      claimsSection.hidden = true;
       sessionSection.hidden = false;
     } catch (error) {
       setStatus(error.message || "Unable to load volunteer registration form.", "error");
       startSection.hidden = false;
       sessionSection.hidden = true;
-      claimsSection.hidden = true;
-    }
-  }
-
-  function renderClaimsList(result) {
-    const eventClaims = result?.event_claims || [];
-    const generalClaims = result?.general_claims || [];
-    claimsListNode.innerHTML = "";
-    if (!eventClaims.length && !generalClaims.length) {
-      claimsListNode.innerHTML = "<p>No volunteer claims found.</p>";
-      return;
-    }
-
-    const list = document.createElement("div");
-    list.className = "volunteer-claims-list";
-
-    for (const claim of eventClaims) {
-      const item = document.createElement("article");
-      item.className = "volunteer-claim-item";
-      item.innerHTML = `
-        <h3>${escapeHtml(claim.event_name)} <small>(${escapeHtml(formatDate(claim.event_date))})</small></h3>
-        <p><strong>${escapeHtml(claim.role_display_name)}</strong></p>
-        <p>Status: ${escapeHtml(claim.status)}</p>
-      `;
-
-      if (claim.status === "selected" || claim.status === "standby") {
-        const cancelButton = document.createElement("button");
-        cancelButton.type = "button";
-        cancelButton.textContent = "Cancel claim";
-        cancelButton.addEventListener("click", async () => {
-          try {
-            const response = await fetch("/api/forms/volunteer-registration/claims/cancel", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                token: claimsToken,
-                claim_type: "event",
-                claim_id: claim.claim_id,
-              }),
-            });
-            const result = await response.json();
-            if (!response.ok || !result.ok) {
-              throw new Error(result.error || "Unable to cancel claim.");
-            }
-            if (result.promoted?.display_name) {
-              setStatus(`${result.promoted.display_name} has been promoted from standby.`, "success");
-            } else {
-              setStatus("Claim cancelled.", "success");
-            }
-            await loadClaimsSession(claimsToken);
-          } catch (error) {
-            setStatus(error.message || "Unable to cancel claim.", "error");
-          }
-        });
-        item.appendChild(cancelButton);
-      }
-
-      list.appendChild(item);
-    }
-
-    for (const claim of generalClaims) {
-      const item = document.createElement("article");
-      item.className = "volunteer-claim-item";
-      item.innerHTML = `
-        <h3>Ongoing role</h3>
-        <p><strong>${escapeHtml(claim.role_display_name)}</strong></p>
-        <p>Status: ${escapeHtml(claim.status)}</p>
-      `;
-
-      if (claim.status === "active") {
-        const cancelButton = document.createElement("button");
-        cancelButton.type = "button";
-        cancelButton.textContent = "Cancel claim";
-        cancelButton.addEventListener("click", async () => {
-          try {
-            const response = await fetch("/api/forms/volunteer-registration/claims/cancel", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                token: claimsToken,
-                claim_type: "general",
-                general_role_key: claim.role_key,
-              }),
-            });
-            const cancelResult = await response.json();
-            if (!response.ok || !cancelResult.ok) {
-              throw new Error(cancelResult.error || "Unable to cancel claim.");
-            }
-            setStatus("Claim cancelled.", "success");
-            await loadClaimsSession(claimsToken);
-          } catch (error) {
-            setStatus(error.message || "Unable to cancel claim.", "error");
-          }
-        });
-        item.appendChild(cancelButton);
-      }
-
-      list.appendChild(item);
-    }
-
-    claimsListNode.appendChild(list);
-  }
-
-  async function loadClaimsSession(token) {
-    try {
-      const response = await fetch(`/api/forms/volunteer-registration/claims/session?token=${encodeURIComponent(token)}`);
-      const result = await response.json();
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Unable to load volunteer claims.");
-      }
-
-      renderClaimsList(result);
-      startSection.hidden = true;
-      sessionSection.hidden = true;
-      claimsSection.hidden = false;
-    } catch (error) {
-      setStatus(error.message || "Unable to load volunteer claims.", "error");
-      startSection.hidden = false;
-      sessionSection.hidden = true;
-      claimsSection.hidden = true;
     }
   }
 
@@ -580,34 +486,6 @@ if (appNode) {
     }
   });
 
-  claimsStartForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const email = String(document.getElementById("volunteer-claims-email")?.value || "").trim();
-    if (!/^\S+@\S+\.\S+$/.test(email)) {
-      setStatus("Please enter a valid email address.", "error");
-      return;
-    }
-
-    setStatus("Sending your claims-management link...");
-    try {
-      const response = await fetch("/api/forms/volunteer-registration/claims/start", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Unable to send claims link.");
-      }
-      setStatus(result.message || "If that email belongs to a volunteer profile, a claims link has been sent.", "success");
-      claimsStartForm.reset();
-    } catch (error) {
-      setStatus(error.message || "Unable to send claims link.", "error");
-    }
-  });
-
   addSocialLinkButton?.addEventListener("click", () => createSocialLinkRow());
 
   sessionForm?.addEventListener("submit", async (event) => {
@@ -615,10 +493,6 @@ if (appNode) {
 
     const roleClaims = getSelectedRoleClaims();
     const generalRoleClaims = getSelectedGeneralRoleClaims();
-    if (!roleClaims.length && !generalRoleClaims.length) {
-      setStatus("Please select at least one volunteer role claim.", "error");
-      return;
-    }
 
     const socialLinkRows = getSocialLinksRows();
     const hasIncompleteSocialLink = socialLinkRows.some(
@@ -694,20 +568,13 @@ if (appNode) {
       window.history.replaceState({}, "", url.toString());
       startSection.hidden = false;
       sessionSection.hidden = true;
-      claimsSection.hidden = true;
     } catch (error) {
       setStatus(error.message || "Unable to submit volunteer registration.", "error");
     }
   });
 
-  if (claimsToken) {
-    loadClaimsSession(claimsToken);
-  } else if (registrationToken) {
+  if (registrationToken) {
     loadRegistrationSession(registrationToken);
   }
 
-  eventSelector?.addEventListener("change", () => {
-    selectedEventId = Number.parseInt(eventSelector.value || "0", 10);
-    renderRoleClaimsForSelectedEvent();
-  });
 }

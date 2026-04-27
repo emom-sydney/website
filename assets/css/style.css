@@ -573,6 +573,33 @@ form button:hover {
   margin-bottom: 1.25rem;
 }
 
+.volunteer-event-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.volunteer-event-tab {
+  border: 1px solid #999;
+  border-radius: 999px;
+  background: #f4f4f4;
+  color: #222;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.volunteer-event-tab:hover {
+  background: #ececec;
+}
+
+.volunteer-event-tab.is-active {
+  background: #222;
+  color: #fff;
+  border-color: #222;
+}
+
 .volunteer-role-event h3 {
   margin-bottom: 0.5rem;
 }
