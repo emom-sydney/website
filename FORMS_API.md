@@ -14,9 +14,9 @@ This repo includes a small Flask bridge for writing static-site form submissions
 - `GET /api/forms/performer-registration/availability/confirm?token=...`
 - `GET /api/forms/performer-registration/availability/cancel?token=...`
 - `GET|POST /api/forms/performer-registration/admin-selection?token=...`
-- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&requested_date_id=...`
-- `POST /api/forms/performer-registration/admin-selection/lock?token=...`
-- `POST /api/forms/performer-registration/admin-selection/lock/release?token=...`
+- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&event_id=...&requested_date_id=...`
+- `POST /api/forms/performer-registration/admin-selection/lock?token=...&event_id=...`
+- `POST /api/forms/performer-registration/admin-selection/lock/release?token=...&event_id=...`
 - `GET /api/forms/performer-registration/admin-selection/events`
 - `POST /api/forms/performer-registration/admin-selection/start`
 - `GET|POST /api/forms/performer-registration/backup-selection?token=...`
@@ -228,29 +228,27 @@ Tables:
 
 ### Admin Selection
 
-- `GET /api/forms/performer-registration/admin-selection/events`
-  - lists upcoming Open Mic events
-
 - `POST /api/forms/performer-registration/admin-selection/start`
-  - request body: `{ "email": "...", "event_id": 123 }`
+  - request body: `{ "email": "..." }`
   - if email belongs to an admin profile, sends a fresh selection link
+  - event date is selected on the tokenized lineup page via tabs
   - always returns generic success message
 
-- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET|POST /api/forms/performer-registration/admin-selection?token=...&event_id=...`
   - tokenized lineup page + save action
   - event-level lock via `admin_selection_locks`
   - only approved + availability-confirmed candidates are selectable
   - allowed statuses: `selected`, `standby`, `reserve`
   - selected count capped by `max_performers_per_event`
 
-- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&requested_date_id=...`
+- `GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&event_id=...&requested_date_id=...`
   - sends/re-sends availability confirmation email for an unconfirmed request on that event
 
-- `POST /api/forms/performer-registration/admin-selection/lock?token=...`
+- `POST /api/forms/performer-registration/admin-selection/lock?token=...&event_id=...`
   - lock heartbeat/refresh endpoint
   - returns `409` if another admin holds the lock
 
-- `POST /api/forms/performer-registration/admin-selection/lock/release?token=...`
+- `POST /api/forms/performer-registration/admin-selection/lock/release?token=...&event_id=...`
   - best-effort lock release endpoint
 
 ### Backup Selection

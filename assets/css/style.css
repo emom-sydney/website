@@ -581,6 +581,7 @@ form button:hover {
 }
 
 .volunteer-event-tab {
+  display: inline-block;
   border: 1px solid #999;
   border-radius: 999px;
   background: #f4f4f4;
@@ -588,6 +589,7 @@ form button:hover {
   padding: 0.35rem 0.75rem;
   font-size: 0.92rem;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .volunteer-event-tab:hover {

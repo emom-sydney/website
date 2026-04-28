@@ -121,21 +121,19 @@ flowchart TD
     DH --> DI[JSON events list]
 
     DJ[/POST admin-selection/start/] --> DK[get_json_payload]
-    DK --> DL[normalize_email and validate event_id]
+    DK --> DL[normalize_email]
     DL --> DM[get_workflow_settings]
-    DM --> DN[get_open_mic_event_for_admin_selection]
-    DN --> DO[get_admin_profile_by_email]
+    DM --> DO[get_admin_profile_by_email]
     DO --> DP{admin found?}
     DP -- no --> DQ[return generic ok message]
-    DP -- yes --> DR[release_admin_selection_lock for same admin/event]
-    DR --> DS[invalidate_unused_tokens admin_selection for email]
+    DP -- yes --> DS[invalidate_unused_tokens admin_selection for email]
     DS --> DT[create admin_selection token]
-    DT --> DU[send_admin_selection_email]
+    DT --> DU[send_admin_selection_access_email]
     DU --> DV[return generic ok message]
 
     DW[/GET admin-selection?token/] --> DX[get_action_token admin_selection]
-    DX --> DY[acquire_admin_selection_lock]
-    DY --> DZ{lock acquired?}
+    DX --> DY[resolve_admin_selection_event_context from event_id query param or default]
+    DY --> DZ{acquire_admin_selection_lock}
     DZ -- no --> EA[409 lock error page]
     DZ -- yes --> EB[get_event_selection_context]
     EB --> EC[get_admin_selection_candidates]
@@ -143,8 +141,8 @@ flowchart TD
     ED --> EE[render_admin_selection_form]
 
     EF[/POST admin-selection?token/] --> EG[get_action_token admin_selection]
-    EG --> EH[acquire_admin_selection_lock]
-    EH --> EI{lock acquired?}
+    EG --> EH[resolve_admin_selection_event_context from form event_id]
+    EH --> EI{acquire_admin_selection_lock}
     EI -- no --> EJ[409 lock error page]
     EI -- yes --> EK[get_workflow_settings]
     EK --> EL[get_event_selection_context]
@@ -157,8 +155,8 @@ flowchart TD
     ER --> ES[success page]
 
     ET[/GET admin-selection/send-confirmation/] --> EU[get_action_token admin_selection]
-    EU --> EV[acquire_admin_selection_lock]
-    EV --> EW{lock acquired?}
+    EU --> EV[resolve_admin_selection_event_context from event_id query param]
+    EV --> EW{acquire_admin_selection_lock}
     EW -- no --> EX[409 lock error page]
     EW -- yes --> EY[get_event_selection_context]
     EY --> EZ[send_availability_confirmation_for_requested_date]
@@ -167,14 +165,15 @@ flowchart TD
     FB --> FC[render_admin_selection_form with notice]
 
     FD[/POST admin-selection/lock/] --> FE[get_action_token admin_selection]
-    FE --> FF[acquire_admin_selection_lock]
-    FF --> FG{lock acquired?}
+    FE --> FF[resolve_admin_selection_event_context from event_id]
+    FF --> FG{acquire_admin_selection_lock}
     FG -- no --> FH[409 JSON error]
     FG -- yes --> FI[JSON lock heartbeat ok]
 
     FJ[/POST admin-selection/lock/release/] --> FK[get_action_token admin_selection]
-    FK --> FL[release_admin_selection_lock]
-    FL --> FM[204]
+    FK --> FL[resolve_admin_selection_event_context from event_id]
+    FL --> FM[release_admin_selection_lock]
+    FM --> FN2[204]
 
     FN[/GET backup-selection?token/] --> FO[get_action_token backup_selection]
     FO --> FP[get_event_selection_context]
@@ -601,36 +600,33 @@ sequenceDiagram
     end
 
     Admin->>AdminPage: Open /perform/admin/
-    AdminPage->>Bridge: GET /api/forms/performer-registration/admin-selection/events
-    Bridge->>DB: Load upcoming Open Mic events
-    Bridge-->>AdminPage: events list
-
-    Admin->>AdminPage: Request admin link for event
+    Admin->>AdminPage: Request admin link
     AdminPage->>Bridge: POST /api/forms/performer-registration/admin-selection/start
-    Bridge->>DB: Validate event and admin profile by email
+    Bridge->>DB: Validate admin profile by email
     alt Admin profile found
-        Bridge->>DB: Release stale self-lock for event
         Bridge->>DB: Invalidate unused admin tokens for admin email
         Bridge->>DB: Insert fresh admin token
-        Bridge->>SMTP: Send admin selection email
+        Bridge->>SMTP: Send admin selection access email
     end
     Bridge-->>AdminPage: Generic success message
 
     Bridge->>DB: Admin-selection reminder job sends event links at final_selection_lead_days
 
     Admin->>Bridge: GET /api/forms/performer-registration/admin-selection?token=...
+    Admin->>Bridge: GET /api/forms/performer-registration/admin-selection?token=...&event_id=...
     Bridge->>DB: Validate token
+    Bridge->>DB: Resolve selected event from event_id or default
     Bridge->>DB: Acquire event edit lock
     Bridge->>DB: Load event and candidates and max_performers
     Bridge-->>Admin: Tokenized selection page where only confirmed and approved candidates are selectable
 
     loop every ~60s while page open
-        Admin->>Bridge: POST /api/forms/performer-registration/admin-selection/lock?token=...
+        Admin->>Bridge: POST /api/forms/performer-registration/admin-selection/lock?token=...&event_id=...
         Bridge->>DB: Refresh lock heartbeat
         Bridge-->>Admin: ok or 409 if lock lost
     end
 
-    Admin->>Bridge: POST /api/forms/performer-registration/admin-selection?token=...
+    Admin->>Bridge: POST /api/forms/performer-registration/admin-selection?token=...&event_id=...
     Bridge->>DB: Validate token and lock
     Bridge->>DB: Parse selected/standby/reserve statuses
     Bridge->>DB: Save event_performer_selections
@@ -642,7 +638,7 @@ sequenceDiagram
     Bridge-->>Admin: Success page
 
     alt Admin re-sends confirmation from selection page
-        Admin->>Bridge: GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&requested_date_id=...
+        Admin->>Bridge: GET /api/forms/performer-registration/admin-selection/send-confirmation?token=...&event_id=...&requested_date_id=...
         Bridge->>DB: Validate token and lock
         Bridge->>DB: Recreate availability tokens for requested performer
         Bridge->>SMTP: Send availability email

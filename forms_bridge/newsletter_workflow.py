@@ -5,11 +5,7 @@ import logging
 import os
 import re
 import secrets
-import smtplib
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
-from email.utils import formatdate
-from email.utils import make_msgid
 from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.parse import quote
@@ -19,6 +15,7 @@ from urllib.request import urlopen
 from flask import jsonify, request
 
 from forms_bridge.db import connect
+from forms_bridge.mailer import send_mail
 
 
 NEWSLETTER_CONFIRM_ACTION = "newsletter_subscribe_confirm"
@@ -285,31 +282,6 @@ def build_absolute_url(app, path):
 
 def format_link_expiry_local(expires_at):
     return expires_at.astimezone().strftime("%H:%M:%S on %d/%m/%y")
-
-
-def get_from_address():
-    return os.getenv("FORMS_EMAIL_FROM", "no-reply@sydney.emom.me")
-
-
-def get_smtp_host():
-    return os.getenv("FORMS_SMTP_HOST", "mail.f8.com.au")
-
-
-def get_smtp_port():
-    return int(os.getenv("FORMS_SMTP_PORT", "25"))
-
-
-def send_mail(to_address, subject, body):
-    message = EmailMessage()
-    message["From"] = get_from_address()
-    message["To"] = to_address
-    message["Subject"] = subject
-    message["Date"] = formatdate(localtime=True)
-    message["Message-ID"] = make_msgid()
-    message.set_content(body)
-
-    with smtplib.SMTP(get_smtp_host(), get_smtp_port(), timeout=30) as smtp:
-        smtp.send_message(message)
 
 
 def send_newsletter_confirmation_email(app, email, raw_token, expires_at):

@@ -1,11 +1,9 @@
-import os
 import re
-import smtplib
-from email.message import EmailMessage
-from email.utils import formatdate
-from email.utils import make_msgid
 
 from flask import jsonify, request
+
+from forms_bridge.mailer import get_from_address
+from forms_bridge.mailer import send_mail
 
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -70,20 +68,8 @@ def normalize_email(value):
     return email
 
 
-def get_from_address():
-    return os.getenv("FORMS_EMAIL_FROM", "no-reply@sydney.emom.me")
-
-
 def get_contact_to_address():
     return "websitecontact@sydney.emom.me"
-
-
-def get_smtp_host():
-    return os.getenv("FORMS_SMTP_HOST", "mail.f8.com.au")
-
-
-def get_smtp_port():
-    return int(os.getenv("FORMS_SMTP_PORT", "25"))
 
 
 def send_contact_email(*, name, email, message):
@@ -95,17 +81,12 @@ def send_contact_email(*, name, email, message):
         f"{message}\n"
     )
 
-    mail = EmailMessage()
-    mail["From"] = get_from_address()
-    mail["To"] = get_contact_to_address()
-    mail["Reply-To"] = email
-    mail["Subject"] = f"sydney.emom | contact form message from {name}"
-    mail["Date"] = formatdate(localtime=True)
-    mail["Message-ID"] = make_msgid()
-    mail.set_content(body)
-
-    with smtplib.SMTP(get_smtp_host(), get_smtp_port(), timeout=30) as smtp:
-        smtp.send_message(mail)
+    send_mail(
+        get_contact_to_address(),
+        f"sydney.emom | contact form message from {name}",
+        body,
+        reply_to=email,
+    )
 
 
 def error_response(message, status_code):
