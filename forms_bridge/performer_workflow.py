@@ -374,6 +374,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Availability cancellation failed")
             return html_error_page("Unable to cancel availability right now.", 500)
 
+    @app.route("/api/forms/performer-registration/admin-selection/", methods=["GET", "POST"])
     @app.route("/api/forms/performer-registration/admin-selection", methods=["GET", "POST"])
     def admin_selection():
         if request.method == "GET":
@@ -498,14 +499,21 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection save failed")
             return html_error_page("Unable to save admin selection right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/send-confirmation", methods=["GET"])
+    @app.route("/api/forms/performer-registration/admin-selection/send-confirmation", methods=["GET", "POST"])
     def admin_selection_send_confirmation():
-        raw_token = normalize_text(request.args.get("token"))
-        requested_event_id = parse_optional_int(request.args.get("event_id"))
-        requested_date_id_text = normalize_text(request.args.get("requested_date_id"))
+        raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
+        requested_event_id = parse_optional_int(request.args.get("event_id") or request.form.get("event_id"))
+        requested_date_id_text = normalize_text(
+            request.args.get("requested_date_id") or request.form.get("requested_date_id")
+        )
+        wants_json = request.args.get("ajax") == "1" or request.form.get("ajax") == "1"
         if not raw_token:
+            if wants_json:
+                return error_response("Missing admin selection token.", 400)
             return html_error_page("Missing admin selection token.", 400)
         if not requested_date_id_text or not requested_date_id_text.isdigit():
+            if wants_json:
+                return error_response("A valid performer request is required.", 400)
             return html_error_page("A valid performer request is required.", 400)
 
         try:
@@ -541,6 +549,10 @@ def register_performer_workflow_routes(app):
                     candidates = get_admin_selection_candidates(cursor, event_id)
                     max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
 
+                notice_message = f"Availability confirmation email sent to {sent['display_name']} ({sent['email']})."
+                if wants_json:
+                    return jsonify({"ok": True, "message": notice_message})
+
                 return render_admin_selection_form(
                     raw_token,
                     event,
@@ -548,7 +560,7 @@ def register_performer_workflow_routes(app):
                     candidates,
                     max_performers,
                     selected_event_id=event_id,
-                    notice_message=f"Availability confirmation email sent to {sent['display_name']} ({sent['email']}).",
+                    notice_message=notice_message,
                     active_editor_name=(
                         lock_state.get("locked_by_name")
                         if lock_state.get("locked_by_profile_id") != token_row["profile_id"]
@@ -556,10 +568,14 @@ def register_performer_workflow_routes(app):
                     ),
                 )
         except ValueError as exc:
+            if wants_json:
+                return error_response(str(exc), 400)
             status_code = 409 if "currently editing this lineup" in str(exc) else 400
             return html_error_page(str(exc), status_code)
         except Exception:
             app.logger.exception("Admin selection confirmation resend failed")
+            if wants_json:
+                return error_response("Unable to send confirmation email right now.", 500)
             return html_error_page("Unable to send confirmation email right now.", 500)
 
     @app.route("/api/forms/performer-registration/admin-selection/lock", methods=["POST"])
@@ -3389,14 +3405,28 @@ def send_admin_selection_access_email(*, admin_email, selection_url, expires_at)
 
 def send_selected_performer_emails(event, candidates, selected_requested_date_ids):
     selected_set = set(selected_requested_date_ids)
+    faq_url = "https://sydney.emom.me/perform/faq"
+    contact_email = "admin@sydney.emom.me"
     for item in candidates:
         if item["requested_date_id"] not in selected_set:
             continue
-        body = (
+        text_body = (
             f"Yay! Your appearance at {event['event_name']} on {event['event_date']} has been confirmed.\n"
-            "Please see our <a href=\"/perform/faq\">FAQ</a> for everything you need to know, and of course feel free to <a href=\"mailto:admin@sydney.emom.me\">email us</a> with any further questions.\n"
+            f"Please see our FAQ for everything you need to know: {faq_url}\n"
+            f"And feel free to email us with any further questions: {contact_email}\n"
         )
-        send_mail(item["email"], f"sydney.emom | performance confirmed for {event['event_name']}", body)
+        html_body = (
+            f"<p>Yay! Your appearance at {html.escape(event['event_name'])} on {html.escape(event['event_date'])} has been confirmed.</p>"
+            f"<p>Please see our <a href=\"{html.escape(faq_url, quote=True)}\">FAQ</a> for everything you need to know, "
+            f"and feel free to <a href=\"mailto:{html.escape(contact_email, quote=True)}\">email us</a> "
+            "with any further questions.</p>"
+        )
+        send_mail(
+            item["email"],
+            f"sydney.emom | performance confirmed for {event['event_name']}",
+            text_body,
+            html_body=html_body,
+        )
 
 
 def send_backup_selection_email(
@@ -3481,6 +3511,9 @@ def render_admin_selection_form(
     notice_message=None,
     active_editor_name=None,
 ):
+    def to_js_literal(value):
+        return json.dumps(value).replace("</", "<\\/")
+
     token_quoted = quote(raw_token, safe="")
     event_tabs = "\n".join(
         (
@@ -3515,7 +3548,13 @@ def render_admin_selection_form(
             "<td>"
             + (
                 (
-                    f"<a href=\"{html.escape(render_admin_confirmation_link(raw_token, selected_event_id, item['requested_date_id']), quote=True)}\">Send confirmation email</a>"
+                    "<button type=\"submit\" class=\"token-link-button\" "
+                    "formmethod=\"post\" "
+                    f"formaction=\"{html.escape(render_admin_confirmation_link(raw_token, selected_event_id, item['requested_date_id']), quote=True)}\" "
+                    f"name=\"requested_date_id\" value=\"{html.escape(str(item['requested_date_id']), quote=True)}\" "
+                    "data-send-confirmation-link>"
+                    "Send confirmation email"
+                    "</button>"
                 )
                 if item.get("availability_status") == "requested"
                 else "-"
@@ -3526,9 +3565,6 @@ def render_admin_selection_form(
         for item in candidates
     ) or "<tr><td colspan=\"6\">No performer requests are available for this event.</td></tr>"
 
-    notice_block = (
-        f"<div class=\"summary notice-success\">{html.escape(notice_message)}</div>" if notice_message else ""
-    )
     lock_notice = (
         f"<div class=\"summary lock-banner\"><strong>Editing lock active:</strong> {html.escape(active_editor_name)} is currently editing this lineup.</div>"
         if active_editor_name
@@ -3544,7 +3580,6 @@ def render_admin_selection_form(
         "<p><strong>Date:</strong> "
         + html.escape(event["event_date"])
         + "</p>"
-        + notice_block
         + lock_notice
         + "<p><strong>Select event date</strong></p>"
         + "<div class='volunteer-event-tabs'>"
@@ -3558,7 +3593,7 @@ def render_admin_selection_form(
         + html.escape(str(max_performers))
         + "</span>"
         "</div>"
-        "<form method='post'>"
+        "<form method='post' action='/api/forms/performer-registration/admin-selection'>"
         "<input type='hidden' name='token' value='"
         + html.escape(raw_token, quote=True)
         + "'>"
@@ -3587,12 +3622,58 @@ def render_admin_selection_form(
     extra_scripts = (
         "<script>"
         "(function () {"
-        "const selects = [...document.querySelectorAll('[data-lineup-status]')];"
+        "const selects = Array.prototype.slice.call(document.querySelectorAll('[data-lineup-status]'));"
         "const countNode = document.getElementById('selected-count');"
-        f"const token = {json.dumps(raw_token)};"
-        f"const eventId = {json.dumps(selected_event_id)};"
-        "const heartbeatUrl = `/api/forms/performer-registration/admin-selection/lock?token=${encodeURIComponent(token)}&event_id=${encodeURIComponent(eventId)}`;"
-        "const releaseUrl = `/api/forms/performer-registration/admin-selection/lock/release?token=${encodeURIComponent(token)}&event_id=${encodeURIComponent(eventId)}`;"
+        f"const token = {to_js_literal(raw_token)};"
+        f"const eventId = {to_js_literal(selected_event_id)};"
+        f"const noticeMessage = {to_js_literal(notice_message or '')};"
+        "const heartbeatUrl = '/api/forms/performer-registration/admin-selection/lock?token=' + encodeURIComponent(token) + '&event_id=' + encodeURIComponent(eventId);"
+        "const releaseUrl = '/api/forms/performer-registration/admin-selection/lock/release?token=' + encodeURIComponent(token) + '&event_id=' + encodeURIComponent(eventId);"
+        "const confirmationLinks = Array.prototype.slice.call(document.querySelectorAll('[data-send-confirmation-link]'));"
+        "if (noticeMessage && typeof window.showToast === 'function') {"
+        "window.showToast(noticeMessage, { kind: 'success' });"
+        "}"
+        "async function sendConfirmationByAjax(event) {"
+        "event.preventDefault();"
+        "const control = event.currentTarget;"
+        "if (!control || control.dataset.loading === '1') { return; }"
+        "control.dataset.loading = '1';"
+        "control.disabled = true;"
+        "const originalText = control.textContent;"
+        "control.textContent = 'Sending...';"
+        "try {"
+        "const actionUrl = control.formAction || control.getAttribute('formaction');"
+        "const separator = actionUrl.includes('?') ? '&' : '?';"
+        "const body = new URLSearchParams();"
+        "body.set('token', token);"
+        "body.set('event_id', String(eventId));"
+        "body.set('requested_date_id', control.value || control.getAttribute('value') || '');"
+        "body.set('ajax', '1');"
+        "const response = await fetch(actionUrl + separator + 'ajax=1', {"
+        "method: 'POST',"
+        "credentials: 'same-origin',"
+        "headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },"
+        "body"
+        "});"
+        "const payload = await response.json().catch(() => ({}));"
+        "if (!response.ok || !payload.ok) {"
+        "throw new Error(payload.error || 'Unable to send confirmation email.');"
+        "}"
+        "if (typeof window.showToast === 'function') {"
+        "window.showToast(payload.message || 'Availability confirmation email sent.', { kind: 'success' });"
+        "}"
+        "} catch (error) {"
+        "if (typeof window.showToast === 'function') {"
+        "window.showToast(error.message || 'Unable to send confirmation email.', { kind: 'error' });"
+        "} else {"
+        "window.alert(error.message || 'Unable to send confirmation email.');"
+        "}"
+        "} finally {"
+        "control.dataset.loading = '0';"
+        "control.disabled = false;"
+        "control.textContent = originalText;"
+        "}"
+        "}"
         "function updateSelectedCount() {"
         "const count = selects.filter((node) => node.value === 'selected').length;"
         "countNode.textContent = String(count);"
@@ -3606,10 +3687,11 @@ def render_admin_selection_form(
         "window.location.reload();"
         "}"
         "} catch (error) {"
-        "// Ignore transient network issues and keep the page usable."
+        "/* Ignore transient network issues and keep the page usable. */"
         "}"
         "}"
         "selects.forEach((node) => node.addEventListener('change', updateSelectedCount));"
+        "confirmationLinks.forEach((node) => node.addEventListener('click', sendConfirmationByAjax));"
         "updateSelectedCount();"
         "window.setInterval(refreshLock, 60000);"
         "window.addEventListener('beforeunload', () => {"
@@ -3751,8 +3833,10 @@ def render_token_page(*, title, content_html, layout_class="token-layout token-l
         f"<title>{safe_title}</title>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         "<link rel='stylesheet' type='text/css' href='/assets/css/style.css'>"
+        "<script src='/assets/scripts/toast.js'></script>"
         "</head>"
         "<body class='token-page'>"
+        "<div id='toast-root' class='toast-stack' aria-live='polite' aria-atomic='true'></div>"
         f"<div class='{safe_layout_class}'>"
         "<div class='token-banner'>"
         "<img src='/assets/img/new_site_logo.png' alt='sydney.emom logo'>"

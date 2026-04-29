@@ -151,6 +151,27 @@ body.token-page {
   margin-top: 1rem;
 }
 
+.token-form-card .token-link-button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #007bff;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.token-form-card .token-link-button:hover {
+  background: transparent;
+  color: #0056b3;
+}
+
+.token-form-card .token-link-button:disabled {
+  color: #666;
+  cursor: wait;
+}
+
 .token-form-card table {
   width: 100%;
   border-collapse: collapse;
