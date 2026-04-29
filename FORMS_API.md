@@ -236,6 +236,7 @@ Tables:
 
 - `GET|POST /api/forms/performer-registration/admin-selection?token=...&event_id=...`
   - tokenized lineup page + save action
+  - admin-selection tokens remain valid until expiry after saving, so admins can return to the same tokenized lineup page for further adjustments
   - event-level lock via `admin_selection_locks`
   - only approved + availability-confirmed candidates are selectable
   - allowed statuses: `selected`, `standby`, `reserve`

@@ -459,6 +459,12 @@ def register_performer_workflow_routes(app):
                     event = get_event_selection_context(cursor, event_id)
                     candidates = get_admin_selection_candidates(cursor, event_id)
                     candidate_statuses = parse_admin_selection_statuses(request.form, candidates)
+                    newly_selected_requested_date_ids = [
+                        item["requested_date_id"]
+                        for item in candidates
+                        if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
+                        if item.get("selection_status") != LINEUP_STATUS_SELECTED
+                    ]
                     save_admin_selection(
                         cursor,
                         event_id=event_id,
@@ -467,7 +473,6 @@ def register_performer_workflow_routes(app):
                         candidate_statuses=candidate_statuses,
                         max_performers=settings["max_performers_per_event"],
                     )
-                    mark_action_token_used(cursor, token_row["id"])
                     release_admin_selection_lock(
                         cursor,
                         event_id=event_id,
@@ -477,18 +482,18 @@ def register_performer_workflow_routes(app):
                 send_selected_performer_emails(
                     event,
                     candidates,
-                    [
-                        item["requested_date_id"]
-                        for item in candidates
-                        if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
-                    ],
+                    newly_selected_requested_date_ids,
                 )
 
+            return_to_admin_url = (
+                "/api/forms/performer-registration/admin-selection"
+                f"?token={quote(raw_token, safe='')}&event_id={event_id}"
+            )
             return html_success_page(
                 "Lineup saved",
                 f"The selection for {event['event_name']} on {event['event_date']} has been saved.",
                 links=[
-                    {"label": "Return to admin", "href": "/perform/admin/"},
+                    {"label": "Return to admin", "href": return_to_admin_url},
                     {"label": "Return to site", "href": "/"},
                 ],
             )

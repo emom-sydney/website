@@ -632,7 +632,7 @@ sequenceDiagram
     Bridge->>DB: Save event_performer_selections
     Bridge->>DB: Mark selected requested_dates selected_at/by
     Bridge->>DB: Apply cooldown reserve rows for future events
-    Bridge->>DB: Mark admin token used
+    Note over Bridge,DB: Admin token remains valid until expiry for further lineup adjustments
     Bridge->>DB: Release lock
     Bridge->>SMTP: Email selected performers
     Bridge-->>Admin: Success page
