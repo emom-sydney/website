@@ -22,6 +22,7 @@ if (appNode) {
   const generalRoleClaimsNode = document.getElementById("volunteer-general-role-claims");
   const eventTabsNode = document.getElementById("volunteer-event-tabs");
   const selectedClaimsNoteNode = document.getElementById("volunteer-selected-claims-note");
+  const persistentStatusNode = document.getElementById("volunteer-registration-persistent-status");
 
   let registrationToken = new URLSearchParams(window.location.search).get("token") || "";
   let socialPlatforms = [];
@@ -37,6 +38,22 @@ if (appNode) {
     if (typeof window.showToast === "function") {
       window.showToast(text, { kind: kind || "info" });
     }
+  }
+
+  function setPersistentStatus(message, kind = "error") {
+    if (!persistentStatusNode) return;
+
+    const text = String(message || "").trim();
+    persistentStatusNode.textContent = text;
+    persistentStatusNode.className = `performer-registration-alert performer-registration-alert--${kind}`;
+    persistentStatusNode.hidden = !text;
+  }
+
+  function clearPersistentStatus() {
+    if (!persistentStatusNode) return;
+
+    persistentStatusNode.textContent = "";
+    persistentStatusNode.hidden = true;
   }
 
   function formatDate(value) {
@@ -431,6 +448,7 @@ if (appNode) {
   }
 
   async function loadRegistrationSession(token) {
+    clearPersistentStatus();
     try {
       const response = await fetch(`/api/forms/volunteer-registration/session?token=${encodeURIComponent(token)}`);
       const result = await response.json();
@@ -452,7 +470,9 @@ if (appNode) {
       startSection.hidden = true;
       sessionSection.hidden = false;
     } catch (error) {
-      setStatus(error.message || "Unable to load volunteer registration form.", "error");
+      const message = error.message || "Unable to load volunteer registration form.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please request a fresh registration link or contact us if the problem continues.`);
       startSection.hidden = false;
       sessionSection.hidden = true;
     }
@@ -467,6 +487,7 @@ if (appNode) {
     }
 
     setStatus("Sending your volunteer registration link...");
+    clearPersistentStatus();
     try {
       const response = await fetch("/api/forms/volunteer-registration/start", {
         method: "POST",
@@ -482,7 +503,9 @@ if (appNode) {
       setStatus("Your registration link has been emailed. Please check your inbox.", "success");
       startForm.reset();
     } catch (error) {
-      setStatus(error.message || "Unable to send registration link.", "error");
+      const message = error.message || "Unable to send registration link.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
     }
   });
 
@@ -536,6 +559,7 @@ if (appNode) {
     }
 
     setStatus("Submitting your volunteer registration...");
+    clearPersistentStatus();
     try {
       const response = await fetch("/api/forms/volunteer-registration/submit", {
         method: "POST",
@@ -569,7 +593,9 @@ if (appNode) {
       startSection.hidden = false;
       sessionSection.hidden = true;
     } catch (error) {
-      setStatus(error.message || "Unable to submit volunteer registration.", "error");
+      const message = error.message || "Unable to submit volunteer registration.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
     }
   });
 

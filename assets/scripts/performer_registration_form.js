@@ -19,6 +19,7 @@ if (appNode) {
   const addSocialLinkButton = document.getElementById("performer-add-social-link");
   const eventOptionsNode = document.getElementById("performer-event-options");
   const eventsNoteNode = document.getElementById("performer-events-note");
+  const persistentStatusNode = document.getElementById("performer-registration-persistent-status");
 
   let registrationToken = new URLSearchParams(window.location.search).get("token") || "";
   let socialPlatforms = [];
@@ -30,6 +31,22 @@ if (appNode) {
     if (typeof window.showToast === "function") {
       window.showToast(text, { kind: kind || "info" });
     }
+  }
+
+  function setPersistentStatus(message, kind = "error") {
+    if (!persistentStatusNode) return;
+
+    const text = String(message || "").trim();
+    persistentStatusNode.textContent = text;
+    persistentStatusNode.className = `performer-registration-alert performer-registration-alert--${kind}`;
+    persistentStatusNode.hidden = !text;
+  }
+
+  function clearPersistentStatus() {
+    if (!persistentStatusNode) return;
+
+    persistentStatusNode.textContent = "";
+    persistentStatusNode.hidden = true;
   }
 
   function formatDate(value) {
@@ -258,6 +275,7 @@ if (appNode) {
 
   async function loadSession(token) {
     // setStatus("Loading registration form...");
+    clearPersistentStatus();
     try {
       const response = await fetch(`/api/forms/performer-registration/session?token=${encodeURIComponent(token)}`);
       const result = await response.json();
@@ -280,7 +298,9 @@ if (appNode) {
       sessionSection.hidden = false;
       setStatus("");
     } catch (error) {
-      setStatus(error.message || "Unable to load registration form.", "error");
+      const message = error.message || "Unable to load registration form.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please request a fresh registration link or contact us if the problem continues.`);
       startSection.hidden = false;
       sessionSection.hidden = true;
     }
@@ -296,6 +316,7 @@ if (appNode) {
     }
 
     setStatus("Sending your registration link...");
+    clearPersistentStatus();
     try {
       const response = await fetch("/api/forms/performer-registration/start", {
         method: "POST",
@@ -312,7 +333,9 @@ if (appNode) {
       setStatus("Your registration link has been emailed. Please check your inbox.", "success");
       startForm.reset();
     } catch (error) {
-      setStatus(error.message || "Unable to send registration link.", "error");
+      const message = error.message || "Unable to send registration link.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
     }
   });
 
@@ -368,6 +391,7 @@ if (appNode) {
     }
 
     setStatus("Submitting your registration...");
+    clearPersistentStatus();
     try {
       const response = await fetch("/api/forms/performer-registration/submit", {
         method: "POST",
@@ -392,7 +416,9 @@ if (appNode) {
       startSection.hidden = false;
       sessionSection.hidden = true;
     } catch (error) {
-      setStatus(error.message || "Unable to submit registration.", "error");
+      const message = error.message || "Unable to submit registration.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
     }
   });
 
