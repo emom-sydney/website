@@ -14,8 +14,8 @@
     "build:prod": "PGDATABASE=emomweb MY_ENVIRONMENT=production npx @11ty/eleventy",
     "deploy:forms": "rsync -rv --delete forms_bridge/ root@sydney.emom.me:/opt/emom/website-test/forms_bridge/",
     "deploy:forms:restart": "ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge-test'",
-    "deploy:dev": "rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/test.emom.me/ && rsync -rv --delete forms_bridge/ root@sydney.emom.me:/opt/emom/website-test/forms_bridge/ && ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge-test'",
-    "deploy:prod": "rsync -rv --delete _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/ && rsync -rv --delete forms_bridge/ root@sydney.emom.me:/opt/emom/website/forms_bridge/ && ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge'"
+    "deploy:dev": "rsync -rv --delete --exclude=\".DS_Store\" _site/ root@sydney.emom.me:/var/www/html/test.emom.me/ && rsync -rv --delete --exclude=\".DS_Store\" forms_bridge/ root@sydney.emom.me:/opt/emom/website-test/forms_bridge/ && ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge-test'",
+    "deploy:prod": "rsync -rv --delete --exclude=\".DS_Store\" _site/ root@sydney.emom.me:/var/www/html/sydney.emom.me/ && rsync -rv --delete --exclude=\".DS_Store\" forms_bridge/ root@sydney.emom.me:/opt/emom/website/forms_bridge/ && ssh root@sydney.emom.me 'systemctl restart emom-forms-bridge'"
   },
   "engines": {
     "node": "24.15.0"
