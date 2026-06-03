@@ -275,10 +275,10 @@ Host emom-db
     LocalForward 15432 127.0.0.1:5432
 ```
 
-Start the tunnel:
+Start the tunnel (-f to fork to background, -N to just do the port forward, no remote shell):
 
 ```bash
-ssh -N emom-db
+ssh -fN emom-db
 ```
 
 This exposes the remote Postgres server locally on:
