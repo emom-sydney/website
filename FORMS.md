@@ -14,10 +14,9 @@ The current stack for forms and tokenized workflows is:
 
 ## Current Implementations
 
-There are currently four active form/workflow areas:
+There are currently three active form/workflow areas:
 
 - performer registration and scheduling workflow
-- volunteer role-bidding workflow
 - newsletter subscribe workflow
 - contact form
 
@@ -25,8 +24,6 @@ Relevant files:
 
 - `src/perform.njk`
 - `assets/scripts/performer_registration_form.js`
-- `src/volunteer.njk`
-- `assets/scripts/volunteer_registration_form.js`
 - `src/subscribe.njk`
 - `assets/scripts/newsletter_subscribe.js`
 - `src/contact.njk`
@@ -34,7 +31,6 @@ Relevant files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
-- `forms_bridge/volunteer_workflow.py`
 - `forms_bridge/newsletter_workflow.py`
 - `forms_bridge/contact_us_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
@@ -56,7 +52,6 @@ Files in `src/` define:
 Examples:
 
 - `src/perform.njk`
-- `src/volunteer.njk`
 - `src/subscribe.njk`
 - `src/contact.njk`
 
@@ -73,7 +68,6 @@ Files in `assets/scripts/` define:
 Examples:
 
 - `assets/scripts/performer_registration_form.js`
-- `assets/scripts/volunteer_registration_form.js`
 - `assets/scripts/newsletter_subscribe.js`
 - `assets/scripts/contact_form.js`
 
@@ -92,7 +86,6 @@ Main files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
-- `forms_bridge/volunteer_workflow.py`
 - `forms_bridge/newsletter_workflow.py`
 - `forms_bridge/contact_us_workflow.py`
 
@@ -138,9 +131,6 @@ The bridge currently exposes:
 - admin selection lock heartbeat + release
 - admin confirmation resend action
 - standby promotion
-- volunteer registration start/session/submit
-- volunteer moderation approve/deny actions
-- volunteer claims-link start/session/cancel actions
 - newsletter subscribe start/confirm actions
 - contact form submission
 
@@ -178,15 +168,6 @@ The performer registration system is no longer just a simple form POST. It is a 
 Current pre-event lineup state lives in:
 
 - `event_performer_selections`
-
-The volunteer role-bidding workflow is similarly tokenized and uses:
-
-- `volunteer_roles` (global role defaults)
-- `event_volunteer_role_overrides` (per-event overrides)
-- `profile_submission_volunteer_claims` (pending claims on draft)
-- `profile_submission_volunteer_general_claims` (pending non-event claims on draft)
-- `event_volunteer_role_claims` (live selected/standby/cancelled claims)
-- `volunteer_general_role_claims` (live active/withdrawn non-event claims)
 
 Actual played sets should still be written later to:
 

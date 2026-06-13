@@ -19,14 +19,6 @@ This repo includes a small Flask bridge for writing static-site form submissions
 - `GET /api/forms/performer-registration/admin-selection/events`
 - `POST /api/forms/performer-registration/admin-selection/start`
 - `GET|POST /api/forms/performer-registration/backup-selection?token=...`
-- `POST /api/forms/volunteer-registration/start`
-- `GET /api/forms/volunteer-registration/session?token=...`
-- `POST /api/forms/volunteer-registration/submit`
-- `GET /api/forms/volunteer-registration/moderation/approve?token=...`
-- `GET|POST /api/forms/volunteer-registration/moderation/deny?token=...`
-- `POST /api/forms/volunteer-registration/claims/start`
-- `GET /api/forms/volunteer-registration/claims/session?token=...`
-- `POST /api/forms/volunteer-registration/claims/cancel`
 
 The bridge code lives in:
 
@@ -36,7 +28,6 @@ The bridge code lives in:
 - `forms_bridge/send_availability_reminders.py`
 - `forms_bridge/send_admin_selection_links.py`
 - `forms_bridge/send_moderation_token_reminders.py`
-- `forms_bridge/volunteer_workflow.py`
 - `forms_bridge/requirements.txt`
 
 ## Purpose
@@ -249,44 +240,3 @@ python -m forms_bridge.send_moderation_token_reminders
 - moderator/admin profiles are configured in `profiles`
 - moderator/admin profiles also have `volunteer` role in `profile_roles`
 - SMTP relay is reachable from bridge host
-
-## Volunteer Registration Workflow
-
-`/api/forms/volunteer-registration/...` adds a role-bidding flow parallel to performer registration.
-
-Core endpoints:
-
-- `POST /api/forms/volunteer-registration/start`
-  - sends one-time volunteer registration link
-- `GET /api/forms/volunteer-registration/session?token=...`
-  - returns profile prefill, social platforms, future events, and role availability by event
-- `POST /api/forms/volunteer-registration/submit`
-  - accepts profile fields, social links, and:
-    - `event_role_claims: [{ event_id, role_key }]`
-    - `general_role_claims: [role_key]`
-  - auto-approves immediately when the matched profile is already approved and already has volunteer role
-  - otherwise sends moderator approve/deny links
-- `GET /api/forms/volunteer-registration/moderation/approve?token=...`
-- `GET|POST /api/forms/volunteer-registration/moderation/deny?token=...`
-  - same moderation pattern as performer flow, including optional fresh edit link on deny
-- `POST /api/forms/volunteer-registration/claims/start`
-  - sends one-time claims management link
-- `GET /api/forms/volunteer-registration/claims/session?token=...`
-  - returns selected/standby/cancelled claims for upcoming events
-- `POST /api/forms/volunteer-registration/claims/cancel`
-  - cancels a selected/standby claim
-  - selected cancellation auto-promotes the oldest standby claim for the same role/event
-
-Role/capacity model:
-
-- global role definitions: `volunteer_roles`
-- optional per-event capacity/description overrides: `event_volunteer_role_overrides`
-- pending draft claims: `profile_submission_volunteer_claims`
-- pending draft general claims: `profile_submission_volunteer_general_claims`
-- live claim state: `event_volunteer_role_claims`
-- live general claim state: `volunteer_general_role_claims`
-
-Selection rule:
-
-- if `selected_count < effective_capacity` then new claim is `selected`
-- otherwise claim is `standby`

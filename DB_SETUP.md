@@ -125,7 +125,7 @@ Notes:
 - Run `ALTER DEFAULT PRIVILEGES` as the role that owns future schema objects.
 - `GRANT ... ON ALL TABLES IN SCHEMA public` covers ordinary tables and views such as `galleries`.
 - `emom_site_reader` is intentionally broad read-only access because the static build and admin tooling may need to inspect multiple parts of the schema.
-- `emom_forms_writer` is the intended DB role for `forms_bridge`, including the performer registration, moderation, reminder, admin-selection, volunteer, newsletter, and contact workflows.
+- `emom_forms_writer` is the intended DB role for `forms_bridge`, including the performer registration, moderation, reminder, admin-selection, newsletter, and contact workflows.
 
 ## 1A. Promote An Existing Profile To Moderator/Admin
 

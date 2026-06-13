@@ -180,7 +180,7 @@ The helper filename `s3files.js` is historical; current source-of-truth inventor
 - `/crew/`
   - crew list and crew detail pages
 - `/volunteer/`
-  - volunteer signup/application page, currently separate from the `/crew/` profile section
+  - simple contact prompt for prospective volunteers, separate from the `/crew/` profile section
 - `/perform/`
   - performer registration page backed by `forms_bridge`
 - `/gallery/`
@@ -195,7 +195,6 @@ Primary files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
-- `forms_bridge/volunteer_workflow.py`
 - `forms_bridge/newsletter_workflow.py`
 - `forms_bridge/contact_us_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
@@ -226,15 +225,6 @@ Current performer workflow capabilities:
 
 Additional bridge workflows:
 
-- Volunteer registration and moderation:
-  - `POST /api/forms/volunteer-registration/start`
-  - `GET /api/forms/volunteer-registration/session?token=...`
-  - `POST /api/forms/volunteer-registration/submit`
-  - `GET /api/forms/volunteer-registration/moderation/approve?token=...`
-  - `GET|POST /api/forms/volunteer-registration/moderation/deny?token=...`
-  - `POST /api/forms/volunteer-registration/claims/start`
-  - `GET /api/forms/volunteer-registration/claims/session?token=...`
-  - `POST /api/forms/volunteer-registration/claims/cancel`
 - Newsletter subscribe:
   - `POST /api/forms/newsletter-subscribe/start`
   - `GET /api/forms/newsletter-subscribe/confirm?token=...`
@@ -308,7 +298,6 @@ The forms bridge should use `emom_forms_writer`.
 For performer-workflow continuity and diagrams, check:
 
 - `PERFORMER_WORKFLOW_FLOW.md`
-- `VOLUNTEER_WORKFLOW_FLOW.md`
 - `FORMS.md`
 - `FORMS_API.md`
 - `DB_SETUP.md`
@@ -327,7 +316,6 @@ When updating documentation, verify against:
 - `lib/data/loadEmomData.js`
 - `lib/render/profilePage.js`
 - `forms_bridge/performer_workflow.py`
-- `forms_bridge/volunteer_workflow.py`
 - `forms_bridge/newsletter_workflow.py`
 - `forms_bridge/contact_us_workflow.py`
 - `FORMS_API.md`
@@ -346,5 +334,5 @@ When updating documentation, verify against:
 - Do not assume `performances` contains planned future lineups; use `event_performer_selections` for pre-event workflow state
 - The performer workflow is in active development; check `REGO_STATUS.md` and `PERFORMER_WORKFLOW_FLOW.md` before changing it
 - Treat `/volunteer/` and `/crew/` as different things:
-  - `/volunteer/` is the signup/application page
+  - `/volunteer/` is the prospective-volunteer contact page
   - `/crew/` is the public volunteer profile section

@@ -5,7 +5,6 @@ from flask import Flask, jsonify, request
 from forms_bridge.contact_us_workflow import register_contact_us_workflow_routes
 from forms_bridge.newsletter_workflow import register_newsletter_workflow_routes
 from forms_bridge.performer_workflow import register_performer_workflow_routes
-from forms_bridge.volunteer_workflow import register_volunteer_workflow_routes
 
 
 def create_app():
@@ -33,8 +32,6 @@ def create_app():
     register_newsletter_workflow_routes(app)
 
     register_performer_workflow_routes(app)
-
-    register_volunteer_workflow_routes(app)
 
     register_contact_us_workflow_routes(app)
 
