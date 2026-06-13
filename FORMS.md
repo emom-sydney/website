@@ -14,22 +14,29 @@ The current stack for forms and tokenized workflows is:
 
 ## Current Implementations
 
-There are currently two active form areas:
+There are currently four active form/workflow areas:
 
-- merch interest
 - performer registration and scheduling workflow
 - volunteer role-bidding workflow
+- newsletter subscribe workflow
+- contact form
 
 Relevant files:
 
-- `src/merch/index.njk`
-- `assets/scripts/merch_interest_form.js`
 - `src/perform.njk`
 - `assets/scripts/performer_registration_form.js`
+- `src/volunteer.njk`
+- `assets/scripts/volunteer_registration_form.js`
+- `src/subscribe.njk`
+- `assets/scripts/newsletter_subscribe.js`
+- `src/contact.njk`
+- `assets/scripts/contact_form.js`
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
 - `forms_bridge/volunteer_workflow.py`
+- `forms_bridge/newsletter_workflow.py`
+- `forms_bridge/contact_us_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
 - `forms_bridge/send_admin_selection_links.py`
 - `forms_bridge/send_moderation_token_reminders.py`
@@ -48,8 +55,10 @@ Files in `src/` define:
 
 Examples:
 
-- `src/merch/index.njk`
 - `src/perform.njk`
+- `src/volunteer.njk`
+- `src/subscribe.njk`
+- `src/contact.njk`
 
 ### Browser script layer
 
@@ -63,8 +72,10 @@ Files in `assets/scripts/` define:
 
 Examples:
 
-- `assets/scripts/merch_interest_form.js`
 - `assets/scripts/performer_registration_form.js`
+- `assets/scripts/volunteer_registration_form.js`
+- `assets/scripts/newsletter_subscribe.js`
+- `assets/scripts/contact_form.js`
 
 ### Forms bridge layer
 
@@ -81,6 +92,9 @@ Main files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
+- `forms_bridge/volunteer_workflow.py`
+- `forms_bridge/newsletter_workflow.py`
+- `forms_bridge/contact_us_workflow.py`
 
 ## Build-Time Data
 
@@ -101,7 +115,7 @@ Important distinction:
 Use same-origin paths, not hardcoded hostnames:
 
 ```js
-await fetch("/api/forms/merch-interest", {
+await fetch("/api/forms/contact-us", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
@@ -117,7 +131,6 @@ That keeps the same build portable between environments such as `test.emom.me` a
 The bridge currently exposes:
 
 - `GET /api/forms/health`
-- `POST /api/forms/merch-interest`
 - performer registration start/session/submit
 - moderation approve/deny actions
 - availability confirm/cancel actions
@@ -128,6 +141,8 @@ The bridge currently exposes:
 - volunteer registration start/session/submit
 - volunteer moderation approve/deny actions
 - volunteer claims-link start/session/cancel actions
+- newsletter subscribe start/confirm actions
+- contact form submission
 
 The bridge uses:
 

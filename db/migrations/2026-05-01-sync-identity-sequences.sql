@@ -24,10 +24,6 @@ BEGIN
         ('public', 'profile_submission_volunteer_general_claims', 'id'),
         ('public', 'event_volunteer_role_claims', 'id'),
         ('public', 'volunteer_general_role_claims', 'id'),
-        ('public', 'merch_items', 'id'),
-        ('public', 'merch_variants', 'id'),
-        ('public', 'merch_interest_submissions', 'id'),
-        ('public', 'merch_interest_lines', 'id'),
         ('public', 'newsletter_subscribe_requests', 'id')
     ) AS identity_columns(schema_name, table_name, column_name)
   LOOP

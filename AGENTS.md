@@ -54,10 +54,14 @@ Current relational tables:
 - `moderation_actions`
 - `event_performer_selections`
 - `app_settings`
-- `merch_items`
-- `merch_variants`
-- `merch_interest_submissions`
-- `merch_interest_lines`
+- `admin_selection_locks`
+- `volunteer_roles`
+- `event_volunteer_role_overrides`
+- `profile_submission_volunteer_claims`
+- `profile_submission_volunteer_general_claims`
+- `event_volunteer_role_claims`
+- `volunteer_general_role_claims`
+- `newsletter_subscribe_requests`
 
 Important model details:
 
@@ -100,7 +104,7 @@ Primary relational usage is concentrated in a few places:
 - `src/crew/profile.11ty.js`
   - crew detail pages
 - `src/gallery/gallery.11ty.js`
-  - gallery pages use relational event/profile metadata plus live S3 media listings
+  - gallery pages use relational event/profile metadata plus media-server manifest listings
   - root event gallery pages may render an embedded YouTube video sourced from `events.youtube_embed_url`
 - `src/perform.njk`
   - performer registration start + token-backed submission page
@@ -148,12 +152,15 @@ That module currently handles:
 
 Route generators should stay thin and keep only section-specific layout/content.
 
-## Media And S3
+## Media And Gallery Manifest
 
 The gallery system is hybrid:
 
 - relational metadata comes from Postgres
-- media inventory comes live from S3 at build time
+- media inventory comes from a gallery manifest at build time
+  - default URL is `${MEDIA_BASEURL}/.well-known/gallery-manifest.json`
+  - optional local fallback file path via `MEDIA_MANIFEST_PATH`
+  - URLs are built from `MEDIA_BASEURL` (default `https://media.emom.me:909`)
 
 Relevant files:
 
@@ -162,7 +169,7 @@ Relevant files:
 - `src/_data/media_baseurl.js`
 - `src/gallery/gallery.11ty.js`
 
-Moving gallery media off S3 is not part of the current architecture yet.
+The helper filename `s3files.js` is historical; current source-of-truth inventory is the gallery manifest, not direct S3 listing.
 
 ## Current Site Sections
 
@@ -177,9 +184,9 @@ Moving gallery media off S3 is not part of the current architecture yet.
 - `/perform/`
   - performer registration page backed by `forms_bridge`
 - `/gallery/`
-  - gallery pages backed by S3 + Postgres
+  - gallery pages backed by media manifest + Postgres
 
-## Forms Bridge And Performer Workflow
+## Forms Bridge And Workflows
 
 The repo now includes a small Flask bridge for write-side forms and tokenized email workflows.
 
@@ -188,8 +195,12 @@ Primary files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
+- `forms_bridge/volunteer_workflow.py`
+- `forms_bridge/newsletter_workflow.py`
+- `forms_bridge/contact_us_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
 - `forms_bridge/send_admin_selection_links.py`
+- `forms_bridge/send_moderation_token_reminders.py`
 - `assets/scripts/performer_registration_form.js`
 - `src/perform.njk`
 
@@ -206,7 +217,29 @@ Current performer workflow capabilities:
 - `GET /api/forms/performer-registration/availability/confirm?token=...`
 - `GET /api/forms/performer-registration/availability/cancel?token=...`
 - `GET|POST /api/forms/performer-registration/admin-selection?token=...`
+- `GET|POST /api/forms/performer-registration/admin-selection/send-confirmation?token=...&event_id=...&requested_date_id=...`
+- `POST /api/forms/performer-registration/admin-selection/lock?token=...&event_id=...`
+- `POST /api/forms/performer-registration/admin-selection/lock/release?token=...&event_id=...`
+- `GET /api/forms/performer-registration/admin-selection/events`
+- `POST /api/forms/performer-registration/admin-selection/start`
 - `GET|POST /api/forms/performer-registration/backup-selection?token=...`
+
+Additional bridge workflows:
+
+- Volunteer registration and moderation:
+  - `POST /api/forms/volunteer-registration/start`
+  - `GET /api/forms/volunteer-registration/session?token=...`
+  - `POST /api/forms/volunteer-registration/submit`
+  - `GET /api/forms/volunteer-registration/moderation/approve?token=...`
+  - `GET|POST /api/forms/volunteer-registration/moderation/deny?token=...`
+  - `POST /api/forms/volunteer-registration/claims/start`
+  - `GET /api/forms/volunteer-registration/claims/session?token=...`
+  - `POST /api/forms/volunteer-registration/claims/cancel`
+- Newsletter subscribe:
+  - `POST /api/forms/newsletter-subscribe/start`
+  - `GET /api/forms/newsletter-subscribe/confirm?token=...`
+- Contact form:
+  - `POST /api/forms/contact-us`
 
 Current workflow notes:
 
@@ -237,7 +270,17 @@ Notable migrations in the repo:
 - `2026-04-04-admin-selection-workflow.sql`
 - `2026-04-05-cooldown-backup-status.sql`
 - `2026-04-15-standby-reserve-status.sql`
+- `2026-04-16-profile-submission-additional-info.sql`
+- `2026-04-16-social-platform-input-metadata.sql`
+- `2026-04-17-admin-selection-locks.sql`
 - `2026-04-17-events-youtube-embed.sql`
+- `2026-04-20-action-tokens-drop-type-check.sql`
+- `2026-04-20-newsletter-action-tokens.sql`
+- `2026-04-21-prod-catchup.sql`
+- `2026-04-22-newsletter-subscribe-grants.sql`
+- `2026-04-25-volunteer-workflow.sql`
+- `2026-04-26-volunteer-general-roles.sql`
+- `2026-05-01-sync-identity-sequences.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 
@@ -258,14 +301,15 @@ The standard DB roles currently expected by the repo are:
 - default privileges for future tables/sequences
 - local SSH tunnel usage
 
-The forms bridge should use `emom_forms_writer`, not the older merch-only writer role.
+The forms bridge should use `emom_forms_writer`.
 
 ## Operational Docs
 
 For performer-workflow continuity and diagrams, check:
 
-- `REGO_STATUS.md`
 - `PERFORMER_WORKFLOW_FLOW.md`
+- `VOLUNTEER_WORKFLOW_FLOW.md`
+- `FORMS.md`
 - `FORMS_API.md`
 - `DB_SETUP.md`
 
@@ -283,8 +327,10 @@ When updating documentation, verify against:
 - `lib/data/loadEmomData.js`
 - `lib/render/profilePage.js`
 - `forms_bridge/performer_workflow.py`
+- `forms_bridge/volunteer_workflow.py`
+- `forms_bridge/newsletter_workflow.py`
+- `forms_bridge/contact_us_workflow.py`
 - `FORMS_API.md`
-- `REGO_STATUS.md`
 - `src/_data/`
 - `src/artists/`
 - `src/crew/`

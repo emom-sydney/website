@@ -41,10 +41,7 @@ BEGIN
         requested_dates,
         moderation_actions,
         event_performer_selections,
-        newsletter_subscribe_requests,
-        merch_interest_submissions,
-        merch_interest_lines,
-        merch_variants
+        newsletter_subscribe_requests
       TO emom_forms_writer
     $grant$;
     EXECUTE 'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO emom_forms_writer';

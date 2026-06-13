@@ -23,7 +23,6 @@ The site currently includes:
 
 - artist and crew profile sections
 - gallery pages backed by Postgres metadata plus live S3 listings
-- merch interest form
 - performer registration and moderation workflow for Open Mic events
 
 ### Starting to introduce role based actions.
@@ -103,8 +102,8 @@ The forms bridge is a small Flask app for handling a variety of form inputs on t
 
 It currently handles:
 
-- A merch survey form
-- TODO: Regular contact form
+- Regular contact form
+- Newsletter subscribe workflow
 - [performer registration workflow](PERFORMER_WORKFLOW_FLOW.md)
   - moderator approve/deny actions
   - availability confirm/cancel actions

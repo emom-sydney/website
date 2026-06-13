@@ -248,44 +248,6 @@ CREATE TABLE IF NOT EXISTS volunteer_general_role_claims (
   UNIQUE (role_key, profile_id)
 );
 
-CREATE TABLE IF NOT EXISTS merch_items (
-  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  slug text NOT NULL UNIQUE,
-  name text NOT NULL,
-  category text NOT NULL CHECK (category IN ('tshirt', 'mug', 'keyring', 'tote_bag')),
-  description text,
-  suggested_price numeric(10, 2) NOT NULL CHECK (suggested_price >= 0),
-  is_active boolean NOT NULL DEFAULT true,
-  sort_order integer NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS merch_variants (
-  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  merch_item_id integer NOT NULL REFERENCES merch_items(id) ON DELETE CASCADE,
-  variant_label text NOT NULL,
-  style text,
-  size text,
-  color text,
-  image_url text,
-  is_active boolean NOT NULL DEFAULT true
-);
-
-CREATE TABLE IF NOT EXISTS merch_interest_submissions (
-  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  email text NOT NULL,
-  comments text,
-  submitted_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS merch_interest_lines (
-  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  submission_id integer NOT NULL REFERENCES merch_interest_submissions(id) ON DELETE CASCADE,
-  merch_variant_id integer NOT NULL REFERENCES merch_variants(id) ON DELETE CASCADE,
-  quantity integer NOT NULL DEFAULT 1 CHECK (quantity > 0),
-  submitted_price numeric(10, 2) NOT NULL CHECK (submitted_price >= 0),
-  UNIQUE (submission_id, merch_variant_id)
-);
-
 CREATE TABLE IF NOT EXISTS newsletter_subscribe_requests (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   action_token_id bigint NOT NULL UNIQUE REFERENCES action_tokens(id) ON DELETE CASCADE,
@@ -344,18 +306,6 @@ CREATE INDEX IF NOT EXISTS idx_moderation_actions_draft_id
   ON moderation_actions(draft_id);
 CREATE INDEX IF NOT EXISTS idx_event_performer_selections_event_status
   ON event_performer_selections(event_id, status);
-CREATE INDEX IF NOT EXISTS idx_merch_variants_item_id ON merch_variants(merch_item_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_merch_variants_unique_option
-  ON merch_variants (
-    merch_item_id,
-    COALESCE(style, ''),
-    COALESCE(size, ''),
-    COALESCE(color, ''),
-    variant_label
-  );
-CREATE INDEX IF NOT EXISTS idx_merch_interest_lines_submission_id ON merch_interest_lines(submission_id);
-CREATE INDEX IF NOT EXISTS idx_merch_interest_lines_variant_id ON merch_interest_lines(merch_variant_id);
-CREATE INDEX IF NOT EXISTS idx_merch_interest_submissions_email ON merch_interest_submissions(email);
 CREATE INDEX IF NOT EXISTS idx_action_tokens_expires_at
   ON action_tokens(expires_at)
   WHERE used_at IS NULL;

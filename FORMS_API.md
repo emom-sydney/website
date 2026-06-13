@@ -5,7 +5,6 @@ This repo includes a small Flask bridge for writing static-site form submissions
 ## Current Endpoints
 
 - `GET /health` (typically exposed as `GET /api/forms/health` via nginx)
-- `POST /api/forms/merch-interest`
 - `POST /api/forms/performer-registration/start`
 - `GET /api/forms/performer-registration/session?token=...`
 - `POST /api/forms/performer-registration/submit`
@@ -100,57 +99,6 @@ In production, run behind nginx/systemd.
 
 - `/api/forms/` to the Flask app
 - `/api/forms/health` to Flask `/health`
-
-## Merch Interest API
-
-`POST /api/forms/merch-interest`
-
-Request:
-
-```json
-{
-  "email": "user@example.com",
-  "comments": "Interested in a mug and a tee.",
-  "lines": [
-    { "merch_variant_id": 1, "quantity": 1, "submitted_price": "35.00" },
-    { "merch_variant_id": 12, "quantity": 2, "submitted_price": "18.00" }
-  ]
-}
-```
-
-Notes:
-
-- `email` is required
-- `comments` is optional
-- `lines` must be a non-empty array
-- each line requires `submitted_price`
-- duplicate `merch_variant_id` rows are merged before insert
-- only active variants are accepted
-
-Success response:
-
-```json
-{
-  "ok": true,
-  "submission_id": 123,
-  "line_count": 2
-}
-```
-
-Error response:
-
-```json
-{
-  "ok": false,
-  "error": "A valid email address is required."
-}
-```
-
-Tables:
-
-- `merch_interest_submissions`
-- `merch_interest_lines`
-- `merch_variants`
 
 ## Performer Registration Workflow
 
