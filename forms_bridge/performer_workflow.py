@@ -39,11 +39,11 @@ DEFAULT_ADMIN_SELECTION_LOCK_MINUTES = 30
 
 
 def register_performer_workflow_routes(app):
-    @app.route("/api/forms/performer-registration/start", methods=["OPTIONS"])
+    @app.route("/api/v1/artists/registration/start", methods=["OPTIONS"])
     def performer_registration_start_options():
         return ("", 204)
 
-    @app.route("/api/forms/performer-registration/start", methods=["POST"])
+    @app.route("/api/v1/artists/registration/start", methods=["POST"])
     def start_performer_registration():
         try:
             payload = get_json_payload()
@@ -75,7 +75,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Performer registration start failed")
             return error_response("Unable to start performer registration right now.", 500)
 
-    @app.route("/api/forms/performer-registration/session", methods=["GET"])
+    @app.route("/api/v1/artists/registration/session", methods=["GET"])
     def get_performer_registration_session():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -114,11 +114,11 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Performer registration session lookup failed")
             return error_response("Unable to load performer registration right now.", 500)
 
-    @app.route("/api/forms/performer-registration/submit", methods=["OPTIONS"])
+    @app.route("/api/v1/artists/registration/submissions", methods=["OPTIONS"])
     def performer_registration_submit_options():
         return ("", 204)
 
-    @app.route("/api/forms/performer-registration/submit", methods=["POST"])
+    @app.route("/api/v1/artists/registration/submissions", methods=["POST"])
     def submit_performer_registration():
         try:
             payload = get_json_payload()
@@ -188,7 +188,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Performer registration submission failed")
             return error_response("Unable to submit performer registration right now.", 500)
 
-    @app.route("/api/forms/performer-registration/moderation/approve", methods=["GET"])
+    @app.route("/api/v1/profiles/submissions/moderation/approve", methods=["GET"])
     def approve_profile_submission():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -245,7 +245,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Profile approval failed")
             return html_error_page("Unable to approve this submission right now.", 500)
 
-    @app.route("/api/forms/performer-registration/moderation/deny", methods=["GET", "POST"])
+    @app.route("/api/v1/profiles/submissions/moderation/deny", methods=["GET", "POST"])
     def deny_profile_submission():
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
@@ -318,7 +318,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Profile denial failed")
             return html_error_page("Unable to deny this submission right now.", 500)
 
-    @app.route("/api/forms/performer-registration/availability/confirm", methods=["GET"])
+    @app.route("/api/v1/events/performer-requests/availability/confirm", methods=["GET"])
     def confirm_requested_date():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -347,7 +347,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Availability confirmation failed")
             return html_error_page("Unable to confirm availability right now.", 500)
 
-    @app.route("/api/forms/performer-registration/availability/cancel", methods=["GET"])
+    @app.route("/api/v1/events/performer-requests/availability/cancel", methods=["GET"])
     def cancel_requested_date():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -377,7 +377,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Availability cancellation failed")
             return html_error_page("Unable to cancel availability right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection", methods=["GET", "POST"])
+    @app.route("/api/v1/events/performer-selections/admin", methods=["GET", "POST"])
     def admin_selection():
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
@@ -483,7 +483,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection save failed")
             return html_error_page("Unable to save admin selection right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/send-confirmation", methods=["GET"])
+    @app.route("/api/v1/events/performer-selections/send-confirmation", methods=["GET"])
     def admin_selection_send_confirmation():
         raw_token = normalize_text(request.args.get("token"))
         requested_date_id_text = normalize_text(request.args.get("requested_date_id"))
@@ -539,7 +539,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection confirmation resend failed")
             return html_error_page("Unable to send confirmation email right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/lock", methods=["POST"])
+    @app.route("/api/v1/events/performer-selections/lock", methods=["POST"])
     def admin_selection_lock_heartbeat():
         raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
         if not raw_token:
@@ -576,7 +576,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection lock heartbeat failed")
             return error_response("Unable to refresh admin selection lock right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/lock/release", methods=["POST"])
+    @app.route("/api/v1/events/performer-selections/lock/release", methods=["POST"])
     def admin_selection_lock_release():
         raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
         if not raw_token:
@@ -598,7 +598,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection lock release failed")
             return ("", 204)
 
-    @app.route("/api/forms/performer-registration/admin-selection/events", methods=["GET"])
+    @app.route("/api/v1/events/open-mic/selection-candidates", methods=["GET"])
     def admin_selection_events():
         try:
             with connect() as connection:
@@ -609,11 +609,11 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection events lookup failed")
             return error_response("Unable to load upcoming event dates right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/start", methods=["OPTIONS"])
+    @app.route("/api/v1/events/performer-selections/admin-links", methods=["OPTIONS"])
     def admin_selection_start_options():
         return ("", 204)
 
-    @app.route("/api/forms/performer-registration/admin-selection/start", methods=["POST"])
+    @app.route("/api/v1/events/performer-selections/admin-links", methods=["POST"])
     def admin_selection_start():
         try:
             payload = get_json_payload()
@@ -683,7 +683,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Admin selection start failed")
             return error_response("Unable to send an admin selection link right now.", 500)
 
-    @app.route("/api/forms/performer-registration/backup-selection", methods=["GET", "POST"])
+    @app.route("/api/v1/events/performer-selections/backup", methods=["GET", "POST"])
     def backup_selection():
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
@@ -1587,10 +1587,10 @@ def create_moderation_links(*, cursor, app, draft_id, moderator_emails, ttl_hour
             {
                 "email": moderator["email"],
                 "approve_url": build_absolute_url(
-                    app, f"/api/forms/performer-registration/moderation/approve?token={approve_token}"
+                    app, f"/api/v1/profiles/submissions/moderation/approve?token={approve_token}"
                 ),
                 "deny_url": build_absolute_url(
-                    app, f"/api/forms/performer-registration/moderation/deny?token={deny_token}"
+                    app, f"/api/v1/profiles/submissions/moderation/deny?token={deny_token}"
                 ),
             }
         )
@@ -1934,10 +1934,10 @@ def send_due_availability_confirmation_emails(app, run_date=None):
                 )
 
                 confirm_url = build_absolute_url(
-                    app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
+                    app, f"/api/v1/events/performer-requests/availability/confirm?token={confirm_token}"
                 )
                 cancel_url = build_absolute_url(
-                    app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
+                    app, f"/api/v1/events/performer-requests/availability/cancel?token={cancel_token}"
                 )
 
                 send_availability_email(
@@ -2186,10 +2186,10 @@ def create_availability_action_links(app, cursor, *, requested_date_id, event_id
 
     return {
         "confirm_url": build_absolute_url(
-            app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
+            app, f"/api/v1/events/performer-requests/availability/confirm?token={confirm_token}"
         ),
         "cancel_url": build_absolute_url(
-            app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
+            app, f"/api/v1/events/performer-requests/availability/cancel?token={cancel_token}"
         ),
         "expires_at": expires_at,
     }
@@ -3012,7 +3012,7 @@ def handle_selection_cancellation_if_needed(app, cursor, requested_date):
                 ),
             )
             backup_url = build_absolute_url(
-                app, f"/api/forms/performer-registration/backup-selection?token={raw_token}"
+                app, f"/api/v1/events/performer-selections/backup?token={raw_token}"
             )
             send_backup_selection_email(
                 moderator_email=moderator["email"],
@@ -3174,7 +3174,7 @@ def render_admin_status_option(status, current_status):
 def render_admin_confirmation_link(raw_token, requested_date_id):
     token = quote(raw_token, safe="")
     return (
-        f"/api/forms/performer-registration/admin-selection/send-confirmation"
+        f"/api/v1/events/performer-selections/send-confirmation"
         f"?token={token}&requested_date_id={requested_date_id}"
     )
 
@@ -3538,8 +3538,8 @@ def render_admin_selection_form(
         "const selects = [...document.querySelectorAll('[data-lineup-status]')];"
         "const countNode = document.getElementById('selected-count');"
         f"const token = {json.dumps(raw_token)};"
-        "const heartbeatUrl = `/api/forms/performer-registration/admin-selection/lock?token=${encodeURIComponent(token)}`;"
-        "const releaseUrl = `/api/forms/performer-registration/admin-selection/lock/release?token=${encodeURIComponent(token)}`;"
+        "const heartbeatUrl = `/api/v1/events/performer-selections/lock?token=${encodeURIComponent(token)}`;"
+        "const releaseUrl = `/api/v1/events/performer-selections/lock/release?token=${encodeURIComponent(token)}`;"
         "function updateSelectedCount() {"
         "const count = selects.filter((node) => node.value === 'selected').length;"
         "countNode.textContent = String(count);"

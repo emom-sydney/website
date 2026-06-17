@@ -12,11 +12,11 @@ EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def register_contact_us_workflow_routes(app):
-    @app.route("/api/forms/contact-us", methods=["OPTIONS"])
+    @app.route("/api/v1/contact/messages", methods=["OPTIONS"])
     def contact_us_options():
         return ("", 204)
 
-    @app.route("/api/forms/contact-us", methods=["POST"])
+    @app.route("/api/v1/contact/messages", methods=["POST"])
     def submit_contact_us():
         try:
             payload = get_json_payload()

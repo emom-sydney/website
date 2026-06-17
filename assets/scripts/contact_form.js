@@ -39,7 +39,7 @@ if (form) {
     notify("Sending your message...");
 
     try {
-      const response = await fetch("/api/forms/contact-us", {
+      const response = await fetch("/api/v1/contact/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -195,18 +195,18 @@ Primary files:
 
 Current performer workflow capabilities:
 
-- `POST /api/forms/performer-registration/start`
+- `POST /api/v1/artists/registration/start`
   - sends a 24-hour one-time registration link
-- `GET /api/forms/performer-registration/session?token=...`
+- `GET /api/v1/artists/registration/session?token=...`
   - loads existing profile context, social platforms, and eligible Open Mic dates
-- `POST /api/forms/performer-registration/submit`
+- `POST /api/v1/artists/registration/submissions`
   - stores a moderated draft, social links, and requested dates
-- `GET /api/forms/performer-registration/moderation/approve?token=...`
-- `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
-- `GET /api/forms/performer-registration/availability/confirm?token=...`
-- `GET /api/forms/performer-registration/availability/cancel?token=...`
-- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
-- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
+- `GET /api/v1/profiles/submissions/moderation/approve?token=...`
+- `GET|POST /api/v1/profiles/submissions/moderation/deny?token=...`
+- `GET /api/v1/events/performer-requests/availability/confirm?token=...`
+- `GET /api/v1/events/performer-requests/availability/cancel?token=...`
+- `GET|POST /api/v1/events/performer-selections/admin?token=...`
+- `GET|POST /api/v1/events/performer-selections/backup?token=...`
 
 Current workflow notes:
 

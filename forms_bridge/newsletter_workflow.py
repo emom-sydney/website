@@ -27,11 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 def register_newsletter_workflow_routes(app):
-    @app.route("/api/forms/newsletter-subscribe/start", methods=["OPTIONS"])
+    @app.route("/api/v1/newsletter/subscriptions/start", methods=["OPTIONS"])
     def newsletter_subscribe_start_options():
         return ("", 204)
 
-    @app.route("/api/forms/newsletter-subscribe/start", methods=["POST"])
+    @app.route("/api/v1/newsletter/subscriptions/start", methods=["POST"])
     def newsletter_subscribe_start():
         try:
             payload = get_json_payload()
@@ -57,7 +57,10 @@ def register_newsletter_workflow_routes(app):
                         """,
                         (token_hash, NEWSLETTER_CONFIRM_ACTION, email, expires_at),
                     )
-                    action_token_id = cursor.fetchone()[0]
+                    row = cursor.fetchone()
+                    if not row:
+                        raise ValueError("Failed to create action token.")
+                    action_token_id = row[0]
 
                     cursor.execute(
                         """
@@ -92,7 +95,7 @@ def register_newsletter_workflow_routes(app):
             app.logger.exception("Newsletter subscribe start failed")
             return error_response("Unable to start newsletter subscription right now.", 500)
 
-    @app.route("/api/forms/newsletter-subscribe/confirm", methods=["GET"])
+    @app.route("/api/v1/newsletter/subscriptions/confirm", methods=["GET"])
     def newsletter_subscribe_confirm():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -313,7 +316,7 @@ def send_mail(to_address, subject, body):
 
 
 def send_newsletter_confirmation_email(app, email, raw_token, expires_at):
-    confirm_url = build_absolute_url(app, f"/api/forms/newsletter-subscribe/confirm?token={raw_token}")
+    confirm_url = build_absolute_url(app, f"/api/v1/newsletter/subscriptions/confirm?token={raw_token}")
     body = (
         "Please confirm your subscription to the EMOM Sydney newsletter by opening this link:\n\n"
         f"{confirm_url}\n\n"

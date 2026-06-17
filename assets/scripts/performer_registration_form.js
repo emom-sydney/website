@@ -259,7 +259,7 @@ if (appNode) {
   async function loadSession(token) {
     // setStatus("Loading registration form...");
     try {
-      const response = await fetch(`/api/forms/performer-registration/session?token=${encodeURIComponent(token)}`);
+      const response = await fetch(`/api/v1/artists/registration/session?token=${encodeURIComponent(token)}`);
       const result = await response.json();
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to load registration form.");
@@ -297,7 +297,7 @@ if (appNode) {
 
     setStatus("Sending your registration link...");
     try {
-      const response = await fetch("/api/forms/performer-registration/start", {
+      const response = await fetch("/api/v1/artists/registration/start", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -369,7 +369,7 @@ if (appNode) {
 
     setStatus("Submitting your registration...");
     try {
-      const response = await fetch("/api/forms/performer-registration/submit", {
+      const response = await fetch("/api/v1/artists/registration/submissions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

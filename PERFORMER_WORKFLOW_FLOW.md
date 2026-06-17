@@ -368,7 +368,7 @@ sequenceDiagram
     Site-->>Performer: Show email-only start form
 
     Performer->>Site: Submit email
-    Site->>Bridge: POST /api/forms/performer-registration/start
+    Site->>Bridge: POST /api/v1/artists/registration/start
     Bridge->>DB: Read app_settings
     Bridge->>DB: Invalidate old registration tokens
     Bridge->>DB: Insert new registration token
@@ -378,7 +378,7 @@ sequenceDiagram
     Site-->>Performer: “Check your inbox”
 
     Performer->>Site: Open emailed token link
-    Site->>Bridge: GET /api/forms/performer-registration/session?token=...
+    Site->>Bridge: GET /api/v1/artists/registration/session?token=...
     Bridge->>DB: Validate token
     Bridge->>DB: Load existing profile by email
     Bridge->>DB: Load social platform options
@@ -387,7 +387,7 @@ sequenceDiagram
     Site-->>Performer: Prefilled profile + event selection form
 
     Performer->>Site: Submit profile, social links, requested dates
-    Site->>Bridge: POST /api/forms/performer-registration/submit
+    Site->>Bridge: POST /api/v1/artists/registration/submissions
     Bridge->>DB: Validate token
     Bridge->>DB: Match existing profile by email
     alt No email match
@@ -407,7 +407,7 @@ sequenceDiagram
     Site-->>Performer: “Sent for moderation”
 
     alt Moderator approves
-        Mod->>Bridge: GET /api/forms/performer-registration/moderation/approve?token=...
+        Mod->>Bridge: GET /api/v1/profiles/submissions/moderation/approve?token=...
         Bridge->>DB: Validate approve token
         Bridge->>DB: Load draft
         Bridge->>DB: Apply draft to live profile or update matched existing profile
@@ -421,7 +421,7 @@ sequenceDiagram
         SMTP-->>Performer: Approval email
         Bridge-->>Mod: Success page
     else Moderator denies
-        Mod->>Bridge: GET /api/forms/performer-registration/moderation/deny?token=...
+        Mod->>Bridge: GET /api/v1/profiles/submissions/moderation/deny?token=...
         Bridge->>DB: Validate deny token
         Bridge->>DB: Confirm draft still pending
         Bridge-->>Mod: Denial reason form

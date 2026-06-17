@@ -1,6 +1,6 @@
-# Forms Guide
+# Runtime Workflow Guide
 
-This repo is a statically generated Eleventy site, so browser forms cannot write directly to Postgres. All runtime writes go through the small Python bridge in `forms_bridge/`.
+This repo is a statically generated Eleventy site, so browser forms and tokenized workflow pages cannot write directly to Postgres. Runtime writes go through the small Python bridge in `forms_bridge/`.
 
 ## Current Pattern
 
@@ -8,25 +8,28 @@ The current stack for forms and tokenized workflows is:
 
 1. static page in `src/`
 2. browser-side JavaScript in `assets/scripts/`
-3. same-origin request to `/api/forms/...`
+3. same-origin request to `/api/v1/...`
 4. Flask handler in `forms_bridge/`
 5. Postgres write and email/token workflow there
 
 ## Current Implementations
 
-There are currently two active form areas:
+Current active runtime workflow areas:
 
-- merch interest
 - performer registration and scheduling workflow
+- newsletter subscription confirmation
+- contact messages
 
 Relevant files:
 
-- `src/merch/index.njk`
-- `assets/scripts/merch_interest_form.js`
 - `src/perform.njk`
 - `assets/scripts/performer_registration_form.js`
+- `assets/scripts/newsletter_subscribe.js`
+- `assets/scripts/contact_form.js`
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
+- `forms_bridge/contact_us_workflow.py`
+- `forms_bridge/newsletter_workflow.py`
 - `forms_bridge/performer_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
 - `forms_bridge/send_admin_selection_links.py`
@@ -45,8 +48,9 @@ Files in `src/` define:
 
 Examples:
 
-- `src/merch/index.njk`
 - `src/perform.njk`
+- `src/subscribe.njk`
+- `src/contact.njk`
 
 ### Browser script layer
 
@@ -55,13 +59,14 @@ Files in `assets/scripts/` define:
 - DOM reads/writes
 - light client-side validation
 - JSON payload shaping
-- `fetch()` calls to `/api/forms/...`
+- `fetch()` calls to `/api/v1/...`
 - in-page success/error updates
 
 Examples:
 
-- `assets/scripts/merch_interest_form.js`
 - `assets/scripts/performer_registration_form.js`
+- `assets/scripts/newsletter_subscribe.js`
+- `assets/scripts/contact_form.js`
 
 ### Forms bridge layer
 
@@ -98,7 +103,7 @@ Important distinction:
 Use same-origin paths, not hardcoded hostnames:
 
 ```js
-await fetch("/api/forms/merch-interest", {
+await fetch("/api/v1/artists/registration/start", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
@@ -107,18 +112,19 @@ await fetch("/api/forms/merch-interest", {
 });
 ```
 
-That keeps the same build portable between environments such as `test.emom.me` and `sydney.emom.me`, assuming nginx proxies `/api/forms/` correctly.
+That keeps the same build portable between environments such as `test.emom.me` and `sydney.emom.me`, assuming nginx proxies `/api/v1/` correctly.
 
 ## Current Bridge Pattern
 
 The bridge currently exposes:
 
-- `GET /api/forms/health`
-- `POST /api/forms/merch-interest`
-- performer registration start/session/submit
-- moderation approve/deny actions
-- availability confirm/cancel actions
-- admin lineup selection
+- `GET /api/v1/health`
+- contact message submission
+- newsletter subscription start/confirmation
+- artist registration start/session/submission
+- profile moderation approve/deny actions
+- event availability confirm/cancel actions
+- event lineup admin selection
 - standby promotion
 
 The bridge uses:

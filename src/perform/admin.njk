@@ -49,13 +49,13 @@ permalink: "/perform/admin/index.html"
         setStatus("A valid admin token is required.", "error");
         return;
       }
-      window.location.assign(`/api/forms/performer-registration/admin-selection?token=${encodeURIComponent(token)}`);
+      window.location.assign(`/api/v1/events/performer-selections/admin?token=${encodeURIComponent(token)}`);
     }
 
     async function loadEvents() {
       setStatus("Loading upcoming event dates...");
       try {
-        const response = await fetch("/api/forms/performer-registration/admin-selection/events");
+        const response = await fetch("/api/v1/events/open-mic/selection-candidates");
         const result = await response.json();
         if (!response.ok || !result.ok) {
           throw new Error(result.error || "Unable to load event dates.");
@@ -106,7 +106,7 @@ permalink: "/perform/admin/index.html"
 
       setStatus("Sending admin link...");
       try {
-        const response = await fetch("/api/forms/performer-registration/admin-selection/start", {
+        const response = await fetch("/api/v1/events/performer-selections/admin-links", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

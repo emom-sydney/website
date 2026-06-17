@@ -32,7 +32,7 @@ if (form) {
     if (submitButton) submitButton.disabled = true;
 
     try {
-      const response = await fetch("/api/forms/newsletter-subscribe/start", {
+      const response = await fetch("/api/v1/newsletter/subscriptions/start", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
