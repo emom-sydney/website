@@ -155,7 +155,7 @@ Bridge mail configuration comes from:
 
 ## Performer Workflow Notes
 
-The performer registration system is no longer just a simple form POST. It is a tokenized workflow built around:
+The performer registration system is a tokenized workflow built around:
 
 - email-first registration
 - moderated profile drafts

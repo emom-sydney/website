@@ -3365,12 +3365,12 @@ def send_availability_email(*, email, display_name, event_name, event_date, conf
         f"Hello {display_name or 'performer'},\n\n"
         f"You previously registered interest in playing at {event_name} on {event_date}.\n"
         "Please use one of the links below to confirm or cancel your availability.\n\n"
-        "NB: This is NOT an invitation to play, we're just checking you're still available before we choose a lineup for the night. We'll let you know if you have a spot very soon."
+        "NB: This is NOT an invitation to play, we're just confirming that you're still available before we choose a lineup for the night. We'll be in touch within the next few days to let you know if you're on."
         f"Confirm availability: {confirm_url}\n"
         f"Cancel availability: {cancel_url}\n\n"
         f"These links expire at {format_link_expiry_local(expires_at)}.\n"
     )
-    send_mail(email, f"sydney.emom | availability check for {event_name}", body)
+    send_mail(email, f"sydney.emom | confirm your availability for {event_name}", body)
 
 
 def send_unapproved_request_reminder_email(*, moderator_emails, event_name, event_date, rows):
