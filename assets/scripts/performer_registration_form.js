@@ -231,7 +231,7 @@ if (appNode) {
         : "";
       wrapper.innerHTML = `
         <input type="checkbox" value="${eventItem.id}" data-event-checkbox${isChecked ? " checked" : ""}>
-        <span>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small>${backupOnlyHtml}</span>
+        <span>${escapeHtml(eventItem.event_name)} ${escapeHtml(eventItem.event_description)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small>${backupOnlyHtml}</span>
       `;
       eventOptionsNode.appendChild(wrapper);
     });

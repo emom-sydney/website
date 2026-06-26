@@ -1389,7 +1389,12 @@ def get_available_events(cursor, profile_id, settings):
     if last_performance is None:
         cursor.execute(
             """
-            SELECT id, event_name, event_date, false AS is_backup_only
+            SELECT 
+              id,
+              event_name,
+              event_description,
+              event_date,
+              false AS is_backup_only
             FROM events
             WHERE event_date > CURRENT_DATE
               AND type_id = %s
@@ -1403,6 +1408,7 @@ def get_available_events(cursor, profile_id, settings):
             SELECT
               id,
               event_name,
+              event_description,
               event_date,
               event_date <= (%s::date + INTERVAL '3 months') AS is_backup_only
             FROM events
@@ -1420,8 +1426,9 @@ def get_available_events(cursor, profile_id, settings):
         {
             "id": row[0],
             "event_name": row[1],
-            "event_date": row[2].isoformat(),
-            "is_backup_only": bool(row[3]),
+            "event_description": row[2],
+            "event_date": row[3].isoformat(),
+            "is_backup_only": bool(row[4]),
         }
         for row in cursor.fetchall()
     ]
@@ -2456,7 +2463,7 @@ def mark_expired_moderation_tokens_replaced(cursor, *, draft_id, moderator_profi
 def get_due_admin_selection_events(cursor, target_date):
     cursor.execute(
         """
-        SELECT id, event_name, event_date
+        SELECT id, event_name, event_description, event_date
         FROM events
         WHERE event_date = %s
           AND type_id = %s
@@ -2466,7 +2473,12 @@ def get_due_admin_selection_events(cursor, target_date):
         (target_date, OPEN_MIC_EVENT_TYPE_ID),
     )
     return [
-        {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+        {
+            "event_id": row[0],
+            "event_name": row[1],
+            "event_description": row[2],
+            "event_date": row[3].isoformat()
+        }
         for row in cursor.fetchall()
     ]
 
@@ -2474,7 +2486,7 @@ def get_due_admin_selection_events(cursor, target_date):
 def get_upcoming_open_mic_events(cursor):
     cursor.execute(
         """
-        SELECT id, event_name, event_date
+        SELECT id, event_name, event_description, event_date
         FROM events
         WHERE type_id = %s
           AND event_date >= CURRENT_DATE
@@ -2483,7 +2495,12 @@ def get_upcoming_open_mic_events(cursor):
         (OPEN_MIC_EVENT_TYPE_ID,),
     )
     return [
-        {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+        {
+            "event_id": row[0],
+            "event_name": row[1],
+            "event_description": row[2],
+            "event_date": row[3].isoformat()
+        }
         for row in cursor.fetchall()
     ]
 
@@ -2491,7 +2508,7 @@ def get_upcoming_open_mic_events(cursor):
 def get_open_mic_event_for_admin_selection(cursor, event_id):
     cursor.execute(
         """
-        SELECT id, event_name, event_date
+        SELECT id, event_name, event_description, event_date
         FROM events
         WHERE id = %s
           AND type_id = %s
@@ -2502,7 +2519,12 @@ def get_open_mic_event_for_admin_selection(cursor, event_id):
     row = cursor.fetchone()
     if not row:
         raise ValueError("That event date is not available for admin selection.")
-    return {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+    return {
+            "event_id": row[0],
+            "event_name": row[1],
+            "event_description": row[2],
+            "event_date": row[3].isoformat()
+            }
 
 
 def get_admin_selection_lock_minutes():
@@ -2679,7 +2701,7 @@ def get_admin_profile_by_email(cursor, email):
 def get_event_selection_context(cursor, event_id):
     cursor.execute(
         """
-        SELECT id, event_name, event_date
+        SELECT id, event_name, event_description, event_date
         FROM events
         WHERE id = %s
         """,
@@ -2688,7 +2710,12 @@ def get_event_selection_context(cursor, event_id):
     row = cursor.fetchone()
     if not row:
         raise ValueError("That event no longer exists.")
-    return {"event_id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+    return {
+             "event_id": row[0],
+             "event_name": row[1],
+             "event_description": row[2],
+             "event_date": row[3].isoformat()
+           }
 
 
 def get_admin_selection_candidates(cursor, event_id):
