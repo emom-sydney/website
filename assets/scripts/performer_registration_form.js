@@ -54,7 +54,6 @@ if (appNode) {
     const date = new Date(`${value}T00:00:00`);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleDateString("en-AU", {
-      year: "numeric",
       month: "long",
       day: "numeric",
     });
@@ -231,7 +230,7 @@ if (appNode) {
         : "";
       wrapper.innerHTML = `
         <input type="checkbox" value="${eventItem.id}" data-event-checkbox${isChecked ? " checked" : ""}>
-        <span>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small>${backupOnlyHtml}</span>
+        <span>${escapeHtml(eventItem.event_name)} (${escapeHtml(formatDate(eventItem.event_date))}) ${escapeHtml(eventItem.event_description)} ${backupOnlyHtml}</span>
       `;
       eventOptionsNode.appendChild(wrapper);
     });
@@ -291,8 +290,8 @@ if (appNode) {
         (eventItem) => Boolean(eventItem.is_backup_only)
       );
       eventsNoteNode.textContent = hasBackupOnlyDates
-        ? "Tell us the dates you'd like to play. Dates marked 'backup only' fall within the cooldown period after your most recent performance."
-        : "Tell us the dates you'd like to play.";
+        ? "We'll be in touch 10-12 days before each date to confirm you're still available. Once you've confirmed you will be notified if you've been selected to play. NB Dates marked 'backup only' fall within the cooldown period after your most recent performance, meaning you will only be called to perform if someone drops out, or if we need to make up numbers."
+        : "We'll be in touch 10-12 days before each date to confirm you're still available. Once you've confirmed you will be notified if you've been selected to play.";
 
       startSection.hidden = true;
       sessionSection.hidden = false;
