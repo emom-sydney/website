@@ -1,6 +1,6 @@
 # Repository Guide
 
-This file is the Codex-facing source of truth for this repository. The notes in `.amazonq/rules/memory-bank/` and `.github/copilot-instructions.md` are historical context only and should not be treated as authoritative without checking the code.
+This file is the Codex-facing source of truth for this repository.
 
 ## What This Repo Is
 
@@ -8,7 +8,7 @@ This file is the Codex-facing source of truth for this repository. The notes in 
 - Built with Eleventy and ES modules
 - Main source lives in `src/`
 - Generated output goes to `_site/`
-- Includes a small Flask-based `forms_bridge` app for form writes and tokenized workflow steps
+- Includes a Flask-based `forms_bridge` app for form writes and tokenized workflow steps
 
 ## Build
 
@@ -23,9 +23,7 @@ Relational site data comes from Postgres through:
 - `src/_data/emom.js`
 - `lib/data/loadEmomData.js`
 
-There is no CSV fallback in the current repo.
-
-Postgres connections are expected to come through the local SSH tunnel described in `DB_SETUP.md`.
+Postgres connections come through a local SSH tunnel. You can use the npm `pg` package to query the remote db by loading credentials from the `.pgenv` file at the root of the repo. Any writes needed to the db should be output as SQL commands for your human to run manually after reviewing.
 
 Write-side form and workflow actions go through:
 
@@ -125,7 +123,7 @@ The rest of the site is mostly static Nunjucks templates.
 
 Compatibility notes:
 
-- artist detail/index templates still use `artistPage.artist` as an alias for `artistPage.profile`
+- artist detail/index templates use `artistPage.artist` as an alias for `artistPage.profile`
 - volunteer pages use `volunteerPage.profile`
 - role cross-links are already attached in the loader:
   - artist pages may have `volunteerProfile`
@@ -164,12 +162,10 @@ The gallery system is hybrid:
 
 Relevant files:
 
-- `src/_data/s3files.js`
+- `src/_data/mediaserverfiles.js`
 - `src/_data/imageHelpers.js`
 - `src/_data/media_baseurl.js`
 - `src/gallery/gallery.11ty.js`
-
-The helper filename `s3files.js` is historical; current source-of-truth inventory is the gallery manifest, not direct S3 listing.
 
 ## Current Site Sections
 
@@ -327,7 +323,6 @@ When updating documentation, verify against:
 
 ## Notes For Future Agents
 
-- Do not reintroduce CSV assumptions; the current repo is Postgres-backed
 - Keep the site statically generated unless there is an explicit architectural change
 - Prefer extending the normalized loader and shared render helpers over duplicating section logic
 - Do not assume public artist visibility is unconditional; loader output is now approval/visibility filtered

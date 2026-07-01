@@ -1,4 +1,4 @@
-import s3files from "../_data/s3files.js";
+import mediaserverfiles from "../_data/mediaserverfiles.js";
 import lightbox from "./lightbox.js";
 import { getImageThumbnailResult } from "../_data/imageHelpers.js";
 import { loadEmomData } from "../../lib/data/loadEmomData.js";
@@ -97,7 +97,7 @@ export const data = async () => {
   const galleriesSummary = [];
 
   for (const gallery of emom.galleries) {
-    const files = await s3files(gallery);
+    const files = await mediaserverfiles(gallery);
     const galleryEvent = emom.eventsByGalleryUrl[gallery];
 
     // create summary entry (safe gallery name used in URLs)
