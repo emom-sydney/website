@@ -4,36 +4,6 @@ import fs from "fs/promises";
 const manifestUrl = process.env.MEDIA_MANIFEST_URL || `${mediaBaseUrl}/.well-known/gallery-manifest.json`;
 const manifestPath = process.env.MEDIA_MANIFEST_PATH || "";
 
-// Globs to exclude from listings (case-insensitive). Patterns are matched
-// against the full key, the filename, and the extension.
-export const excludeGlobs = [
-  "*.html",
-  ".DS_Store",
-];
-
-// Convert a simple glob (supports '*' and '?') to a RegExp
-function globToRegExp(glob) {
-  const escaped = glob.replace(/([.+^=!:${}()|[\]\\\/])/g, "\\$1");
-  const withWildcards = escaped.replace(/\*/g, ".*").replace(/\?/g, ".");
-  return new RegExp(`^${withWildcards}$`, "i");
-}
-
-const excludeRegexes = excludeGlobs.map(globToRegExp);
-
-export function isExcluded(key) {
-  const parts = key.split("/");
-  const filename = parts[parts.length - 1];
-  const ext = filename.includes(".") ? filename.split(".").pop().toLowerCase() : "";
-
-  for (const rx of excludeRegexes) {
-    if (rx.test(key)) return true;
-    if (rx.test(filename)) return true;
-    if (ext && rx.test(ext)) return true;
-  }
-
-  return false;
-}
-
 const typeMapping = {
   mp4: "&#x1F3A5;", // Movie camera emoji
   mov: "&#x1F3A5;",
@@ -167,9 +137,5 @@ export default async function (prefix) {
 
   return manifestFiles
     .map(normalizeManifestFile)
-    .filter((file) => {
-      if (!file.key) return false;
-      if (!(file.key === keyPrefix || file.key.startsWith(`${keyPrefix}/`))) return false;
-      return !isExcluded(file.key);
-    });
+    .filter((file) => file.key && (file.key === keyPrefix || file.key.startsWith(`${keyPrefix}/`)));
 }
