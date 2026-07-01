@@ -23,7 +23,7 @@ Relational site data comes from Postgres through:
 - `src/_data/emom.js`
 - `lib/data/loadEmomData.js`
 
-Postgres connections are expected to come through the local SSH tunnel described in `DB_SETUP.md`.
+Postgres connections come through a local SSH tunnel. You can use the npm `pg` package to query the remote db by loading credentials from the `.pgenv` file at the root of the repo. Any writes needed to the db should be output as SQL commands for your human to run manually after reviewing.
 
 Write-side form and workflow actions go through:
 
