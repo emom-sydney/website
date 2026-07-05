@@ -49,6 +49,19 @@ if (appNode) {
     persistentStatusNode.hidden = true;
   }
 
+  async function parseJsonResponse(response, fallbackMessage) {
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return response.json();
+    }
+
+    if (!response.ok) {
+      throw new Error(`${fallbackMessage} (HTTP ${response.status})`);
+    }
+
+    throw new Error("The server returned an unexpected response. Please try again or contact us if the problem continues.");
+  }
+
   function formatDate(value) {
     if (!value) return "";
     const date = new Date(`${value}T00:00:00`);
@@ -277,7 +290,7 @@ if (appNode) {
     clearPersistentStatus();
     try {
       const response = await fetch(`/api/forms/performer-registration/session?token=${encodeURIComponent(token)}`);
-      const result = await response.json();
+      const result = await parseJsonResponse(response, "Unable to load registration form right now.");
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to load registration form.");
       }
@@ -316,6 +329,8 @@ if (appNode) {
 
     setStatus("Sending your registration link...");
     clearPersistentStatus();
+    const submitButton = startForm.querySelector("button[type='submit']");
+    if (submitButton) submitButton.disabled = true;
     try {
       const response = await fetch("/api/forms/performer-registration/start", {
         method: "POST",
@@ -324,7 +339,7 @@ if (appNode) {
         },
         body: JSON.stringify({ email }),
       });
-      const result = await response.json();
+      const result = await parseJsonResponse(response, "Unable to send registration link right now.");
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to send registration link.");
       }
@@ -335,6 +350,8 @@ if (appNode) {
       const message = error.message || "Unable to send registration link.";
       setStatus(message, "error");
       setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
   });
 
@@ -399,7 +416,7 @@ if (appNode) {
         },
         body: JSON.stringify(payload),
       });
-      const result = await response.json();
+      const result = await parseJsonResponse(response, "Unable to submit registration right now.");
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to submit registration.");
       }

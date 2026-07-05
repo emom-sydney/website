@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 from forms_bridge.contact_us_workflow import register_contact_us_workflow_routes
 from forms_bridge.newsletter_workflow import register_newsletter_workflow_routes
@@ -28,6 +29,13 @@ def create_app():
     @app.route("/health", methods=["GET"])
     def health():
         return jsonify({"status": "ok"})
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(error):
+        if not request.path.startswith("/api/"):
+            return error
+
+        return jsonify({"ok": False, "error": error.description or error.name}), error.code
 
     register_newsletter_workflow_routes(app)
 
