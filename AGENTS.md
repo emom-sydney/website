@@ -30,7 +30,7 @@ Functional separation between `src/` and `lib/` matters:
   - keep these files thin unless the code is truly specific to Eleventy global data
 - `lib/` contains reusable application/domain code
   - `lib/data/` owns Postgres reads and normalized data shaping
-  - `lib/media/` owns media manifest loading, media URL normalization, and thumbnail helpers
+  - `lib/media/` owns media manifest loading, media URL normalization, and media-server thumbnail URL derivation
   - `lib/render/` owns shared HTML rendering helpers used by generated routes
 - normal application code should import reusable helpers from `lib/`, not from `src/_data/`
 - if a helper is needed by both templates/data files and route generators, put the implementation in `lib/` and expose a tiny `src/_data/` adapter only when Eleventy needs it
@@ -155,7 +155,7 @@ Shared profile-page rendering helpers live in:
 That module currently handles:
 
 - HTML escaping
-- thumbnail rendering
+- profile image rendering using media-server thumbnail URLs
 - public bio rendering
 - social link rendering
 - contact line rendering
@@ -171,18 +171,24 @@ The gallery system is hybrid:
   - default URL is `${MEDIA_BASEURL}/.well-known/gallery-manifest.json`
   - optional local fallback file path via `MEDIA_MANIFEST_PATH`
   - URLs are built from `MEDIA_BASEURL` (default `https://media.emom.me:909`)
+- thumbnails are generated and hosted by the media server, not by the Eleventy build
+  - thumbnail paths live under `/thumbs/`
+  - `/thumbs/` mirrors the path structure under `/gallery/`
+  - thumbnail filenames use size suffixes before `.jpg`: `.sm.jpg`, `.md.jpg`, `.lg.jpg`
+  - gallery and profile pages use small thumbnails via `getThumbnailUrl("sm", imageUrl)`
+  - gallery thumbnail display size is controlled by CSS and remains 150px in the current design
+  - profile thumbnail display size is controlled by CSS and remains 250px in the current design
 
 Relevant files:
 
 - `lib/media/mediaserverfiles.js`
-- `lib/media/imageHelpers.js`
+- `lib/media/thumbnailUrls.js`
 - `lib/media/mediaBaseUrl.js`
 - `src/_data/mediaserverfiles.js`
-- `src/_data/imageHelpers.js`
 - `src/_data/media_baseurl.js`
 - `src/gallery/gallery.11ty.js`
 
-The `src/_data/` media files are Eleventy adapters. Keep shared media behavior in `lib/media/`; do not move media manifest parsing or thumbnail generation back into `src/_data/`.
+The `src/_data/` media files are Eleventy adapters. Keep shared media behavior in `lib/media/`; do not move media manifest parsing or thumbnail URL derivation into `src/_data/`.
 
 ## Current Site Sections
 

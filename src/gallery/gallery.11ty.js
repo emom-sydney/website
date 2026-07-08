@@ -1,6 +1,6 @@
 import mediaserverfiles from "../../lib/media/mediaserverfiles.js";
 import lightbox from "./lightbox.js";
-import { getImageThumbnailResult } from "../../lib/media/imageHelpers.js";
+import { getThumbnailUrl } from "../../lib/media/thumbnailUrls.js";
 import { loadEmomData } from "../../lib/data/loadEmomData.js";
 
 
@@ -302,13 +302,7 @@ export default async function render(data) {
 
   // If there are image files, render lightbox gallery
   if (imageFiles.length) {
-    // Generate thumbnails; if generation fails, use configured missing-image fallback.
-    const thumbPaths = await Promise.all(
-      imageFiles.map(async (f) => {
-        const thumbnail = await getImageThumbnailResult(f.url, gallery);
-        return thumbnail.ok ? thumbnail.url : missingImageThumbnailUrl;
-      })
-    );
+    const thumbPaths = imageFiles.map((f) => getThumbnailUrl("sm", f.url) || missingImageThumbnailUrl);
 
     const lightboxData = {
       imgPath: imageFiles.map(f => f.url),
