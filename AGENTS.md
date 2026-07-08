@@ -23,6 +23,18 @@ Relational site data comes from Postgres through:
 - `src/_data/emom.js`
 - `lib/data/loadEmomData.js`
 
+Functional separation between `src/` and `lib/` matters:
+
+- `src/_data/` is Eleventy-facing adapter code only
+  - files there are loaded by Eleventy's data cascade and may re-export or call reusable helpers
+  - keep these files thin unless the code is truly specific to Eleventy global data
+- `lib/` contains reusable application/domain code
+  - `lib/data/` owns Postgres reads and normalized data shaping
+  - `lib/media/` owns media manifest loading, media URL normalization, and thumbnail helpers
+  - `lib/render/` owns shared HTML rendering helpers used by generated routes
+- normal application code should import reusable helpers from `lib/`, not from `src/_data/`
+- if a helper is needed by both templates/data files and route generators, put the implementation in `lib/` and expose a tiny `src/_data/` adapter only when Eleventy needs it
+
 Postgres connections come through a local SSH tunnel. You can use the npm `pg` package to query the remote db by loading credentials from the `.pgenv` file at the root of the repo. Any writes needed to the db should be output as SQL commands for your human to run manually after reviewing.
 
 Write-side form and workflow actions go through:
@@ -162,10 +174,15 @@ The gallery system is hybrid:
 
 Relevant files:
 
+- `lib/media/mediaserverfiles.js`
+- `lib/media/imageHelpers.js`
+- `lib/media/mediaBaseUrl.js`
 - `src/_data/mediaserverfiles.js`
 - `src/_data/imageHelpers.js`
 - `src/_data/media_baseurl.js`
 - `src/gallery/gallery.11ty.js`
+
+The `src/_data/` media files are Eleventy adapters. Keep shared media behavior in `lib/media/`; do not move media manifest parsing or thumbnail generation back into `src/_data/`.
 
 ## Current Site Sections
 
@@ -310,6 +327,7 @@ When updating documentation, verify against:
 
 - `db/schema.sql`
 - `lib/data/loadEmomData.js`
+- `lib/media/`
 - `lib/render/profilePage.js`
 - `forms_bridge/performer_workflow.py`
 - `forms_bridge/newsletter_workflow.py`
@@ -325,6 +343,7 @@ When updating documentation, verify against:
 
 - Keep the site statically generated unless there is an explicit architectural change
 - Prefer extending the normalized loader and shared render helpers over duplicating section logic
+- Preserve the `src/_data` versus `lib` boundary: `src/_data` should stay as Eleventy glue, while reusable data, media, and rendering behavior should live under `lib`
 - Do not assume public artist visibility is unconditional; loader output is now approval/visibility filtered
 - Do not assume `performances` contains planned future lineups; use `event_performer_selections` for pre-event workflow state
 - The performer workflow is in active development; check `REGO_STATUS.md` and `PERFORMER_WORKFLOW_FLOW.md` before changing it

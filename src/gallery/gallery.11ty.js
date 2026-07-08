@@ -1,6 +1,6 @@
-import mediaserverfiles from "../_data/mediaserverfiles.js";
+import mediaserverfiles from "../../lib/media/mediaserverfiles.js";
 import lightbox from "./lightbox.js";
-import { getImageThumbnailResult } from "../_data/imageHelpers.js";
+import { getImageThumbnailResult } from "../../lib/media/imageHelpers.js";
 import { loadEmomData } from "../../lib/data/loadEmomData.js";
 
 
