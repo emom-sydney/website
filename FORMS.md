@@ -31,7 +31,7 @@ Relevant files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
-- `forms_bridge/newsletter_workflow.py`
+- `forms_bridge/keila_workflow.py`
 - `forms_bridge/contact_us_workflow.py`
 - `forms_bridge/send_availability_reminders.py`
 - `forms_bridge/send_admin_selection_links.py`
@@ -86,7 +86,7 @@ Main files:
 - `forms_bridge/app.py`
 - `forms_bridge/db.py`
 - `forms_bridge/performer_workflow.py`
-- `forms_bridge/newsletter_workflow.py`
+- `forms_bridge/keila_workflow.py`
 - `forms_bridge/contact_us_workflow.py`
 
 ## Build-Time Data
@@ -236,7 +236,7 @@ Deployment templates live in:
 
 - `deploy/systemd/emom-forms-bridge.service`
 - `deploy/nginx/emom-forms-bridge.conf`
-- `deploy/forms_bridge.env.example`
+- `deploy/etc/emom/forms_bridge.env.example`
 
 See:
 

@@ -4,7 +4,7 @@ from flask import Flask, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from forms_bridge.contact_us_workflow import register_contact_us_workflow_routes
-from forms_bridge.newsletter_workflow import register_newsletter_workflow_routes
+from forms_bridge.keila_workflow import register_newsletter_workflow_routes
 from forms_bridge.performer_workflow import register_performer_workflow_routes
 
 

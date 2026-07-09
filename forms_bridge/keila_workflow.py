@@ -106,10 +106,11 @@ def register_newsletter_workflow_routes(app):
                         token_row["email"],
                     )
 
-            upsert_contact_in_keila(
+            subscribe_contact_in_keila_project(
                 email=token_row["email"],
                 first_name=subscribe_request["first_name"],
                 last_name=subscribe_request["last_name"],
+                list_key="newsletter",
             )
             logger.info(
                 "newsletter_subscribe_confirm keila_upsert_complete token_id=%s email=%s",
@@ -298,10 +299,18 @@ def get_keila_base_url():
     return (os.getenv("KEILA_API_BASE_URL") or "https://keila.emom.me").rstrip("/")
 
 
-def get_keila_api_key():
-    api_key = normalize_text(os.getenv("KEILA_API_KEY"))
+def get_keila_api_key(list_key):
+    env_var_by_list = {
+        "newsletter": "KEILA_NEWSLETTER_API_KEY",
+        "alumni": "KEILA_ALUMNI_API_KEY",
+    }
+    env_var = env_var_by_list.get(list_key)
+    if not env_var:
+        raise ValueError(f"Unknown Keila list key: {list_key}")
+
+    api_key = normalize_text(os.getenv(env_var))
     if not api_key:
-        raise ValueError("KEILA_API_KEY must be configured.")
+        raise ValueError(f"{env_var} must be configured.")
     return api_key
 
 
@@ -315,9 +324,9 @@ def get_keila_timeout_seconds():
     return timeout_seconds if timeout_seconds > 0 else 10
 
 
-def keila_request(method, path, payload=None, allow_not_found=False):
+def keila_request(method, path, *, list_key, payload=None, allow_not_found=False):
     url = f"{get_keila_base_url()}{path}"
-    api_key = get_keila_api_key()
+    api_key = get_keila_api_key(list_key)
     request_body = None
     headers = {
         "Accept": "application/json",
@@ -329,22 +338,35 @@ def keila_request(method, path, payload=None, allow_not_found=False):
 
     req = Request(url, data=request_body, headers=headers, method=method)
     try:
-        logger.info("keila_request start method=%s path=%s", method, path)
+        logger.info("keila_request start list_key=%s method=%s path=%s", list_key, method, path)
         with urlopen(req, timeout=get_keila_timeout_seconds()) as response:
             raw = response.read().decode("utf-8")
-            logger.info("keila_request success method=%s path=%s status=%s", method, path, response.status)
+            logger.info(
+                "keila_request success list_key=%s method=%s path=%s status=%s",
+                list_key,
+                method,
+                path,
+                response.status,
+            )
             if not raw:
                 return None
             return json.loads(raw)
     except HTTPError as exc:
         if allow_not_found and exc.code == 404:
-            logger.info("keila_request not_found method=%s path=%s", method, path)
+            logger.info("keila_request not_found list_key=%s method=%s path=%s", list_key, method, path)
             return None
         body = exc.read().decode("utf-8", errors="replace")
-        logger.error("keila_request http_error method=%s path=%s status=%s body=%s", method, path, exc.code, body)
+        logger.error(
+            "keila_request http_error list_key=%s method=%s path=%s status=%s body=%s",
+            list_key,
+            method,
+            path,
+            exc.code,
+            body,
+        )
         raise RuntimeError(f"Keila API request failed ({exc.code}): {body}") from exc
     except URLError as exc:
-        logger.error("keila_request network_error method=%s path=%s reason=%s", method, path, exc.reason)
+        logger.error("keila_request network_error list_key=%s method=%s path=%s reason=%s", list_key, method, path, exc.reason)
         raise RuntimeError(f"Unable to reach Keila API: {exc.reason}") from exc
 
 
@@ -357,18 +379,51 @@ def build_keila_contact_payload(email, first_name=None, last_name=None):
     return {"data": data}
 
 
-def upsert_contact_in_keila(*, email, first_name=None, last_name=None):
+def build_keila_unsubscribe_payload(email):
+    return {"data": {"email": email, "status": "unsubscribed"}}
+
+
+def subscribe_contact_in_keila_project(*, email, first_name=None, last_name=None, list_key):
     lookup_path = f"/api/v1/contacts/{quote(email, safe='')}?id_type=email"
     payload = build_keila_contact_payload(email, first_name=first_name, last_name=last_name)
 
-    existing = keila_request("GET", lookup_path, allow_not_found=True)
+    existing = keila_request("GET", lookup_path, list_key=list_key, allow_not_found=True)
     if existing is None:
-        keila_request("POST", "/api/v1/contacts", payload=payload)
-        logger.info("keila_upsert created email=%s", email)
+        keila_request("POST", "/api/v1/contacts", list_key=list_key, payload=payload)
+        logger.info("keila_upsert created list_key=%s email=%s", list_key, email)
         return
 
-    keila_request("PUT", lookup_path, payload=payload)
-    logger.info("keila_upsert updated email=%s", email)
+    keila_request("PUT", lookup_path, list_key=list_key, payload=payload)
+    logger.info("keila_upsert updated list_key=%s email=%s", list_key, email)
+
+
+def unsubscribe_contact_from_keila_project(*, email, list_key):
+    lookup_path = f"/api/v1/contacts/{quote(email, safe='')}?id_type=email"
+    existing = keila_request("GET", lookup_path, list_key=list_key, allow_not_found=True)
+    if existing is None:
+        logger.info("keila_unsubscribe skipped_missing list_key=%s email=%s", list_key, email)
+        return
+
+    contact_data = existing.get("data") if isinstance(existing, dict) else None
+    if not isinstance(contact_data, dict) or contact_data.get("status") != "active":
+        logger.info("keila_unsubscribe skipped_inactive list_key=%s email=%s", list_key, email)
+        return
+
+    keila_request("PUT", lookup_path, list_key=list_key, payload=build_keila_unsubscribe_payload(email))
+    logger.info("keila_unsubscribe updated list_key=%s email=%s", list_key, email)
+
+
+def is_contact_active_in_keila_project(*, email, list_key):
+    lookup_path = f"/api/v1/contacts/{quote(email, safe='')}?id_type=email"
+    existing = keila_request("GET", lookup_path, list_key=list_key, allow_not_found=True)
+    if existing is None:
+        return False
+
+    contact_data = existing.get("data") if isinstance(existing, dict) else None
+    if not isinstance(contact_data, dict):
+        return False
+
+    return contact_data.get("status") == "active"
 
 
 def html_success_page(title, message, extra_html=None):

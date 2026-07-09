@@ -521,6 +521,10 @@ form button:hover {
   margin-bottom: 1rem;
 }
 
+.performer-registration-checkbox[hidden] {
+  display: none;
+}
+
 .performer-registration-checkbox input {
   width: auto;
   margin: 0;

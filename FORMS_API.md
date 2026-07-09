@@ -84,7 +84,7 @@ In production, run behind nginx/systemd.
 
 - `deploy/systemd/emom-forms-bridge.service`
 - `deploy/nginx/emom-forms-bridge.conf`
-- `deploy/forms_bridge.env.example`
+- `deploy/etc/emom/forms_bridge.env.example`
 
 `deploy/nginx/emom-forms-bridge.conf` maps:
 
@@ -110,7 +110,7 @@ In production, run behind nginx/systemd.
 - loads profile prefill
   - prefers latest relevant draft for that email (`pending`, `denied`, `approved`)
   - falls back to live profile
-- returns social platform metadata and available Open Mic dates
+- returns social platform metadata, available Open Mic dates, `can_subscribe_alumni`, and `subscribe_alumni`
 - includes `cooldown_events` from app settings
 
 ### Submit
@@ -127,6 +127,7 @@ In production, run behind nginx/systemd.
   - `requested_dates`
 - creates moderation approve/deny tokens for each moderator
 - marks registration token used
+- syncs alumni Keila subscription from `subscribe_alumni`
 - emails moderators with:
   - submitted draft
   - live profile snapshot (if matched)

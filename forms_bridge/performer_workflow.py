@@ -10,6 +10,9 @@ from flask import jsonify, request
 
 from forms_bridge.db import connect
 from forms_bridge.mailer import send_mail
+from forms_bridge.keila_workflow import is_contact_active_in_keila_project
+from forms_bridge.keila_workflow import subscribe_contact_in_keila_project
+from forms_bridge.keila_workflow import unsubscribe_contact_from_keila_project
 
 
 ACTION_TYPE_REGISTRATION_LINK = "registration_link"
@@ -90,16 +93,24 @@ def register_performer_workflow_routes(app):
                     availability_profile = live_profile
                     if not availability_profile and latest_draft and latest_draft["profile_id"]:
                         availability_profile = get_existing_profile_by_id(cursor, latest_draft["profile_id"])
+                    has_performed = (
+                        has_profile_performed(cursor, availability_profile["id"])
+                        if availability_profile
+                        else False
+                    )
                     available_events = get_available_events(
                         cursor, availability_profile["id"] if availability_profile else None, settings
                     )
                     social_platforms = get_social_platforms(cursor)
+            subscribe_alumni = get_alumni_subscription_state(app, email) if has_performed else False
 
             return jsonify(
                 {
                     "ok": True,
                     "email": email,
                     "profile": serialize_profile(profile),
+                    "can_subscribe_alumni": has_performed,
+                    "subscribe_alumni": subscribe_alumni,
                     "social_platforms": social_platforms,
                     "available_events": available_events,
                     "cooldown_events": settings["performer_request_cooldown_events"],
@@ -134,6 +145,7 @@ def register_performer_workflow_routes(app):
                         email=email,
                         display_name=draft_payload["display_name"],
                     )
+                    has_performed = has_profile_performed(cursor, profile["id"]) if profile else False
                     available_events = get_available_events(cursor, profile["id"] if profile else None, settings)
                     available_event_ids = {event["id"] for event in available_events}
                     ensure_requested_events_are_allowed(draft_payload["requested_event_ids"], available_event_ids)
@@ -177,6 +189,16 @@ def register_performer_workflow_routes(app):
                     moderation_links=moderation_links,
                     current_status_summary=current_status_summary,
                 )
+                if has_performed:
+                    sync_performer_alumni_subscription(
+                        app=app,
+                        email=email,
+                        first_name=draft_payload["first_name"],
+                        last_name=draft_payload["last_name"],
+                        should_subscribe=draft_payload["subscribe_alumni"],
+                    )
+                elif draft_payload["subscribe_alumni"]:
+                    app.logger.info("performer_registration alumni_subscription_skipped_not_alumni email=%s", email)
 
             return jsonify({"ok": True, "draft_id": draft_id}), 201
         except ValueError as exc:
@@ -939,12 +961,39 @@ def normalize_profile_submission_payload(payload, email):
         "contact_phone": contact_phone,
         "is_email_public": normalize_boolean(payload.get("is_email_public"), default=False),
         "is_name_public": normalize_boolean(payload.get("is_name_public"), default=False),
+        "subscribe_alumni": normalize_boolean(payload.get("subscribe_alumni"), default=False),
         "artist_bio": artist_bio,
         "is_artist_bio_public": True,
         "additional_info": additional_info,
         "social_links": normalized_social_links,
         "requested_event_ids": normalized_event_ids,
     }
+
+
+def sync_performer_alumni_subscription(*, app, email, first_name=None, last_name=None, should_subscribe):
+    try:
+        if should_subscribe:
+            subscribe_contact_in_keila_project(
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                list_key="alumni",
+            )
+            app.logger.info("performer_registration alumni_subscription_complete email=%s", email)
+            return
+
+        unsubscribe_contact_from_keila_project(email=email, list_key="alumni")
+        app.logger.info("performer_registration alumni_unsubscribe_complete email=%s", email)
+    except Exception:
+        app.logger.exception("performer_registration alumni_subscription_sync_failed email=%s", email)
+
+
+def get_alumni_subscription_state(app, email):
+    try:
+        return is_contact_active_in_keila_project(email=email, list_key="alumni")
+    except Exception:
+        app.logger.exception("performer_registration alumni_subscription_lookup_failed email=%s", email)
+        return False
 
 
 def now_utc():
@@ -1189,6 +1238,20 @@ def get_existing_profile_by_display_name(cursor, display_name):
         raise ValueError("Multiple profiles already use that display name. Please contact sydney.emom admin.")
 
     return get_existing_profile_by_id(cursor, rows[0][0])
+
+
+def has_profile_performed(cursor, profile_id):
+    cursor.execute(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM performances
+          WHERE profile_id = %s
+        )
+        """,
+        (profile_id,),
+    )
+    return bool(cursor.fetchone()[0])
 
 
 def get_existing_profile_by_id(cursor, profile_id):
