@@ -93,7 +93,8 @@ Required environment variables for this flow:
 
 - `FORMS_SITE_BASE_URL` (for confirmation link generation)
 - `KEILA_API_BASE_URL` (defaults to `https://keila.emom.me`)
-- `KEILA_API_KEY` (Bearer API key for Keila contacts API)
+- `KEILA_NEWSLETTER_API_KEY` (Bearer API key for the Keila newsletter project)
+- `KEILA_ALUMNI_API_KEY` (Bearer API key for the Keila alumni project)
 - `NEWSLETTER_TOKEN_TTL_HOURS` (defaults to `24`)
 
 ## Forms Bridge
@@ -128,7 +129,8 @@ Required environment variables for this flow:
 
 - `FORMS_SITE_BASE_URL` (for confirmation link generation)
 - `KEILA_API_BASE_URL` (defaults to `https://keila.emom.me`)
-- `KEILA_API_KEY` (Bearer API key for Keila contacts API)
+- `KEILA_NEWSLETTER_API_KEY` (Bearer API key for the Keila newsletter project)
+- `KEILA_ALUMNI_API_KEY` (Bearer API key for the Keila alumni project)
 - `NEWSLETTER_TOKEN_TTL_HOURS` (defaults to `24`)
 
 ## Public Data Rules

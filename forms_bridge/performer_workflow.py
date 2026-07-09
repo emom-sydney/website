@@ -10,6 +10,9 @@ from flask import jsonify, request
 
 from forms_bridge.db import connect
 from forms_bridge.mailer import send_mail
+from forms_bridge.keila_workflow import is_contact_active_in_keila_project
+from forms_bridge.keila_workflow import subscribe_contact_in_keila_project
+from forms_bridge.keila_workflow import unsubscribe_contact_from_keila_project
 
 
 ACTION_TYPE_REGISTRATION_LINK = "registration_link"
@@ -94,12 +97,14 @@ def register_performer_workflow_routes(app):
                         cursor, availability_profile["id"] if availability_profile else None, settings
                     )
                     social_platforms = get_social_platforms(cursor)
+            subscribe_alumni = get_alumni_subscription_state(app, email)
 
             return jsonify(
                 {
                     "ok": True,
                     "email": email,
                     "profile": serialize_profile(profile),
+                    "subscribe_alumni": subscribe_alumni,
                     "social_platforms": social_platforms,
                     "available_events": available_events,
                     "cooldown_events": settings["performer_request_cooldown_events"],
@@ -176,6 +181,13 @@ def register_performer_workflow_routes(app):
                     matched_by=matched_by,
                     moderation_links=moderation_links,
                     current_status_summary=current_status_summary,
+                )
+                sync_performer_alumni_subscription(
+                    app=app,
+                    email=email,
+                    first_name=draft_payload["first_name"],
+                    last_name=draft_payload["last_name"],
+                    should_subscribe=draft_payload["subscribe_alumni"],
                 )
 
             return jsonify({"ok": True, "draft_id": draft_id}), 201
@@ -939,12 +951,39 @@ def normalize_profile_submission_payload(payload, email):
         "contact_phone": contact_phone,
         "is_email_public": normalize_boolean(payload.get("is_email_public"), default=False),
         "is_name_public": normalize_boolean(payload.get("is_name_public"), default=False),
+        "subscribe_alumni": normalize_boolean(payload.get("subscribe_alumni"), default=False),
         "artist_bio": artist_bio,
         "is_artist_bio_public": True,
         "additional_info": additional_info,
         "social_links": normalized_social_links,
         "requested_event_ids": normalized_event_ids,
     }
+
+
+def sync_performer_alumni_subscription(*, app, email, first_name=None, last_name=None, should_subscribe):
+    try:
+        if should_subscribe:
+            subscribe_contact_in_keila_project(
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                list_key="alumni",
+            )
+            app.logger.info("performer_registration alumni_subscription_complete email=%s", email)
+            return
+
+        unsubscribe_contact_from_keila_project(email=email, list_key="alumni")
+        app.logger.info("performer_registration alumni_unsubscribe_complete email=%s", email)
+    except Exception:
+        app.logger.exception("performer_registration alumni_subscription_sync_failed email=%s", email)
+
+
+def get_alumni_subscription_state(app, email):
+    try:
+        return is_contact_active_in_keila_project(email=email, list_key="alumni")
+    except Exception:
+        app.logger.exception("performer_registration alumni_subscription_lookup_failed email=%s", email)
+        return False
 
 
 def now_utc():

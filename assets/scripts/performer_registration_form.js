@@ -15,6 +15,7 @@ if (appNode) {
   const additionalInfoField = document.getElementById("performer-additional-info");
   const isEmailPublicField = document.getElementById("performer-is-email-public");
   const isNamePublicField = document.getElementById("performer-is-name-public");
+  const subscribeAlumniField = document.getElementById("performer-subscribe-alumni");
   const socialLinksNode = document.getElementById("performer-social-links");
   const addSocialLinkButton = document.getElementById("performer-add-social-link");
   const eventOptionsNode = document.getElementById("performer-event-options");
@@ -297,6 +298,9 @@ if (appNode) {
 
       socialPlatforms = result.social_platforms || [];
       applyProfile(result.profile, result.email);
+      if (subscribeAlumniField) {
+        subscribeAlumniField.checked = Boolean(result.subscribe_alumni);
+      }
       populateEvents(result.available_events || [], result.profile?.requested_event_ids || []);
 
       const hasBackupOnlyDates = (result.available_events || []).some(
@@ -390,6 +394,7 @@ if (appNode) {
       contact_phone: String(contactPhoneField.value || "").trim(),
       is_email_public: isEmailPublicField.checked,
       is_name_public: isNamePublicField.checked,
+      subscribe_alumni: Boolean(subscribeAlumniField?.checked),
       artist_bio: String(bioField.value || "").trim() || null,
       additional_info: String(additionalInfoField.value || "").trim() || null,
       social_links: socialLinks,

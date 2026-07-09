@@ -4,10 +4,11 @@ package-lock.json
 _site
 .vscode
 .cache
-assets/img/th/*
 assets/img/bg/*
 .pgenv
+deploy/etc/emom/.forms_bridge.env
+deploy/etc/emom/.forms_bridge_test.env
 __pycache__/
 *.pyc
 dev.sh
-emom.local.sqlite
+.tokensave
