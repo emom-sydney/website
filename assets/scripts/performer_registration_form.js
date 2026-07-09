@@ -16,6 +16,7 @@ if (appNode) {
   const isEmailPublicField = document.getElementById("performer-is-email-public");
   const isNamePublicField = document.getElementById("performer-is-name-public");
   const subscribeAlumniField = document.getElementById("performer-subscribe-alumni");
+  const subscribeAlumniContainer = document.getElementById("performer-subscribe-alumni-row");
   const socialLinksNode = document.getElementById("performer-social-links");
   const addSocialLinkButton = document.getElementById("performer-add-social-link");
   const eventOptionsNode = document.getElementById("performer-event-options");
@@ -299,7 +300,14 @@ if (appNode) {
       socialPlatforms = result.social_platforms || [];
       applyProfile(result.profile, result.email);
       if (subscribeAlumniField) {
-        subscribeAlumniField.checked = Boolean(result.subscribe_alumni);
+        // only offer the option to subscribe to alumni list if they've actually performed
+        const canSubscribeAlumni = Boolean(result.can_subscribe_alumni);
+        subscribeAlumniField.checked = canSubscribeAlumni && Boolean(result.subscribe_alumni);
+        subscribeAlumniField.disabled = !canSubscribeAlumni;
+        if (subscribeAlumniContainer) {
+          subscribeAlumniContainer.hidden = !canSubscribeAlumni;
+          subscribeAlumniContainer.style.display = canSubscribeAlumni ? "" : "none";
+        }
       }
       populateEvents(result.available_events || [], result.profile?.requested_event_ids || []);
 
@@ -307,7 +315,7 @@ if (appNode) {
         (eventItem) => Boolean(eventItem.is_backup_only)
       );
       eventsNoteNode.textContent = hasBackupOnlyDates
-        ? "We'll be in touch 10-12 days before each date to confirm you're still available. Once you've confirmed you will be notified if you've been selected to play. NB Dates marked 'backup only' fall within the cooldown period after your most recent performance, meaning you will only be called to perform if someone drops out, or if we need to make up numbers."
+        ? "We'll be in touch 10-12 days before each date to confirm you're still available. Once you've confirmed you will be notified if you've been selected to play. NB Dates marked 'backup only' fall within the cooldown period after your most recent performance, meaning you will only be called to perform if someone drops out and we need to make up the numbers."
         : "We'll be in touch 10-12 days before each date to confirm you're still available. Once you've confirmed you will be notified if you've been selected to play.";
 
       startSection.hidden = true;
@@ -394,7 +402,7 @@ if (appNode) {
       contact_phone: String(contactPhoneField.value || "").trim(),
       is_email_public: isEmailPublicField.checked,
       is_name_public: isNamePublicField.checked,
-      subscribe_alumni: Boolean(subscribeAlumniField?.checked),
+      subscribe_alumni: Boolean(subscribeAlumniField?.checked && !subscribeAlumniField?.disabled),
       artist_bio: String(bioField.value || "").trim() || null,
       additional_info: String(additionalInfoField.value || "").trim() || null,
       social_links: socialLinks,

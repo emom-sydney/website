@@ -110,7 +110,7 @@ In production, run behind nginx/systemd.
 - loads profile prefill
   - prefers latest relevant draft for that email (`pending`, `denied`, `approved`)
   - falls back to live profile
-- returns social platform metadata, available Open Mic dates, and `subscribe_alumni`
+- returns social platform metadata, available Open Mic dates, `can_subscribe_alumni`, and `subscribe_alumni`
 - includes `cooldown_events` from app settings
 
 ### Submit
