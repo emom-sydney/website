@@ -77,7 +77,7 @@ Important model details:
 
 - `profiles` is the base entity for both people and groups
 - `profiles.profile_type` is `person` or `group`
-- `profile_roles.role` is currently `artist` or `volunteer`
+- `profile_roles.role` is currently either `artist` or `volunteer` although the latter is not applicable to profiles of type `group`
 - `profiles` now also stores moderation, visibility, and staff flags:
   - `contact_phone`
   - `is_profile_approved`
