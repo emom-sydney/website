@@ -8,20 +8,17 @@ from urllib.parse import quote
 
 from flask import jsonify, request
 
-from forms_bridge.db import connect
-from forms_bridge.mailer import send_mail
-from forms_bridge.keila_workflow import is_contact_active_in_keila_project
-from forms_bridge.keila_workflow import subscribe_contact_in_keila_project
-from forms_bridge.keila_workflow import unsubscribe_contact_from_keila_project
+from backend.db import connect
+from backend.mailer import send_mail
+from backend.keila_workflow import is_contact_active_in_keila_project
+from backend.keila_workflow import subscribe_contact_in_keila_project
+from backend.keila_workflow import unsubscribe_contact_from_keila_project
 
 
-ACTION_TYPE_REGISTRATION_LINK = "registration_link"
-ACTION_TYPE_MODERATION_APPROVE = "moderation_approve"
-ACTION_TYPE_MODERATION_DENY = "moderation_deny"
+ACTION_TYPE_REGISTRATION_LINK = "profile_submission_access"
+ACTION_TYPE_STAFF_LOGIN = "staff_login"
 ACTION_TYPE_AVAILABILITY_CONFIRM = "availability_confirm"
 ACTION_TYPE_AVAILABILITY_CANCEL = "availability_cancel"
-ACTION_TYPE_ADMIN_SELECTION = "admin_selection"
-ACTION_TYPE_BACKUP_SELECTION = "backup_selection"
 
 WORKFLOW_STATUS_PENDING = "pending"
 WORKFLOW_STATUS_APPROVED = "approved"
@@ -29,21 +26,21 @@ WORKFLOW_STATUS_DENIED = "denied"
 LINEUP_STATUS_SELECTED = "selected"
 LINEUP_STATUS_STANDBY = "standby"
 LINEUP_STATUS_RESERVE = "reserve"
-ADMIN_SELECTION_ALLOWED_STATUSES = {
+LINEUP_SELECTION_ALLOWED_STATUSES = {
     LINEUP_STATUS_SELECTED,
     LINEUP_STATUS_STANDBY,
     LINEUP_STATUS_RESERVE,
 }
 OPEN_MIC_EVENT_TYPE_ID = 1
-DEFAULT_ADMIN_SELECTION_LOCK_MINUTES = 30
+DEFAULT_LINEUP_SELECTION_LOCK_MINUTES = 30
 
 
 def register_performer_workflow_routes(app):
-    @app.route("/api/forms/performer-registration/start", methods=["OPTIONS"])
+    @app.route("/api/v1/profiles/submissions/access-links", methods=["OPTIONS"])
     def performer_registration_start_options():
         return ("", 204)
 
-    @app.route("/api/forms/performer-registration/start", methods=["POST"])
+    @app.route("/api/v1/profiles/submissions/access-links", methods=["POST"])
     def start_performer_registration():
         try:
             payload = get_json_payload()
@@ -68,16 +65,16 @@ def register_performer_workflow_routes(app):
 
                 send_registration_email(app, email, raw_token, expires_at)
 
-            return jsonify({"ok": True}), 201
+            return jsonify({"data": {"message": "Registration access link sent."}}), 201
         except ValueError as exc:
             return error_response(str(exc), 400)
         except Exception:
             app.logger.exception("Performer registration start failed")
             return error_response("Unable to start performer registration right now.", 500)
 
-    @app.route("/api/forms/performer-registration/session", methods=["GET"])
+    @app.route("/api/v1/profiles/submissions/context", methods=["GET"])
     def get_performer_registration_session():
-        raw_token = normalize_text(request.args.get("token"))
+        raw_token = get_bearer_token()
         if not raw_token:
             return error_response("A registration token is required.", 400)
 
@@ -106,7 +103,7 @@ def register_performer_workflow_routes(app):
 
             return jsonify(
                 {
-                    "ok": True,
+                    "data": {
                     "email": email,
                     "profile": serialize_profile(profile),
                     "can_subscribe_alumni": has_performed,
@@ -114,6 +111,7 @@ def register_performer_workflow_routes(app):
                     "social_platforms": social_platforms,
                     "available_events": available_events,
                     "cooldown_events": settings["performer_request_cooldown_events"],
+                    },
                 }
             )
         except ValueError as exc:
@@ -122,15 +120,15 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Performer registration session lookup failed")
             return error_response("Unable to load performer registration right now.", 500)
 
-    @app.route("/api/forms/performer-registration/submit", methods=["OPTIONS"])
+    @app.route("/api/v1/profiles/submissions", methods=["OPTIONS"])
     def performer_registration_submit_options():
         return ("", 204)
 
-    @app.route("/api/forms/performer-registration/submit", methods=["POST"])
+    @app.route("/api/v1/profiles/submissions", methods=["POST"])
     def submit_performer_registration():
         try:
             payload = get_json_payload()
-            raw_token = normalize_text(payload.get("token"))
+            raw_token = get_bearer_token()
             if not raw_token:
                 return error_response("A registration token is required.", 400)
 
@@ -200,14 +198,13 @@ def register_performer_workflow_routes(app):
                 elif draft_payload["subscribe_alumni"]:
                     app.logger.info("performer_registration alumni_subscription_skipped_not_alumni email=%s", email)
 
-            return jsonify({"ok": True, "draft_id": draft_id}), 201
+            return jsonify({"data": {"draft_id": draft_id}}), 201
         except ValueError as exc:
             return error_response(str(exc), 400)
         except Exception:
             app.logger.exception("Performer registration submission failed")
             return error_response("Unable to submit performer registration right now.", 500)
 
-    @app.route("/api/forms/performer-registration/moderation/approve", methods=["GET"])
     def approve_profile_submission():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -216,7 +213,7 @@ def register_performer_workflow_routes(app):
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_APPROVE)
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
                     draft = get_profile_submission_draft(cursor, token_row["draft_id"])
                     if draft["status"] != WORKFLOW_STATUS_PENDING:
                         raise ValueError("This submission has already been reviewed.")
@@ -245,7 +242,7 @@ def register_performer_workflow_routes(app):
                     draft["email"],
                     requested_events=draft["requested_events"],
                     availability_confirmation_lead_days=settings["availability_confirmation_lead_days"],
-                    final_selection_lead_days=settings["final_selection_lead_days"],
+                    lineup_selection_lead_days=settings["lineup_selection_lead_days"],
                 )
 
             artist_name = (
@@ -264,7 +261,6 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Profile approval failed")
             return html_error_page("Unable to approve this submission right now.", 500)
 
-    @app.route("/api/forms/performer-registration/moderation/deny", methods=["GET", "POST"])
     def deny_profile_submission():
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
@@ -273,7 +269,7 @@ def register_performer_workflow_routes(app):
             try:
                 with connect() as connection:
                     with connection.cursor() as cursor:
-                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_DENY)
+                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
                         draft = get_profile_submission_draft(cursor, token_row["draft_id"])
                         if draft["status"] != WORKFLOW_STATUS_PENDING:
                             raise ValueError("This submission has already been reviewed.")
@@ -297,7 +293,7 @@ def register_performer_workflow_routes(app):
             edit_link = None
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_DENY)
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
                     draft = get_profile_submission_draft(cursor, token_row["draft_id"])
                     if draft["status"] != WORKFLOW_STATUS_PENDING:
                         raise ValueError("This submission has already been reviewed.")
@@ -318,7 +314,7 @@ def register_performer_workflow_routes(app):
                     )
                     invalidate_moderation_tokens_for_draft(cursor, draft["id"])
                     if include_edit_link:
-                        edit_link = create_registration_link(
+                        edit_link = create_profile_submission_access_link(
                             cursor=cursor,
                             app=app,
                             email=draft["email"],
@@ -337,7 +333,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Profile denial failed")
             return html_error_page("Unable to deny this submission right now.", 500)
 
-    @app.route("/api/forms/performer-registration/availability/confirm", methods=["GET"])
+    @app.route("/perform/availability/confirm/", methods=["GET"])
     def confirm_requested_date():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -366,7 +362,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Availability confirmation failed")
             return html_error_page("Unable to confirm availability right now.", 500)
 
-    @app.route("/api/forms/performer-registration/availability/cancel", methods=["GET"])
+    @app.route("/perform/availability/cancel/", methods=["GET"])
     def cancel_requested_date():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -396,29 +392,27 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Availability cancellation failed")
             return html_error_page("Unable to cancel availability right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/", methods=["GET", "POST"])
-    @app.route("/api/forms/performer-registration/admin-selection", methods=["GET", "POST"])
-    def admin_selection():
+    def lineup_selection():
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
             requested_event_id = parse_optional_int(request.args.get("event_id"))
             if not raw_token:
-                return html_error_page("Missing admin selection token.", 400)
+                return html_error_page("Missing lineup selection token.", 400)
 
             try:
                 with connect() as connection:
                     with connection.cursor() as cursor:
-                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
-                        event_id, available_events = resolve_admin_selection_event_context(
+                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                        event_id, available_events = resolve_lineup_selection_event_context(
                             cursor,
                             token_row=token_row,
                             requested_event_id=requested_event_id,
                         )
-                        lock_state = acquire_admin_selection_lock(
+                        lock_state = acquire_lineup_selection_lock(
                             cursor,
                             event_id=event_id,
                             profile_id=token_row["profile_id"],
-                            lock_minutes=get_admin_selection_lock_minutes(),
+                            lock_minutes=get_lineup_selection_lock_minutes(),
                         )
                         if not lock_state["acquired"]:
                             holder_name = lock_state["locked_by_name"] or "Another admin"
@@ -428,9 +422,9 @@ def register_performer_workflow_routes(app):
                                 f"Please try again after {locked_until}."
                             )
                         event = get_event_selection_context(cursor, event_id)
-                        candidates = get_admin_selection_candidates(cursor, event_id)
+                        candidates = get_lineup_selection_candidates(cursor, event_id)
                         max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
-                return render_admin_selection_form(
+                return render_lineup_selection_form(
                     raw_token,
                     event,
                     available_events,
@@ -447,28 +441,28 @@ def register_performer_workflow_routes(app):
                 status_code = 409 if "currently editing this lineup" in str(exc) else 400
                 return html_error_page(str(exc), status_code)
             except Exception:
-                app.logger.exception("Admin selection form lookup failed")
-                return html_error_page("Unable to load admin selection right now.", 500)
+                app.logger.exception("Lineup selection form lookup failed")
+                return html_error_page("Unable to load lineup selection right now.", 500)
 
         raw_token = normalize_text(request.form.get("token"))
         requested_event_id = parse_optional_int(request.form.get("event_id"))
         if not raw_token:
-            return html_error_page("Missing admin selection token.", 400)
+            return html_error_page("Missing lineup selection token.", 400)
 
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
-                    event_id, _available_events = resolve_admin_selection_event_context(
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                    event_id, _available_events = resolve_lineup_selection_event_context(
                         cursor,
                         token_row=token_row,
                         requested_event_id=requested_event_id,
                     )
-                    lock_state = acquire_admin_selection_lock(
+                    lock_state = acquire_lineup_selection_lock(
                         cursor,
                         event_id=event_id,
                         profile_id=token_row["profile_id"],
-                        lock_minutes=get_admin_selection_lock_minutes(),
+                        lock_minutes=get_lineup_selection_lock_minutes(),
                     )
                     if not lock_state["acquired"]:
                         holder_name = lock_state["locked_by_name"] or "Another admin"
@@ -479,15 +473,15 @@ def register_performer_workflow_routes(app):
                         )
                     settings = get_workflow_settings(cursor)
                     event = get_event_selection_context(cursor, event_id)
-                    candidates = get_admin_selection_candidates(cursor, event_id)
-                    candidate_statuses = parse_admin_selection_statuses(request.form, candidates)
+                    candidates = get_lineup_selection_candidates(cursor, event_id)
+                    candidate_statuses = parse_lineup_selection_statuses(request.form, candidates)
                     newly_selected_requested_date_ids = [
                         item["requested_date_id"]
                         for item in candidates
                         if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
                         if item.get("selection_status") != LINEUP_STATUS_SELECTED
                     ]
-                    save_admin_selection(
+                    save_lineup_selection(
                         cursor,
                         event_id=event_id,
                         admin_profile_id=token_row["profile_id"],
@@ -495,7 +489,7 @@ def register_performer_workflow_routes(app):
                         candidate_statuses=candidate_statuses,
                         max_performers=settings["max_performers_per_event"],
                     )
-                    release_admin_selection_lock(
+                    release_lineup_selection_lock(
                         cursor,
                         event_id=event_id,
                         profile_id=token_row["profile_id"],
@@ -508,7 +502,7 @@ def register_performer_workflow_routes(app):
                 )
 
             return_to_admin_url = (
-                "/api/forms/performer-registration/admin-selection"
+                "/api/v1/admin/events"
                 f"?token={quote(raw_token, safe='')}&event_id={event_id}"
             )
             return html_success_page(
@@ -523,11 +517,10 @@ def register_performer_workflow_routes(app):
             status_code = 409 if "currently editing this lineup" in str(exc) else 400
             return html_error_page(str(exc), status_code)
         except Exception:
-            app.logger.exception("Admin selection save failed")
-            return html_error_page("Unable to save admin selection right now.", 500)
+            app.logger.exception("Lineup selection save failed")
+            return html_error_page("Unable to save lineup selection right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/send-confirmation", methods=["GET", "POST"])
-    def admin_selection_send_confirmation():
+    def lineup_selection_send_confirmation():
         raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
         requested_event_id = parse_optional_int(request.args.get("event_id") or request.form.get("event_id"))
         requested_date_id_text = normalize_text(
@@ -536,8 +529,8 @@ def register_performer_workflow_routes(app):
         wants_json = request.args.get("ajax") == "1" or request.form.get("ajax") == "1"
         if not raw_token:
             if wants_json:
-                return error_response("Missing admin selection token.", 400)
-            return html_error_page("Missing admin selection token.", 400)
+                return error_response("Missing lineup selection token.", 400)
+            return html_error_page("Missing lineup selection token.", 400)
         if not requested_date_id_text or not requested_date_id_text.isdigit():
             if wants_json:
                 return error_response("A valid performer request is required.", 400)
@@ -547,17 +540,17 @@ def register_performer_workflow_routes(app):
             requested_date_id = int(requested_date_id_text)
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
-                    event_id, available_events = resolve_admin_selection_event_context(
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                    event_id, available_events = resolve_lineup_selection_event_context(
                         cursor,
                         token_row=token_row,
                         requested_event_id=requested_event_id,
                     )
-                    lock_state = acquire_admin_selection_lock(
+                    lock_state = acquire_lineup_selection_lock(
                         cursor,
                         event_id=event_id,
                         profile_id=token_row["profile_id"],
-                        lock_minutes=get_admin_selection_lock_minutes(),
+                        lock_minutes=get_lineup_selection_lock_minutes(),
                     )
                     if not lock_state["acquired"]:
                         holder_name = lock_state["locked_by_name"] or "Another admin"
@@ -573,14 +566,14 @@ def register_performer_workflow_routes(app):
                         requested_date_id=requested_date_id,
                         event_id=event_id,
                     )
-                    candidates = get_admin_selection_candidates(cursor, event_id)
+                    candidates = get_lineup_selection_candidates(cursor, event_id)
                     max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
 
                 notice_message = f"Availability confirmation email sent to {sent['display_name']} ({sent['email']})."
                 if wants_json:
                     return jsonify({"ok": True, "message": notice_message})
 
-                return render_admin_selection_form(
+                return render_lineup_selection_form(
                     raw_token,
                     event,
                     available_events,
@@ -600,32 +593,31 @@ def register_performer_workflow_routes(app):
             status_code = 409 if "currently editing this lineup" in str(exc) else 400
             return html_error_page(str(exc), status_code)
         except Exception:
-            app.logger.exception("Admin selection confirmation resend failed")
+            app.logger.exception("Lineup selection confirmation resend failed")
             if wants_json:
                 return error_response("Unable to send confirmation email right now.", 500)
             return html_error_page("Unable to send confirmation email right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/lock", methods=["POST"])
-    def admin_selection_lock_heartbeat():
+    def lineup_selection_lock_heartbeat():
         raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
         requested_event_id = parse_optional_int(request.args.get("event_id") or request.form.get("event_id"))
         if not raw_token:
-            return error_response("A valid admin selection token is required.", 400)
+            return error_response("A valid lineup selection token is required.", 400)
 
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
-                    event_id, _available_events = resolve_admin_selection_event_context(
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                    event_id, _available_events = resolve_lineup_selection_event_context(
                         cursor,
                         token_row=token_row,
                         requested_event_id=requested_event_id,
                     )
-                    lock_state = acquire_admin_selection_lock(
+                    lock_state = acquire_lineup_selection_lock(
                         cursor,
                         event_id=event_id,
                         profile_id=token_row["profile_id"],
-                        lock_minutes=get_admin_selection_lock_minutes(),
+                        lock_minutes=get_lineup_selection_lock_minutes(),
                     )
             if not lock_state["acquired"]:
                 holder_name = lock_state["locked_by_name"] or "Another admin"
@@ -645,11 +637,10 @@ def register_performer_workflow_routes(app):
         except ValueError as exc:
             return error_response(str(exc), 400)
         except Exception:
-            app.logger.exception("Admin selection lock heartbeat failed")
-            return error_response("Unable to refresh admin selection lock right now.", 500)
+            app.logger.exception("Lineup selection lock heartbeat failed")
+            return error_response("Unable to refresh lineup selection lock right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/lock/release", methods=["POST"])
-    def admin_selection_lock_release():
+    def lineup_selection_lock_release():
         raw_token = normalize_text(request.args.get("token") or request.form.get("token"))
         requested_event_id = parse_optional_int(request.args.get("event_id") or request.form.get("event_id"))
         if not raw_token:
@@ -658,13 +649,13 @@ def register_performer_workflow_routes(app):
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_ADMIN_SELECTION)
-                    event_id, _available_events = resolve_admin_selection_event_context(
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                    event_id, _available_events = resolve_lineup_selection_event_context(
                         cursor,
                         token_row=token_row,
                         requested_event_id=requested_event_id,
                     )
-                    release_admin_selection_lock(
+                    release_lineup_selection_lock(
                         cursor,
                         event_id=event_id,
                         profile_id=token_row["profile_id"],
@@ -673,26 +664,23 @@ def register_performer_workflow_routes(app):
         except ValueError:
             return ("", 204)
         except Exception:
-            app.logger.exception("Admin selection lock release failed")
+            app.logger.exception("Lineup selection lock release failed")
             return ("", 204)
 
-    @app.route("/api/forms/performer-registration/admin-selection/events", methods=["GET"])
-    def admin_selection_events():
+    def lineup_selection_events():
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
                     events = get_upcoming_open_mic_events(cursor)
             return jsonify({"ok": True, "events": events})
         except Exception:
-            app.logger.exception("Admin selection events lookup failed")
+            app.logger.exception("Lineup selection events lookup failed")
             return error_response("Unable to load upcoming event dates right now.", 500)
 
-    @app.route("/api/forms/performer-registration/admin-selection/start", methods=["OPTIONS"])
-    def admin_selection_start_options():
+    def lineup_selection_start_options():
         return ("", 204)
 
-    @app.route("/api/forms/performer-registration/admin-selection/start", methods=["POST"])
-    def admin_selection_start():
+    def lineup_selection_start():
         try:
             payload = get_json_payload()
             email = normalize_email(payload.get("email"))
@@ -707,7 +695,7 @@ def register_performer_workflow_routes(app):
                         invalidate_unused_tokens(
                             cursor,
                             email=email,
-                            action_type=ACTION_TYPE_ADMIN_SELECTION,
+                            action_type=ACTION_TYPE_STAFF_LOGIN,
                         )
                         raw_token, token_hash = generate_token_pair()
                         expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
@@ -718,7 +706,7 @@ def register_performer_workflow_routes(app):
                             """,
                             (
                                 token_hash,
-                                ACTION_TYPE_ADMIN_SELECTION,
+                                ACTION_TYPE_STAFF_LOGIN,
                                 admin["email"],
                                 admin["profile_id"],
                                 expires_at,
@@ -730,7 +718,7 @@ def register_performer_workflow_routes(app):
                         expires_at = None
 
                 if admin:
-                    send_admin_selection_access_email(
+                    send_lineup_selection_access_email(
                         admin_email=admin["email"],
                         selection_url=selection_url,
                         expires_at=expires_at,
@@ -745,10 +733,9 @@ def register_performer_workflow_routes(app):
         except ValueError as exc:
             return error_response(str(exc), 400)
         except Exception:
-            app.logger.exception("Admin selection start failed")
-            return error_response("Unable to send an admin selection link right now.", 500)
+            app.logger.exception("Lineup selection start failed")
+            return error_response("Unable to send an lineup selection link right now.", 500)
 
-    @app.route("/api/forms/performer-registration/backup-selection", methods=["GET", "POST"])
     def backup_selection():
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
@@ -758,7 +745,7 @@ def register_performer_workflow_routes(app):
             try:
                 with connect() as connection:
                     with connection.cursor() as cursor:
-                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_BACKUP_SELECTION)
+                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
                         event = get_event_selection_context(cursor, token_row["event_id"])
                         current_selected = get_current_selected_lineup(cursor, token_row["event_id"])
                         backups = get_backup_candidates(cursor, token_row["event_id"])
@@ -783,7 +770,7 @@ def register_performer_workflow_routes(app):
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_BACKUP_SELECTION)
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
                     event = get_event_selection_context(cursor, token_row["event_id"])
                     settings = get_workflow_settings(cursor)
                     promoted = promote_backup_selection(
@@ -825,6 +812,16 @@ def get_json_payload():
     return payload
 
 
+def get_bearer_token():
+    authorization = normalize_text(request.headers.get("Authorization"))
+    if not authorization:
+        return None
+    scheme, separator, token = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer":
+        return normalize_text(token)
+    return None
+
+
 def parse_optional_int(value):
     text = normalize_text(value)
     if text is None:
@@ -834,7 +831,7 @@ def parse_optional_int(value):
     raise ValueError("A valid event date must be selected.")
 
 
-def resolve_admin_selection_event_context(cursor, *, token_row, requested_event_id):
+def resolve_lineup_selection_event_context(cursor, *, token_row, requested_event_id):
     available_events = get_upcoming_open_mic_events(cursor)
     if not available_events:
         raise ValueError("No upcoming Open Mic dates are currently available.")
@@ -846,7 +843,7 @@ def resolve_admin_selection_event_context(cursor, *, token_row, requested_event_
 
     selected_event_id = requested_event_id if requested_event_id is not None else default_event_id
     if selected_event_id not in available_event_ids:
-        raise ValueError("That event date is not available for admin selection.")
+        raise ValueError("That event date is not available for lineup selection.")
     return selected_event_id, available_events
 
 
@@ -885,14 +882,14 @@ def parse_int_list(values):
     return parsed
 
 
-def parse_admin_selection_statuses(form, candidates):
+def parse_lineup_selection_statuses(form, candidates):
     parsed = {}
     for item in candidates:
-        if not is_admin_selection_candidate_eligible(item):
+        if not is_lineup_selection_candidate_eligible(item):
             continue
         requested_date_id = item["requested_date_id"]
         raw_value = normalize_text(form.get(f"status_{requested_date_id}")) or LINEUP_STATUS_STANDBY
-        if raw_value not in ADMIN_SELECTION_ALLOWED_STATUSES:
+        if raw_value not in LINEUP_SELECTION_ALLOWED_STATUSES:
             raise ValueError("One or more performer statuses are invalid.")
         parsed[requested_date_id] = raw_value
     return parsed
@@ -1017,7 +1014,7 @@ def get_workflow_settings(cursor):
             [
                 "performer_request_cooldown_events",
                 "availability_confirmation_lead_days",
-                "final_selection_lead_days",
+                "lineup_selection_lead_days",
                 "action_token_ttl_hours",
                 "max_performers_per_event",
             ],
@@ -1026,7 +1023,7 @@ def get_workflow_settings(cursor):
     settings = {
         "performer_request_cooldown_events": 3,
         "availability_confirmation_lead_days": 10,
-        "final_selection_lead_days": 7,
+        "lineup_selection_lead_days": 7,
         "action_token_ttl_hours": 24,
         "max_performers_per_event": 7,
     }
@@ -1121,7 +1118,7 @@ def invalidate_moderation_tokens_for_draft(cursor, draft_id):
           AND action_type IN (%s, %s)
           AND used_at IS NULL
         """,
-        (draft_id, ACTION_TYPE_MODERATION_APPROVE, ACTION_TYPE_MODERATION_DENY),
+        (draft_id, ACTION_TYPE_STAFF_LOGIN, ACTION_TYPE_STAFF_LOGIN),
     )
 
 
@@ -1700,42 +1697,26 @@ def get_moderator_emails(cursor):
 
 
 def create_moderation_links(*, cursor, app, draft_id, moderator_emails, ttl_hours):
+    del app, ttl_hours
+    from backend.admin import build_staff_login_url, create_staff_login_token
+
     links = []
-    expires_at = now_utc() + timedelta(hours=ttl_hours)
     for moderator in moderator_emails:
-        approve_token, approve_hash = generate_token_pair()
-        deny_token, deny_hash = generate_token_pair()
-
-        cursor.execute(
-            """
-            INSERT INTO action_tokens (token_hash, action_type, email, profile_id, draft_id, expires_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (approve_hash, ACTION_TYPE_MODERATION_APPROVE, moderator["email"], moderator["profile_id"], draft_id, expires_at),
+        next_path = f"/admin/profiles/submissions/{draft_id}/"
+        raw_token, expires_at, _ = create_staff_login_token(
+            cursor, moderator, next_path=next_path, draft_id=draft_id
         )
-        cursor.execute(
-            """
-            INSERT INTO action_tokens (token_hash, action_type, email, profile_id, draft_id, expires_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (deny_hash, ACTION_TYPE_MODERATION_DENY, moderator["email"], moderator["profile_id"], draft_id, expires_at),
-        )
-
         links.append(
             {
                 "email": moderator["email"],
-                "approve_url": build_absolute_url(
-                    app, f"/api/forms/performer-registration/moderation/approve?token={approve_token}"
-                ),
-                "deny_url": build_absolute_url(
-                    app, f"/api/forms/performer-registration/moderation/deny?token={deny_token}"
-                ),
+                "review_url": build_staff_login_url(raw_token, next_path),
+                "expires_at": expires_at,
             }
         )
     return links
 
 
-def create_registration_link(*, cursor, app, email, ttl_hours):
+def create_profile_submission_access_link(*, cursor, app, email, ttl_hours):
     invalidate_unused_tokens(cursor, email=email, action_type=ACTION_TYPE_REGISTRATION_LINK)
     raw_token, token_hash = generate_token_pair()
     expires_at = now_utc() + timedelta(hours=ttl_hours)
@@ -2072,10 +2053,10 @@ def send_due_availability_confirmation_emails(app, run_date=None):
                 )
 
                 confirm_url = build_absolute_url(
-                    app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
+                    app, f"/perform/availability/confirm/?token={confirm_token}"
                 )
                 cancel_url = build_absolute_url(
-                    app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
+                    app, f"/perform/availability/cancel/?token={cancel_token}"
                 )
 
                 send_availability_email(
@@ -2324,16 +2305,18 @@ def create_availability_action_links(app, cursor, *, requested_date_id, event_id
 
     return {
         "confirm_url": build_absolute_url(
-            app, f"/api/forms/performer-registration/availability/confirm?token={confirm_token}"
+            app, f"/perform/availability/confirm/?token={confirm_token}"
         ),
         "cancel_url": build_absolute_url(
-            app, f"/api/forms/performer-registration/availability/cancel?token={cancel_token}"
+            app, f"/perform/availability/cancel/?token={cancel_token}"
         ),
         "expires_at": expires_at,
     }
 
 
-def send_due_admin_selection_emails(app, run_date=None):
+def send_due_lineup_selection_emails(app, run_date=None):
+    from backend.admin import build_staff_login_url, create_staff_login_token
+
     sent_count = 0
 
     with connect() as connection:
@@ -2341,9 +2324,9 @@ def send_due_admin_selection_emails(app, run_date=None):
             settings = get_workflow_settings(cursor)
             target_date = resolve_target_event_date(
                 run_date=run_date,
-                lead_days=settings["final_selection_lead_days"],
+                lead_days=settings["lineup_selection_lead_days"],
             )
-            due_events = get_due_admin_selection_events(cursor, target_date)
+            due_events = get_due_lineup_selection_events(cursor, target_date)
             admins = get_admin_emails(cursor)
 
             for event in due_events:
@@ -2351,26 +2334,15 @@ def send_due_admin_selection_emails(app, run_date=None):
                     continue
 
                 for admin in admins:
-                    raw_token, token_hash = generate_token_pair()
-                    expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
-                    cursor.execute(
-                        """
-                        INSERT INTO action_tokens (token_hash, action_type, email, profile_id, event_id, expires_at)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            token_hash,
-                            ACTION_TYPE_ADMIN_SELECTION,
-                            admin["email"],
-                            admin["profile_id"],
-                            event["event_id"],
-                            expires_at,
-                        ),
+                    next_path = f"/admin/events/{event['event_id']}/lineup/"
+                    raw_token, expires_at, _ = create_staff_login_token(
+                        cursor,
+                        admin,
+                        next_path=next_path,
+                        event_id=event["event_id"],
                     )
-                    selection_url = build_absolute_url(
-                        app, f"/perform/admin/?token={raw_token}"
-                    )
-                    send_admin_selection_email(
+                    selection_url = build_staff_login_url(raw_token, next_path)
+                    send_lineup_selection_email(
                         admin_email=admin["email"],
                         event_name=event["event_name"],
                         event_date=event["event_date"],
@@ -2382,7 +2354,7 @@ def send_due_admin_selection_emails(app, run_date=None):
                 cursor.execute(
                     """
                     UPDATE events
-                    SET admin_selection_email_sent_at = now()
+                    SET lineup_selection_email_sent_at = now()
                     WHERE id = %s
                     """,
                     (event["event_id"],),
@@ -2392,11 +2364,79 @@ def send_due_admin_selection_emails(app, run_date=None):
 
     return {
         "target_event_date": target_date.isoformat(),
-        "admin_selection_emails_sent": sent_count,
+        "lineup_selection_emails_sent": sent_count,
     }
 
 
+def send_due_moderation_reminders(app):
+    reminders_sent = 0
+
+    with connect() as connection:
+        with connection.cursor() as cursor:
+            settings = get_workflow_settings(cursor)
+            ttl_hours = settings["action_token_ttl_hours"]
+            cursor.execute(
+                """
+                SELECT id, display_name, email, submitted_at
+                FROM profile_submission_drafts
+                WHERE status = 'pending'
+                  AND submitted_at <= now() - (%s * INTERVAL '1 hour')
+                ORDER BY submitted_at, id
+                """,
+                (ttl_hours,),
+            )
+            drafts = [
+                {
+                    "id": row[0],
+                    "display_name": row[1],
+                    "email": row[2],
+                    "submitted_at": row[3],
+                }
+                for row in cursor.fetchall()
+            ]
+            moderators = get_moderator_emails(cursor)
+
+            for draft in drafts:
+                for moderator in moderators:
+                    cursor.execute(
+                        """
+                        SELECT MAX(created_at)
+                        FROM action_tokens
+                        WHERE action_type = 'staff_login'
+                          AND draft_id = %s
+                          AND profile_id = %s
+                        """,
+                        (draft["id"], moderator["profile_id"]),
+                    )
+                    last_sent_at = cursor.fetchone()[0]
+                    if last_sent_at and last_sent_at > now_utc() - timedelta(hours=ttl_hours):
+                        continue
+
+                    links = create_moderation_links(
+                        cursor=cursor,
+                        app=app,
+                        draft_id=draft["id"],
+                        moderator_emails=[moderator],
+                        ttl_hours=ttl_hours,
+                    )
+                    if not links:
+                        continue
+                    send_mail(
+                        moderator["email"],
+                        f"sydney.emom | moderation reminder #{draft['id']}",
+                        (
+                            f"{draft['display_name']} ({draft['email']}) is still awaiting moderation.\n\n"
+                            f"Review submission: {links[0]['review_url']}\n\n"
+                            f"This link expires at {format_link_expiry_local(links[0]['expires_at'])}.\n"
+                        ),
+                    )
+                    reminders_sent += 1
+
+    return {"moderation_reminders_sent": reminders_sent}
+
+
 def send_expired_moderation_token_reminders(app):
+    """Deprecated internal implementation retained only for migration reference."""
     reminders_sent = 0
     drafts_renewed = set()
 
@@ -2490,11 +2530,11 @@ def get_expired_moderation_token_reminder_targets(cursor):
         ORDER BY at.draft_id, p.id
         """,
         (
-            ACTION_TYPE_MODERATION_APPROVE,
-            ACTION_TYPE_MODERATION_DENY,
+            ACTION_TYPE_STAFF_LOGIN,
+            ACTION_TYPE_STAFF_LOGIN,
             WORKFLOW_STATUS_PENDING,
-            ACTION_TYPE_MODERATION_APPROVE,
-            ACTION_TYPE_MODERATION_DENY,
+            ACTION_TYPE_STAFF_LOGIN,
+            ACTION_TYPE_STAFF_LOGIN,
         ),
     )
     return [
@@ -2517,20 +2557,20 @@ def mark_expired_moderation_tokens_replaced(cursor, *, draft_id, moderator_profi
         (
             draft_id,
             moderator_profile_id,
-            ACTION_TYPE_MODERATION_APPROVE,
-            ACTION_TYPE_MODERATION_DENY,
+            ACTION_TYPE_STAFF_LOGIN,
+            ACTION_TYPE_STAFF_LOGIN,
         ),
     )
 
 
-def get_due_admin_selection_events(cursor, target_date):
+def get_due_lineup_selection_events(cursor, target_date):
     cursor.execute(
         """
         SELECT id, event_name, event_description, event_date
         FROM events
         WHERE event_date = %s
           AND type_id = %s
-          AND admin_selection_email_sent_at IS NULL
+          AND lineup_selection_email_sent_at IS NULL
         ORDER BY id
         """,
         (target_date, OPEN_MIC_EVENT_TYPE_ID),
@@ -2568,7 +2608,7 @@ def get_upcoming_open_mic_events(cursor):
     ]
 
 
-def get_open_mic_event_for_admin_selection(cursor, event_id):
+def get_open_mic_event_for_lineup_selection(cursor, event_id):
     cursor.execute(
         """
         SELECT id, event_name, event_description, event_date
@@ -2581,7 +2621,7 @@ def get_open_mic_event_for_admin_selection(cursor, event_id):
     )
     row = cursor.fetchone()
     if not row:
-        raise ValueError("That event date is not available for admin selection.")
+        raise ValueError("That event date is not available for lineup selection.")
     return {
             "event_id": row[0],
             "event_name": row[1],
@@ -2590,15 +2630,15 @@ def get_open_mic_event_for_admin_selection(cursor, event_id):
             }
 
 
-def get_admin_selection_lock_minutes():
-    value = normalize_text(os.getenv("ADMIN_SELECTION_LOCK_MINUTES"))
+def get_lineup_selection_lock_minutes():
+    value = normalize_text(os.getenv("LINEUP_SELECTION_LOCK_MINUTES"))
     if not value:
-        return DEFAULT_ADMIN_SELECTION_LOCK_MINUTES
+        return DEFAULT_LINEUP_SELECTION_LOCK_MINUTES
     if not value.isdigit():
-        return DEFAULT_ADMIN_SELECTION_LOCK_MINUTES
+        return DEFAULT_LINEUP_SELECTION_LOCK_MINUTES
     minutes = int(value)
     if minutes <= 0:
-        return DEFAULT_ADMIN_SELECTION_LOCK_MINUTES
+        return DEFAULT_LINEUP_SELECTION_LOCK_MINUTES
     return minutes
 
 
@@ -2626,11 +2666,11 @@ def get_profile_lock_display_name(cursor, profile_id):
     return f"profile #{profile_id}"
 
 
-def get_active_admin_selection_lock(cursor, event_id):
+def get_active_lineup_selection_lock(cursor, event_id):
     cursor.execute(
         """
         SELECT event_id, locked_by_profile_id, lock_started_at, lock_expires_at
-        FROM admin_selection_locks
+        FROM lineup_selection_locks
         WHERE event_id = %s
           AND lock_expires_at > now()
         """,
@@ -2648,10 +2688,10 @@ def get_active_admin_selection_lock(cursor, event_id):
     }
 
 
-def acquire_admin_selection_lock(cursor, *, event_id, profile_id, lock_minutes):
+def acquire_lineup_selection_lock(cursor, *, event_id, profile_id, lock_minutes):
     cursor.execute(
         """
-        DELETE FROM admin_selection_locks
+        DELETE FROM lineup_selection_locks
         WHERE lock_expires_at <= now()
         """
     )
@@ -2659,19 +2699,19 @@ def acquire_admin_selection_lock(cursor, *, event_id, profile_id, lock_minutes):
     lock_expires_at = now_utc() + timedelta(minutes=lock_minutes)
     cursor.execute(
         """
-        INSERT INTO admin_selection_locks (event_id, locked_by_profile_id, lock_started_at, lock_expires_at)
+        INSERT INTO lineup_selection_locks (event_id, locked_by_profile_id, lock_started_at, lock_expires_at)
         VALUES (%s, %s, now(), %s)
         ON CONFLICT (event_id)
         DO UPDATE SET
           locked_by_profile_id = EXCLUDED.locked_by_profile_id,
           lock_started_at = CASE
-            WHEN admin_selection_locks.locked_by_profile_id = EXCLUDED.locked_by_profile_id
-              THEN admin_selection_locks.lock_started_at
+            WHEN lineup_selection_locks.locked_by_profile_id = EXCLUDED.locked_by_profile_id
+              THEN lineup_selection_locks.lock_started_at
             ELSE now()
           END,
           lock_expires_at = EXCLUDED.lock_expires_at
-        WHERE admin_selection_locks.locked_by_profile_id = EXCLUDED.locked_by_profile_id
-           OR admin_selection_locks.lock_expires_at <= now()
+        WHERE lineup_selection_locks.locked_by_profile_id = EXCLUDED.locked_by_profile_id
+           OR lineup_selection_locks.lock_expires_at <= now()
         RETURNING event_id, locked_by_profile_id, lock_started_at, lock_expires_at
         """,
         (event_id, profile_id, lock_expires_at),
@@ -2687,7 +2727,7 @@ def acquire_admin_selection_lock(cursor, *, event_id, profile_id, lock_minutes):
             "locked_by_name": get_profile_lock_display_name(cursor, row[1]),
         }
 
-    lock = get_active_admin_selection_lock(cursor, event_id)
+    lock = get_active_lineup_selection_lock(cursor, event_id)
     if not lock:
         return {
             "acquired": False,
@@ -2706,10 +2746,10 @@ def acquire_admin_selection_lock(cursor, *, event_id, profile_id, lock_minutes):
     }
 
 
-def release_admin_selection_lock(cursor, *, event_id, profile_id):
+def release_lineup_selection_lock(cursor, *, event_id, profile_id):
     cursor.execute(
         """
-        DELETE FROM admin_selection_locks
+        DELETE FROM lineup_selection_locks
         WHERE event_id = %s
           AND locked_by_profile_id = %s
         """,
@@ -2781,7 +2821,7 @@ def get_event_selection_context(cursor, event_id):
            }
 
 
-def get_admin_selection_candidates(cursor, event_id):
+def get_lineup_selection_candidates(cursor, event_id):
     cursor.execute(
         """
         SELECT
@@ -2827,7 +2867,7 @@ def get_admin_selection_candidates(cursor, event_id):
     ]
 
 
-def is_admin_selection_candidate_eligible(candidate):
+def is_lineup_selection_candidate_eligible(candidate):
     return (
         candidate.get("availability_status") == "availability_confirmed"
         and bool(candidate.get("is_profile_approved"))
@@ -2835,7 +2875,7 @@ def is_admin_selection_candidate_eligible(candidate):
     )
 
 
-def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, max_performers):
+def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, max_performers):
     candidate_by_requested_date_id = {item["requested_date_id"]: item for item in candidates}
     invalid_ids = [item for item in candidate_statuses if item not in candidate_by_requested_date_id]
     if invalid_ids:
@@ -2844,7 +2884,7 @@ def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, cand
     selected_requested_date_ids = [
         item["requested_date_id"]
         for item in candidates
-        if is_admin_selection_candidate_eligible(item)
+        if is_lineup_selection_candidate_eligible(item)
         if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
     ]
     if len(selected_requested_date_ids) > max_performers:
@@ -2852,7 +2892,7 @@ def save_admin_selection(cursor, *, event_id, admin_profile_id, candidates, cand
 
     selected_profile_ids = []
     for item in candidates:
-        if not is_admin_selection_candidate_eligible(item):
+        if not is_lineup_selection_candidate_eligible(item):
             continue
         status = candidate_statuses.get(item["requested_date_id"], LINEUP_STATUS_STANDBY)
         if status == LINEUP_STATUS_SELECTED:
@@ -3096,11 +3136,13 @@ def invalidate_backup_selection_tokens_for_event(cursor, event_id):
           AND action_type = %s
           AND used_at IS NULL
         """,
-        (event_id, ACTION_TYPE_BACKUP_SELECTION),
+        (event_id, ACTION_TYPE_STAFF_LOGIN),
     )
 
 
 def handle_selection_cancellation_if_needed(app, cursor, requested_date):
+    from backend.admin import build_staff_login_url, create_staff_login_token
+
     if requested_date["profile_id"] is None:
         return
 
@@ -3150,28 +3192,15 @@ def handle_selection_cancellation_if_needed(app, cursor, requested_date):
     event = get_event_selection_context(cursor, requested_date["event_id"])
     backups = get_backup_candidates(cursor, requested_date["event_id"])
     if backups:
-        settings = get_workflow_settings(cursor)
-        invalidate_backup_selection_tokens_for_event(cursor, requested_date["event_id"])
         for moderator in moderator_emails:
-            raw_token, token_hash = generate_token_pair()
-            expires_at = now_utc() + timedelta(hours=settings["action_token_ttl_hours"])
-            cursor.execute(
-                """
-                INSERT INTO action_tokens (token_hash, action_type, email, profile_id, event_id, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    token_hash,
-                    ACTION_TYPE_BACKUP_SELECTION,
-                    moderator["email"],
-                    moderator["profile_id"],
-                    requested_date["event_id"],
-                    expires_at,
-                ),
+            next_path = f"/admin/events/{requested_date['event_id']}/standby/"
+            raw_token, expires_at, _ = create_staff_login_token(
+                cursor,
+                moderator,
+                next_path=next_path,
+                event_id=requested_date["event_id"],
             )
-            backup_url = build_absolute_url(
-                app, f"/api/forms/performer-registration/backup-selection?token={raw_token}"
-            )
+            backup_url = build_staff_login_url(raw_token, next_path)
             send_backup_selection_email(
                 moderator_email=moderator["email"],
                 event_name=event["event_name"],
@@ -3207,9 +3236,9 @@ def get_selected_count(cursor, event_id):
 
 
 def build_absolute_url(app, path):
-    base_url = os.getenv("FORMS_SITE_BASE_URL") or os.getenv("PUBLIC_SITE_BASE_URL")
+    base_url = os.getenv("PUBLIC_SITE_BASE_URL")
     if not base_url:
-        raise ValueError("FORMS_SITE_BASE_URL must be configured.")
+        raise ValueError("PUBLIC_SITE_BASE_URL must be configured.")
     return f"{base_url.rstrip('/')}{path}"
 
 
@@ -3253,8 +3282,7 @@ def send_moderation_emails(
             f"Additional info (not shown on profile):\n{draft_payload.get('additional_info') or '(none)'}\n\n"
             f"Requested event dates:\n{requested_events}\n"
             f"Social links:\n{social_lines}\n\n"
-            f"Approve: {item['approve_url']}\n"
-            f"Deny: {item['deny_url']}\n"
+            f"Review in the staff area: {item['review_url']}\n"
             f"\nCurrent status:\n{current_status_summary}\n"
         )
         send_mail(item["email"], f"sydney.emom | performer profile moderation request #{draft_id}", body)
@@ -3332,7 +3360,7 @@ def render_admin_status_option(status, current_status):
 def render_admin_confirmation_link(raw_token, event_id, requested_date_id):
     token = quote(raw_token, safe="")
     return (
-        f"/api/forms/performer-registration/admin-selection/send-confirmation"
+        f"/api/v1/admin/events/send-confirmation"
         f"?token={token}&event_id={event_id}&requested_date_id={requested_date_id}"
     )
 
@@ -3423,7 +3451,7 @@ def format_upcoming_event_status_summary(rows, *, event_date, event_name):
     return "\n".join(lines)
 
 
-def send_profile_approved_email(app, email, *, requested_events, availability_confirmation_lead_days, final_selection_lead_days):
+def send_profile_approved_email(app, email, *, requested_events, availability_confirmation_lead_days, lineup_selection_lead_days):
     requested_dates_text = format_requested_events_for_email(
         requested_events, empty_text="- no requested dates recorded"
     )
@@ -3431,7 +3459,7 @@ def send_profile_approved_email(app, email, *, requested_events, availability_co
         "Your performer profile has been approved, and your requested performance dates have been noted.\n\n"
         f"Requested dates:\n{requested_dates_text}\n\n"
         f"We will be in touch to confirm your availibility roughly {availability_confirmation_lead_days} days before the event.\n\n"
-        f"After all performers have confirmed (or declined) we decide on the lineup and send out invitations to perform, roughly {final_selection_lead_days} days before the event.\n"
+        f"After all performers have confirmed (or declined) we decide on the lineup and send out invitations to perform, roughly {lineup_selection_lead_days} days before the event.\n"
     )
     send_mail(email, "sydney.emom | performer profile approved", body)
 
@@ -3480,7 +3508,7 @@ def send_unapproved_request_reminder_email(*, moderator_emails, event_name, even
         )
 
 
-def send_admin_selection_email(*, admin_email, event_name, event_date, selection_url, expires_at):
+def send_lineup_selection_email(*, admin_email, event_name, event_date, selection_url, expires_at):
     body = (
         f"The final lineup selection window is now open for {event_name} on {event_date}.\n\n"
         f"Open selection page: {selection_url}\n\n"
@@ -3489,7 +3517,7 @@ def send_admin_selection_email(*, admin_email, event_name, event_date, selection
     send_mail(admin_email, f"sydney.emom | lineup selection for {event_name}", body)
 
 
-def send_admin_selection_access_email(*, admin_email, selection_url, expires_at):
+def send_lineup_selection_access_email(*, admin_email, selection_url, expires_at):
     body = (
         "Open the admin lineup selection page below.\n\n"
         f"{selection_url}\n\n"
@@ -3597,7 +3625,7 @@ def render_denial_form(raw_token):
     )
 
 
-def render_admin_selection_form(
+def render_lineup_selection_form(
     raw_token,
     event,
     available_events,
@@ -3614,7 +3642,7 @@ def render_admin_selection_form(
     event_tabs = "\n".join(
         (
             f"<a class=\"volunteer-event-tab{' is-active' if item['event_id'] == selected_event_id else ''}\" "
-            f"href=\"/api/forms/performer-registration/admin-selection?token={token_quoted}&event_id={item['event_id']}\">"
+            f"href=\"/api/v1/admin/events?token={token_quoted}&event_id={item['event_id']}\">"
             f"{html.escape(item['event_date'])} · {html.escape(item['event_name'])}"
             "</a>"
         )
@@ -3637,7 +3665,7 @@ def render_admin_selection_form(
                     f"{render_admin_status_option(LINEUP_STATUS_RESERVE, item.get('selection_status'))}"
                     "</select>"
                 )
-                if is_admin_selection_candidate_eligible(item)
+                if is_lineup_selection_candidate_eligible(item)
                 else "<small>Selection available after confirmation.</small>"
             )
             + "</td>"
@@ -3668,7 +3696,7 @@ def render_admin_selection_form(
     )
 
     content_html = (
-        "<div class='token-form-card admin-selection-card'>"
+        "<div class='token-form-card lineup-selection-card'>"
         "<h1>Admin lineup selection</h1>"
         "<p><strong>Event:</strong> "
         + html.escape(event["event_name"])
@@ -3689,7 +3717,7 @@ def render_admin_selection_form(
         + html.escape(str(max_performers))
         + "</span>"
         "</div>"
-        "<form method='post' action='/api/forms/performer-registration/admin-selection'>"
+        "<form method='post' action='/api/v1/admin/events'>"
         "<input type='hidden' name='token' value='"
         + html.escape(raw_token, quote=True)
         + "'>"
@@ -3723,8 +3751,8 @@ def render_admin_selection_form(
         f"const token = {to_js_literal(raw_token)};"
         f"const eventId = {to_js_literal(selected_event_id)};"
         f"const noticeMessage = {to_js_literal(notice_message or '')};"
-        "const heartbeatUrl = '/api/forms/performer-registration/admin-selection/lock?token=' + encodeURIComponent(token) + '&event_id=' + encodeURIComponent(eventId);"
-        "const releaseUrl = '/api/forms/performer-registration/admin-selection/lock/release?token=' + encodeURIComponent(token) + '&event_id=' + encodeURIComponent(eventId);"
+        "const heartbeatUrl = '/api/v1/admin/events/lock?token=' + encodeURIComponent(token) + '&event_id=' + encodeURIComponent(eventId);"
+        "const releaseUrl = '/api/v1/admin/events/lock/release?token=' + encodeURIComponent(token) + '&event_id=' + encodeURIComponent(eventId);"
         "const confirmationLinks = Array.prototype.slice.call(document.querySelectorAll('[data-send-confirmation-link]'));"
         "if (noticeMessage && typeof window.showToast === 'function') {"
         "window.showToast(noticeMessage, { kind: 'success' });"
@@ -3946,4 +3974,14 @@ def render_token_page(*, title, content_html, layout_class="token-layout token-l
 
 
 def error_response(message, status_code):
-    return jsonify({"ok": False, "error": message}), status_code
+    return (
+        jsonify(
+            {
+                "error": {
+                    "code": "performer_workflow_failed",
+                    "message": message,
+                }
+            }
+        ),
+        status_code,
+    )

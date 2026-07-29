@@ -14,8 +14,8 @@ from urllib.request import urlopen
 
 from flask import jsonify, request
 
-from forms_bridge.db import connect
-from forms_bridge.mailer import send_mail
+from backend.db import connect
+from backend.mailer import send_mail
 
 
 NEWSLETTER_CONFIRM_ACTION = "newsletter_subscribe_confirm"
@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 def register_newsletter_workflow_routes(app):
-    @app.route("/api/forms/newsletter-subscribe/start", methods=["OPTIONS"])
+    @app.route("/api/v1/newsletter/subscriptions", methods=["OPTIONS"])
     def newsletter_subscribe_start_options():
         return ("", 204)
 
-    @app.route("/api/forms/newsletter-subscribe/start", methods=["POST"])
+    @app.route("/api/v1/newsletter/subscriptions", methods=["POST"])
     def newsletter_subscribe_start():
         try:
             payload = get_json_payload()
@@ -77,8 +77,9 @@ def register_newsletter_workflow_routes(app):
             return (
                 jsonify(
                     {
-                        "ok": True,
-                        "message": "Thanks. Please check your email and confirm your subscription.",
+                        "data": {
+                            "message": "Thanks. Please check your email and confirm your subscription."
+                        },
                     }
                 ),
                 201,
@@ -89,7 +90,7 @@ def register_newsletter_workflow_routes(app):
             app.logger.exception("Newsletter subscribe start failed")
             return error_response("Unable to start newsletter subscription right now.", 500)
 
-    @app.route("/api/forms/newsletter-subscribe/confirm", methods=["GET"])
+    @app.route("/newsletter/confirm/", methods=["GET"])
     def newsletter_subscribe_confirm():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -275,9 +276,9 @@ def mark_action_token_used(cursor, action_token_id):
 
 def build_absolute_url(app, path):
     del app
-    base_url = os.getenv("FORMS_SITE_BASE_URL") or os.getenv("PUBLIC_SITE_BASE_URL")
+    base_url = os.getenv("PUBLIC_SITE_BASE_URL")
     if not base_url:
-        raise ValueError("FORMS_SITE_BASE_URL must be configured.")
+        raise ValueError("PUBLIC_SITE_BASE_URL must be configured.")
     return f"{base_url.rstrip('/')}{path}"
 
 
@@ -286,7 +287,7 @@ def format_link_expiry_local(expires_at):
 
 
 def send_newsletter_confirmation_email(app, email, raw_token, expires_at):
-    confirm_url = build_absolute_url(app, f"/api/forms/newsletter-subscribe/confirm?token={raw_token}")
+    confirm_url = build_absolute_url(app, f"/newsletter/confirm/?token={raw_token}")
     body = (
         "Please confirm your subscription to the EMOM Sydney newsletter by opening this link:\n\n"
         f"{confirm_url}\n\n"
@@ -474,4 +475,4 @@ def render_html_page(*, title, heading, message, extra_html=None):
 
 
 def error_response(message, status_code):
-    return jsonify({"ok": False, "error": message}), status_code
+    return jsonify({"error": {"code": "newsletter_failed", "message": message}}), status_code

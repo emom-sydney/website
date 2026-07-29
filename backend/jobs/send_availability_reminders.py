@@ -1,8 +1,8 @@
 import argparse
 import json
 
-from forms_bridge.app import create_app
-from forms_bridge.performer_workflow import send_due_availability_confirmation_emails
+from backend.app import create_app
+from backend.performer_workflow import send_due_availability_confirmation_emails
 
 
 def main():

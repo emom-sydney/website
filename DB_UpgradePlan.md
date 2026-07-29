@@ -8,7 +8,7 @@ It is written so we can later automate it in Ansible.
 
 - In scope:
   - Postgres schema upgrade and validation
-  - forms bridge reconfiguration/checks
+  - backend reconfiguration/checks
   - site data-loader connectivity checks (Eleventy build path)
 - Out of scope:
   - content/data parity checks for test vs prod records
@@ -16,15 +16,15 @@ It is written so we can later automate it in Ansible.
 
 ## Components That Currently Use Postgres
 
-1. `forms_bridge` Flask app
-2. `forms_bridge` scheduled scripts:
-   - `python -m forms_bridge.send_availability_reminders`
-   - `python -m forms_bridge.send_admin_selection_links`
+1. `backend` Flask app
+2. `backend` scheduled scripts:
+   - `python -m backend.jobs.send_availability_reminders`
+   - `python -m backend.jobs.send_lineup_selection_links`
 3. Eleventy data loader for builds:
    - `src/_data/emom.js` -> `lib/data/loadEmomData.js`
 
 Notes:
-- If DB name changes at cutover, both forms bridge and any build/deploy job that runs Eleventy with Postgres credentials must point to the new DB.
+- If DB name changes at cutover, both backend and any build/deploy job that runs Eleventy with Postgres credentials must point to the new DB.
 - In this repo, DB config is via `DATABASE_URL` or `PG*` env vars.
 
 ## Prerequisites
@@ -33,7 +33,7 @@ Notes:
 - `psql`, `pg_dump`, `createdb`, `dropdb` installed.
 - A production schema dump already saved as `db/prod-schema.sql`.
 - A target schema dump from the release branch test DB (or an equivalent DB with desired final schema), saved as `db/target-schema.sql`.
-- Maintenance window for write downtime (forms bridge writes should be paused during cutover).
+- Maintenance window for write downtime (backend writes should be paused during cutover).
 
 ## Naming Convention Used Below
 
@@ -79,7 +79,7 @@ Confirm all of the following before applying anywhere:
 - Trigger/function changes are included where required.
 - No accidental `DROP TABLE`/`DROP COLUMN` on live data.
 - No renames that should have been additive changes.
-- Grants include new tables/sequences for forms bridge role.
+- Grants include new tables/sequences for backend role.
 - New surrogate key columns expected to auto-generate IDs (`id`) are identity/default-backed (not plain `NOT NULL`).
 
 ## Phase 2: Postgres-Only Staging Rehearsal
@@ -88,14 +88,14 @@ This validates the upgrade against a production-like copy before cutover.
 
 ### 1. Freeze write traffic (temporary)
 
-Stop forms bridge and scheduled jobs so production data stays consistent while cloning.
+Stop backend and scheduled jobs so production data stays consistent while cloning.
 
 Example (adjust service names):
 
 ```bash
-sudo systemctl stop emom-forms-bridge
+sudo systemctl stop emom-backend
 sudo systemctl stop emom-send-availability-reminders || true
-sudo systemctl stop emom-send-admin-selection-links || true
+sudo systemctl stop emom-send-lineup-selection-links || true
 ```
 
 If jobs are cron-based, disable/comment them for the window.
@@ -133,6 +133,7 @@ If applicable for your release:
 
 ```bash
 psql --dbname=emomweb_stage --set ON_ERROR_STOP=1 --file=db/migrations/2026-04-17-admin-selection-locks.sql
+psql --dbname=emomweb_stage --set ON_ERROR_STOP=1 --file=db/migrations/2026-07-29-backend-api-v1-and-admin.sql
 ```
 
 ### 5. Schema validation checks on staging DB
@@ -200,7 +201,7 @@ SELECT count(*) FROM newsletter_subscribe_requests;
 SELECT count(*) FROM event_performer_selections;
 ```
 
-If your cloned production data has no moderator/admin profiles yet, seed one in **staging only** before testing performer moderation and admin-selection flows:
+If your cloned production data has no moderator/admin profiles yet, seed one in **staging only** before testing performer moderation and lineup-selection flows:
 
 ```sql
 DO $$
@@ -286,7 +287,7 @@ WHERE profile_id IN (
 
 Optional app-level smoke:
 
-- Point forms bridge env to `PGDATABASE=emomweb_stage`.
+- Point backend env to `PGDATABASE=emomweb_stage`.
 - Start bridge.
 - Hit health and a safe read endpoint (or dry-run workflow start).
 
@@ -294,7 +295,7 @@ After rehearsal success, proceed to cutover.
 
 ## Phase 3: Cutover
 
-1. Stop forms bridge + scheduled jobs (freeze writes).
+1. Stop backend + scheduled jobs (freeze writes).
 2. Upgrade `emomweb_stage` as above.
 3. Terminate active DB sessions to `emomweb`/`emomweb_stage`.
 4. Rename DBs: `emomweb -> emomweb_old`, `emomweb_stage -> emomweb`.
@@ -305,7 +306,7 @@ After rehearsal success, proceed to cutover.
 
 ### 4. Post-cutover checks
 
-- forms bridge logs show successful DB connections
+- backend logs show successful DB connections
 - a safe workflow read path responds
 - Eleventy build can connect/read via `emom_site_reader`
 
@@ -323,8 +324,8 @@ Expected: no unexpected differences.
 
 Application checks:
 
-1. forms bridge boot and request handling
-2. reminder/admin selection scripts start without schema errors
+1. backend boot and request handling
+2. reminder/lineup selection scripts start without schema errors
 3. Eleventy build (`npx @11ty/eleventy`) succeeds with production reader credentials
 
 ## Phase 5: Data Integrity Fingerprint Check
@@ -482,7 +483,7 @@ SELECT setval(
 ## If using Option A (repoint)
 
 - Revert env `PGDATABASE`/`DATABASE_URL` to old prod DB.
-- Restart forms bridge/jobs.
+- Restart backend/jobs.
 - Investigate and fix staging DB before next attempt.
 
 ## If using Option B (rename swap)
@@ -506,15 +507,21 @@ Then restart services.
 
 Ensure these are verified at cutover:
 
-- forms bridge env (`DATABASE_URL` or `PG*`):
+- backend env (`DATABASE_URL` or `PG*`):
   - `PGHOST`
   - `PGPORT`
   - `PGDATABASE`
   - `PGUSER` (expected: `emom_forms_writer`)
   - `PGPASSWORD`
+  - `PUBLIC_SITE_BASE_URL`
+  - `API_ALLOWED_ORIGINS`
+  - `STAFF_LOGIN_TOKEN_TTL_MINUTES`
+  - `STAFF_SESSION_TTL_HOURS`
+  - `LINEUP_SELECTION_LOCK_MINUTES`
 - any service/cron invoking:
-  - `python -m forms_bridge.send_availability_reminders`
-  - `python -m forms_bridge.send_admin_selection_links`
+  - `python -m backend.jobs.send_availability_reminders`
+  - `python -m backend.jobs.send_lineup_selection_links`
+  - `python -m backend.jobs.send_moderation_reminders`
 - build/deploy environment for Eleventy:
   - `DATABASE_URL` or `PG*` used by `lib/data/loadEmomData.js`
   - reader role (`emom_site_reader`) still valid in target DB

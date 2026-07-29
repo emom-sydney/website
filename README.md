@@ -10,9 +10,9 @@ This is the codebase for sydney.emom.me website. We are building with the [11ty]
   - `src/_data/emom.js`
   - `lib/data/loadEmomData.js`
 - write-side forms and tokenized workflows handled by:
-  - `forms_bridge/app.py`
-  - `forms_bridge/db.py`
-  - `forms_bridge/performer_workflow.py`
+  - `backend/app.py`
+  - `backend/db.py`
+  - `backend/performer_workflow.py`
 
 The site currently includes:
 
@@ -52,9 +52,10 @@ Then build normally with Eleventy.
 
 `DATABASE_URL` can be used instead of the individual `PG*` variables if preferred, but the current repo workflow uses `.pgenv`.
 
-## Forms Bridge
+## Backend
 
-The forms bridge is a small Flask app for handling a variety of form inputs on the site.
+The backend is a Flask app providing `/api/v1`, the `/admin` staff area,
+email workflows, and database writes.
 
 It currently handles:
 
@@ -68,21 +69,22 @@ It currently handles:
 
 Supporting scripts:
 
-- `python -m forms_bridge.send_availability_reminders`
-- `python -m forms_bridge.send_admin_selection_links`
+- `python -m backend.jobs.send_availability_reminders`
+- `python -m backend.jobs.send_lineup_selection_links`
+- `python -m backend.jobs.send_moderation_reminders`
 
-Bridge deployment and runtime details live in:
+Backend deployment and runtime details live in:
 
-- [FORMS.md](./FORMS.md)
-- [FORMS_API.md](./FORMS_API.md)
+- [BACKEND.md](./BACKEND.md)
+- [API.md](./API.md)
 
-## Forms Bridge Mailing List Subscribe
+## Mailing List Subscribe
 
-The forms bridge supports newsletter and alumni mailing list subscription with time-limited email confirmation links.
+The backend supports newsletter and alumni mailing list subscription with time-limited email confirmation links.
 
 Required environment variables for this flow:
 
-- `FORMS_SITE_BASE_URL` (for confirmation link generation)
+- `PUBLIC_SITE_BASE_URL` (for confirmation link generation)
 - `KEILA_API_BASE_URL` (defaults to `https://keila.emom.me`)
 - `KEILA_NEWSLETTER_API_KEY` (Bearer API key for the Keila newsletter project)
 - `KEILA_ALUMNI_API_KEY` (Bearer API key for the Keila alumni project)
@@ -131,8 +133,8 @@ To add an event video embed on a gallery page:
 
 - [AGENTS.md](./AGENTS.md)
 - [DB_SETUP.md](./DB_SETUP.md)
-- [FORMS.md](./FORMS.md)
-- [FORMS_API.md](./FORMS_API.md)
+- [BACKEND.md](./BACKEND.md)
+- [API.md](./API.md)
 - [PERFORMER_WORKFLOW_FLOW.md](./PERFORMER_WORKFLOW_FLOW.md)
 
 # Thoughts

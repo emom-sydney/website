@@ -54,7 +54,12 @@ if (appNode) {
   async function parseJsonResponse(response, fallbackMessage) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
-      return response.json();
+      const payload = await response.json();
+      return {
+        ok: response.ok,
+        ...(payload.data || {}),
+        error: payload?.error?.message,
+      };
     }
 
     if (!response.ok) {
@@ -291,7 +296,11 @@ if (appNode) {
     // setStatus("Loading registration form...");
     clearPersistentStatus();
     try {
-      const response = await fetch(`/api/forms/performer-registration/session?token=${encodeURIComponent(token)}`);
+      const response = await fetch("/api/v1/profiles/submissions/context", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
       const result = await parseJsonResponse(response, "Unable to load registration form right now.");
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to load registration form.");
@@ -344,7 +353,7 @@ if (appNode) {
     const submitButton = startForm.querySelector("button[type='submit']");
     if (submitButton) submitButton.disabled = true;
     try {
-      const response = await fetch("/api/forms/performer-registration/start", {
+      const response = await fetch("/api/v1/profiles/submissions/access-links", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -394,7 +403,6 @@ if (appNode) {
     );
 
     const payload = {
-      token: registrationToken,
       profile_type: profileTypeField.value,
       display_name: String(displayNameField.value || "").trim(),
       first_name: String(firstNameField.value || "").trim() || null,
@@ -422,10 +430,11 @@ if (appNode) {
     setStatus("Submitting your registration...");
     clearPersistentStatus();
     try {
-      const response = await fetch("/api/forms/performer-registration/submit", {
+      const response = await fetch("/api/v1/profiles/submissions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${registrationToken}`,
         },
         body: JSON.stringify(payload),
       });
@@ -452,6 +461,9 @@ if (appNode) {
   });
 
   if (registrationToken) {
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete("token");
+    window.history.replaceState({}, "", cleanUrl.toString());
     loadSession(registrationToken);
   }
 }

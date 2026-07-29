@@ -1,13 +1,13 @@
 import argparse
 import json
 
-from forms_bridge.app import create_app
-from forms_bridge.performer_workflow import send_due_admin_selection_emails
+from backend.app import create_app
+from backend.performer_workflow import send_due_lineup_selection_emails
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Send admin link for performer lineup selection."
+        description="Send staff login links for performer lineup selection."
     )
     parser.add_argument(
         "--run-date",
@@ -17,7 +17,7 @@ def main():
 
     app = create_app()
     with app.app_context():
-        result = send_due_admin_selection_emails(app, run_date=args.run_date)
+        result = send_due_lineup_selection_emails(app, run_date=args.run_date)
 
     print(json.dumps(result, indent=2))
 

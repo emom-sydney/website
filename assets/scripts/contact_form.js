@@ -39,7 +39,7 @@ if (form) {
     notify("Sending your message...");
 
     try {
-      const response = await fetch("/api/forms/contact-us", {
+      const response = await fetch("/api/v1/contact/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -52,11 +52,11 @@ if (form) {
       });
 
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Unable to send your message right now.");
+      if (!response.ok) {
+        throw new Error(result?.error?.message || "Unable to send your message right now.");
       }
 
-      notify(result.message || "Thanks. Your message has been sent.", "success");
+      notify(result?.data?.message || "Thanks. Your message has been sent.", "success");
       form.reset();
     } catch (error) {
       notify(error.message || "Unable to send your message right now.", "error");

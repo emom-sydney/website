@@ -2,19 +2,19 @@ import re
 
 from flask import jsonify, request
 
-from forms_bridge.mailer import get_from_address
-from forms_bridge.mailer import send_mail
+from backend.mailer import get_from_address
+from backend.mailer import send_mail
 
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def register_contact_us_workflow_routes(app):
-    @app.route("/api/forms/contact-us", methods=["OPTIONS"])
+    @app.route("/api/v1/contact/messages", methods=["OPTIONS"])
     def contact_us_options():
         return ("", 204)
 
-    @app.route("/api/forms/contact-us", methods=["POST"])
+    @app.route("/api/v1/contact/messages", methods=["POST"])
     def submit_contact_us():
         try:
             payload = get_json_payload()
@@ -31,7 +31,7 @@ def register_contact_us_workflow_routes(app):
 
             send_contact_email(name=name, email=email, message=message)
 
-            return jsonify({"ok": True, "message": "Thanks. Your message has been sent."}), 201
+            return jsonify({"data": {"message": "Thanks. Your message has been sent."}}), 201
         except ValueError as exc:
             return error_response(str(exc), 400)
         except Exception:
@@ -90,4 +90,4 @@ def send_contact_email(*, name, email, message):
 
 
 def error_response(message, status_code):
-    return jsonify({"ok": False, "error": message}), status_code
+    return jsonify({"error": {"code": "contact_failed", "message": message}}), status_code

@@ -11,15 +11,15 @@ EMAIL_PATTERN = re.compile(r"\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\
 
 
 def get_from_address():
-    return os.getenv("FORMS_EMAIL_FROM", "no-reply@sydney.emom.me")
+    return os.getenv("EMAIL_FROM", "no-reply@sydney.emom.me")
 
 
 def get_smtp_host():
-    return os.getenv("FORMS_SMTP_HOST", "mail.f8.com.au")
+    return os.getenv("SMTP_HOST", "mail.f8.com.au")
 
 
 def get_smtp_port():
-    return int(os.getenv("FORMS_SMTP_PORT", "25"))
+    return int(os.getenv("SMTP_PORT", "25"))
 
 
 def send_mail(to_address, subject, text_body, html_body=None, reply_to=None):

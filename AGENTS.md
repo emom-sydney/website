@@ -8,7 +8,7 @@ This file is the Codex-facing source of truth for this repository.
 - Built with Eleventy and ES modules
 - Main source lives in `src/`
 - Generated output goes to `_site/`
-- Includes a Flask-based `forms_bridge` app for form writes and tokenized workflow steps
+- Includes a Flask-based `backend` app for form writes and tokenized workflow steps
 
 ## Build
 
@@ -39,9 +39,9 @@ Postgres connections come through a local SSH tunnel. You can use the npm `pg` p
 
 Write-side form and workflow actions go through:
 
-- `forms_bridge/app.py`
-- `forms_bridge/db.py`
-- `forms_bridge/performer_workflow.py`
+- `backend/app.py`
+- `backend/db.py`
+- `backend/performer_workflow.py`
 
 ## Current Schema
 
@@ -64,7 +64,8 @@ Current relational tables:
 - `moderation_actions`
 - `event_performer_selections`
 - `app_settings`
-- `admin_selection_locks`
+- `lineup_selection_locks`
+- `staff_sessions`
 - `volunteer_roles`
 - `event_volunteer_role_overrides`
 - `profile_submission_volunteer_claims`
@@ -201,64 +202,48 @@ The `src/_data/` media files are Eleventy adapters. Keep shared media behavior i
 - `/volunteer/`
   - simple contact prompt for prospective volunteers, separate from the `/crew/` profile section
 - `/perform/`
-  - performer registration page backed by `forms_bridge`
+  - performer registration page backed by `backend`
 - `/gallery/`
   - gallery pages backed by media manifest + Postgres
 
-## Forms Bridge And Workflows
+## Backend And Workflows
 
-The repo now includes a small Flask bridge for write-side forms and tokenized email workflows.
+The repo includes a Flask backend for the versioned API, staff area, writes,
+and tokenized email workflows.
 
 Primary files:
 
-- `forms_bridge/app.py`
-- `forms_bridge/db.py`
-- `forms_bridge/performer_workflow.py`
-- `forms_bridge/newsletter_workflow.py`
-- `forms_bridge/contact_us_workflow.py`
-- `forms_bridge/send_availability_reminders.py`
-- `forms_bridge/send_admin_selection_links.py`
-- `forms_bridge/send_moderation_token_reminders.py`
+- `backend/app.py`
+- `backend/db.py`
+- `backend/performer_workflow.py`
+- `backend/keila_workflow.py`
+- `backend/contact_us_workflow.py`
+- `backend/admin.py`
+- `backend/jobs/`
 - `assets/scripts/performer_registration_form.js`
 - `src/perform.njk`
 
-Current performer workflow capabilities:
+Canonical URL surfaces:
 
-- `POST /api/forms/performer-registration/start`
-  - sends a 24-hour one-time registration link
-- `GET /api/forms/performer-registration/session?token=...`
-  - loads existing profile context, social platforms, and eligible Open Mic dates
-- `POST /api/forms/performer-registration/submit`
-  - stores a moderated draft, social links, and requested dates
-- `GET /api/forms/performer-registration/moderation/approve?token=...`
-- `GET|POST /api/forms/performer-registration/moderation/deny?token=...`
-- `GET /api/forms/performer-registration/availability/confirm?token=...`
-- `GET /api/forms/performer-registration/availability/cancel?token=...`
-- `GET|POST /api/forms/performer-registration/admin-selection?token=...`
-- `GET|POST /api/forms/performer-registration/admin-selection/send-confirmation?token=...&event_id=...&requested_date_id=...`
-- `POST /api/forms/performer-registration/admin-selection/lock?token=...&event_id=...`
-- `POST /api/forms/performer-registration/admin-selection/lock/release?token=...&event_id=...`
-- `GET /api/forms/performer-registration/admin-selection/events`
-- `POST /api/forms/performer-registration/admin-selection/start`
-- `GET|POST /api/forms/performer-registration/backup-selection?token=...`
+- public JSON API: `/api/v1/<domain>/...`
+- staff JSON API: `/api/v1/admin/<domain>/...`
+- staff browser UI: `/admin/...`
+- performer availability pages: `/perform/availability/...`
+- newsletter confirmation page: `/newsletter/confirm/`
 
-Additional bridge workflows:
-
-- Newsletter subscribe:
-  - `POST /api/forms/newsletter-subscribe/start`
-  - `GET /api/forms/newsletter-subscribe/confirm?token=...`
-- Contact form:
-  - `POST /api/forms/contact-us`
+See `API.md` for the endpoint inventory.
 
 Current workflow notes:
 
-- registration and moderation are email-link driven, not login-driven
+- performer registration is email-link driven
+- staff links create a 12-hour database-backed admin session
+- administrators have full access; moderators have moderation and standby access
 - existing profiles are matched by email first, then exact case-insensitive stage name as a fallback
 - session prefill prefers the latest relevant submission for that email, including approved drafts when needed
 - moderator emails include both the existing live profile snapshot and the submitted draft
-- moderation links are single-use, and the opposite action is invalidated once one action is taken
-- availability reminders and admin-selection links are sent by standalone bridge scripts
-- SMTP delivery is relayed to `mail.f8.com.au` via bridge environment variables, not local `sendmail`
+- staff login and public action links are single-use
+- availability, moderation, and lineup-selection notifications are sent by standalone backend jobs
+- SMTP delivery is relayed to `mail.f8.com.au` via backend environment variables, not local `sendmail`
 - `event_performer_selections` is the pre-event lineup source of truth; `performances` should only reflect who actually played
 
 ## Migrations
@@ -290,10 +275,11 @@ Notable migrations in the repo:
 - `2026-04-25-volunteer-workflow.sql`
 - `2026-04-26-volunteer-general-roles.sql`
 - `2026-05-01-sync-identity-sequences.sql`
+- `2026-07-29-backend-api-v1-and-admin.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 
-The 2026-04 migrations add the performer workflow schema, grants, reminder tracking, admin-selection flow, and identity/default improvements for older integer-key tables.
+The 2026-04 migrations add the performer workflow schema, grants, reminder tracking, the original lineup-selection flow, and identity/default improvements for older integer-key tables.
 
 ## Roles And DB Access
 
@@ -310,15 +296,15 @@ The standard DB roles currently expected by the repo are:
 - default privileges for future tables/sequences
 - local SSH tunnel usage
 
-The forms bridge should use `emom_forms_writer`.
+The backend should use `emom_forms_writer`.
 
 ## Operational Docs
 
 For performer-workflow continuity and diagrams, check:
 
 - `PERFORMER_WORKFLOW_FLOW.md`
-- `FORMS.md`
-- `FORMS_API.md`
+- `BACKEND.md`
+- `API.md`
 - `DB_SETUP.md`
 
 ## Docs Drift
@@ -335,10 +321,10 @@ When updating documentation, verify against:
 - `lib/data/loadEmomData.js`
 - `lib/media/`
 - `lib/render/profilePage.js`
-- `forms_bridge/performer_workflow.py`
-- `forms_bridge/newsletter_workflow.py`
-- `forms_bridge/contact_us_workflow.py`
-- `FORMS_API.md`
+- `backend/performer_workflow.py`
+- `backend/keila_workflow.py`
+- `backend/contact_us_workflow.py`
+- `API.md`
 - `src/_data/`
 - `src/artists/`
 - `src/crew/`

@@ -10,7 +10,7 @@ The recommended pattern is:
 
 - a dedicated read-only Postgres role for the website build: `emom_site_reader`
 - a dedicated write-capable Postgres role for admin/editor work: `emom_site_admin`
-- a dedicated forms bridge writer role: `emom_forms_writer`
+- a dedicated backend writer role: `emom_forms_writer`
 - a dedicated SSH user and SSH key for tunneling only
 - SSH key restrictions that allow forwarding only to `127.0.0.1:5432`
 
@@ -46,7 +46,7 @@ NOINHERIT;
 GRANT CONNECT, TEMP ON DATABASE emomweb TO emom_site_admin;
 ```
 
-Create the forms bridge writer role:
+Create the backend writer role:
 
 ```sql
 CREATE ROLE emom_forms_writer
@@ -88,7 +88,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   requested_dates,
   moderation_actions,
   event_performer_selections,
-  admin_selection_locks,
+  lineup_selection_locks,
+  staff_sessions,
   volunteer_roles,
   event_volunteer_role_overrides,
   profile_submission_volunteer_claims,
@@ -125,7 +126,7 @@ Notes:
 - Run `ALTER DEFAULT PRIVILEGES` as the role that owns future schema objects.
 - `GRANT ... ON ALL TABLES IN SCHEMA public` covers ordinary tables and views such as `galleries`.
 - `emom_site_reader` is intentionally broad read-only access because the static build and admin tooling may need to inspect multiple parts of the schema.
-- `emom_forms_writer` is the intended DB role for `forms_bridge`, including the performer registration, moderation, reminder, admin-selection, newsletter, and contact workflows.
+- `emom_forms_writer` is the intended DB role for `backend`, including performer registration, moderation, reminders, lineup selection, newsletter, and contact workflows.
 
 ## 1A. Promote An Existing Profile To Moderator/Admin
 
@@ -346,7 +347,7 @@ set +a
 - Keep the database bound to `127.0.0.1` on the remote host.
 - Use `emom_site_reader` only for the website build and read-only tooling.
 - Use `emom_site_admin` for admin/editor workflows that need write access across the schema.
-- Use `emom_forms_writer` for the `forms_bridge` service and its scheduled scripts.
+- Use `emom_forms_writer` for the `backend` service and its scheduled scripts.
 - Use a different Postgres role for schema migrations and ownership-level work.
 - Use a different SSH key from the one used for normal interactive login.
 - The repo now expects Postgres to be the only relational data source at build time.

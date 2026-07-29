@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS events (
   event_description text,
   gallery_url text UNIQUE,
   youtube_embed_url text,
-  admin_selection_email_sent_at timestamptz
+  lineup_selection_email_sent_at timestamptz
 );
 
 CREATE TABLE IF NOT EXISTS performances (
@@ -127,18 +127,11 @@ CREATE TABLE IF NOT EXISTS action_tokens (
   token_hash text NOT NULL UNIQUE,
   action_type text NOT NULL CHECK (
     action_type IN (
-      'registration_link',
-      'moderation_approve',
-      'moderation_deny',
+      'profile_submission_access',
       'availability_confirm',
       'availability_cancel',
-      'admin_selection',
-      'backup_selection',
       'newsletter_subscribe_confirm',
-      'volunteer_registration_link',
-      'volunteer_moderation_approve',
-      'volunteer_moderation_deny',
-      'volunteer_claims_link'
+      'staff_login'
     )
   ),
   email text,
@@ -181,11 +174,22 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS admin_selection_locks (
+CREATE TABLE IF NOT EXISTS lineup_selection_locks (
   event_id integer PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
   locked_by_profile_id integer NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   lock_started_at timestamptz NOT NULL DEFAULT now(),
   lock_expires_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS staff_sessions (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_token_hash text NOT NULL UNIQUE,
+  csrf_token_hash text NOT NULL,
+  profile_id integer NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz
 );
 
 CREATE TABLE IF NOT EXISTS volunteer_roles (
@@ -267,7 +271,11 @@ CREATE INDEX IF NOT EXISTS idx_profiles_visible_window
   ON profiles(profile_visible_from, profile_expires_on);
 CREATE INDEX IF NOT EXISTS idx_profile_images_profile_id ON profile_images(profile_id);
 CREATE INDEX IF NOT EXISTS idx_profile_social_profiles_profile_id ON profile_social_profiles(profile_id);
-CREATE INDEX IF NOT EXISTS idx_admin_selection_locks_expires_at ON admin_selection_locks(lock_expires_at);
+CREATE INDEX IF NOT EXISTS idx_lineup_selection_locks_expires_at ON lineup_selection_locks(lock_expires_at);
+CREATE INDEX IF NOT EXISTS idx_staff_sessions_profile_active
+  ON staff_sessions(profile_id, expires_at)
+  WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_staff_sessions_expires_at ON staff_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_volunteer_roles_active_sort
   ON volunteer_roles(is_active, sort_order, role_key);
 CREATE INDEX IF NOT EXISTS idx_profile_submission_volunteer_claims_draft_id
@@ -321,7 +329,7 @@ INSERT INTO app_settings (key, value_json)
 VALUES
   ('performer_request_cooldown_events', '3'::jsonb),
   ('availability_confirmation_lead_days', '10'::jsonb),
-  ('final_selection_lead_days', '7'::jsonb),
+  ('lineup_selection_lead_days', '7'::jsonb),
   ('action_token_ttl_hours', '24'::jsonb),
   ('max_performers_per_event', '7'::jsonb)
 ON CONFLICT (key) DO NOTHING;
