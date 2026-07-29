@@ -96,6 +96,11 @@
   text-align: left;
 }
 
+.admin-social-links {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
 .admin-choice {
   display: block;
   padding: .5rem;

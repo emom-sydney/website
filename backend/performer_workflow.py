@@ -2831,10 +2831,28 @@ def get_lineup_selection_candidates(cursor, event_id):
             p.id AS profile_id,
             d.display_name,
             d.email,
-            d.contact_phone,
-            rd.status AS availability_status,
-            COALESCE(p.is_profile_approved, false) AS is_profile_approved,
-            COALESCE(sel.status, '') AS selection_status,
+          d.contact_phone,
+          rd.status AS availability_status,
+          COALESCE(p.is_profile_approved, false) AS is_profile_approved,
+          COALESCE(
+            (
+              SELECT json_agg(
+                json_build_object(
+                  'social_platform_id', pssp.social_platform_id,
+                  'profile_name', pssp.profile_name,
+                  'platform_name', sp.platform_name,
+                  'url_format', sp.url_format
+                )
+                ORDER BY pssp.sort_order, pssp.id
+              )
+              FROM profile_submission_social_profiles pssp
+              JOIN social_platforms sp
+                ON sp.id = pssp.social_platform_id
+              WHERE pssp.draft_id = d.id
+            ),
+            '[]'::json
+          ) AS social_links,
+          COALESCE(sel.status, '') AS selection_status,
             sel.slot_number,
             ROW_NUMBER() OVER (
               PARTITION BY
@@ -2864,6 +2882,7 @@ def get_lineup_selection_candidates(cursor, event_id):
           contact_phone,
           availability_status,
           is_profile_approved,
+          social_links,
           selection_status,
           slot_number
         FROM ranked_candidates
@@ -2882,8 +2901,9 @@ def get_lineup_selection_candidates(cursor, event_id):
             "contact_phone": row[5],
             "availability_status": row[6],
             "is_profile_approved": row[7],
-            "selection_status": row[8] or None,
-            "slot_number": row[9],
+            "social_links": row[8],
+            "selection_status": row[9] or None,
+            "slot_number": row[10],
         }
         for row in cursor.fetchall()
     ]

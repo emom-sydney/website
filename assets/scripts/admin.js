@@ -38,6 +38,44 @@
     node.classList.toggle("is-error", isError);
   }
 
+  function lineupEligibilityMessage(item) {
+    const needsApproval = !item.is_profile_approved;
+    const needsConfirmation = item.availability_status !== "availability_confirmed";
+
+    if (needsApproval && needsConfirmation) {
+      return "Awaiting profile approval and availability confirmation";
+    }
+    if (needsApproval) return "Awaiting profile approval";
+    return "Awaiting availability confirmation";
+  }
+
+  function socialLinkUrl(link) {
+    const profileName = String(link.profile_name || "").trim();
+    const urlFormat = String(link.url_format || "").trim();
+    const href = urlFormat
+      ? urlFormat.replaceAll("{profileName}", profileName)
+      : profileName;
+
+    try {
+      const url = new URL(href);
+      return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function renderSocialLinks(socialLinks) {
+    if (!Array.isArray(socialLinks) || !socialLinks.length) return "<small>None</small>";
+
+    return `<ul class="admin-social-links">${socialLinks.map((link) => {
+      const label = link.platform_name || link.profile_name || "Social profile";
+      const href = socialLinkUrl(link);
+      return href
+        ? `<li><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a></li>`
+        : `<li>${escapeHtml(label)}</li>`;
+    }).join("")}</ul>`;
+  }
+
   document.querySelector("[data-admin-login]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -104,10 +142,11 @@
       <p>Select no more than ${data.max_performers} performers.</p>
       <form data-lineup-form>
         <div class="admin-table-wrap"><table>
-          <thead><tr><th>Performer</th><th>Availability</th><th>Status</th><th>Reminder</th></tr></thead>
+          <thead><tr><th>Performer</th><th>Social media</th><th>Availability</th><th>Status</th><th>Reminder</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
             <tr>
               <td>${escapeHtml(item.display_name)}<br><small>${escapeHtml(item.email)}</small></td>
+              <td>${renderSocialLinks(item.social_links)}</td>
               <td>${escapeHtml(item.availability_status)}</td>
               <td>
                 ${item.availability_status === "availability_confirmed" && item.is_profile_approved
@@ -116,7 +155,7 @@
                         `<option value="${value}"${item.selection_status === value ? " selected" : ""}>${value}</option>`
                       ).join("")}
                     </select>`
-                  : "<small>Available after approval and confirmation</small>"}
+                  : `<small>${lineupEligibilityMessage(item)}</small>`}
               </td>
               <td><button type="button" data-reminder-id="${item.requested_date_id}">Send</button></td>
             </tr>`).join("")}</tbody>

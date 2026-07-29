@@ -180,6 +180,14 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
                     None,
                     "requested",
                     True,
+                    [
+                        {
+                            "social_platform_id": 3,
+                            "profile_name": "staticinmatrix",
+                            "platform_name": "Instagram",
+                            "url_format": "https://instagram.com/{profileName}",
+                        }
+                    ],
                     "",
                     None,
                 )
@@ -196,6 +204,8 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
     assert "rd.event_id, d.profile_id" in normalized_query
     assert "CASE WHEN d.profile_id IS NULL THEN lower(d.email) END" in normalized_query
     assert "ORDER BY d.submitted_at DESC, d.id DESC, rd.id DESC" in normalized_query
+    assert "FROM profile_submission_social_profiles pssp" in normalized_query
+    assert "WHERE pssp.draft_id = d.id" in normalized_query
     assert "WHERE candidate_rank = 1" in normalized_query
     assert candidates == [
         {
@@ -207,6 +217,14 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
             "contact_phone": None,
             "availability_status": "requested",
             "is_profile_approved": True,
+            "social_links": [
+                {
+                    "social_platform_id": 3,
+                    "profile_name": "staticinmatrix",
+                    "platform_name": "Instagram",
+                    "url_format": "https://instagram.com/{profileName}",
+                }
+            ],
             "selection_status": None,
             "slot_number": None,
         }
