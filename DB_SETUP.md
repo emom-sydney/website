@@ -128,6 +128,11 @@ Notes:
 - `emom_site_reader` is intentionally broad read-only access because the static build and admin tooling may need to inspect multiple parts of the schema.
 - `emom_forms_writer` is the intended DB role for `backend`, including performer registration, moderation, reminders, lineup selection, newsletter, and contact workflows.
 
+- Database grants do not carry across databases or similarly named roles. If the
+  test backend uses `emom_test_forms_writer` against `emomtest`, apply the same
+  backend table and sequence grants in `emomtest` with
+  `emom_test_forms_writer` as the grantee.
+
 ## 1A. Promote An Existing Profile To Moderator/Admin
 
 If you are promoting an existing profile, do it in this order:

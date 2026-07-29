@@ -2824,29 +2824,51 @@ def get_event_selection_context(cursor, event_id):
 def get_lineup_selection_candidates(cursor, event_id):
     cursor.execute(
         """
+        WITH ranked_candidates AS (
+          SELECT
+            rd.id AS requested_date_id,
+            d.id AS draft_id,
+            p.id AS profile_id,
+            d.display_name,
+            d.email,
+            d.contact_phone,
+            rd.status AS availability_status,
+            COALESCE(p.is_profile_approved, false) AS is_profile_approved,
+            COALESCE(sel.status, '') AS selection_status,
+            sel.slot_number,
+            ROW_NUMBER() OVER (
+              PARTITION BY
+                rd.event_id,
+                d.profile_id,
+                CASE WHEN d.profile_id IS NULL THEN lower(d.email) END
+              ORDER BY d.submitted_at DESC, d.id DESC, rd.id DESC
+            ) AS candidate_rank
+          FROM requested_dates rd
+          JOIN profile_submission_drafts d
+            ON d.id = rd.draft_id
+          LEFT JOIN profiles p
+            ON p.id = d.profile_id
+          LEFT JOIN event_performer_selections sel
+            ON sel.event_id = rd.event_id
+           AND sel.profile_id = p.id
+          WHERE rd.event_id = %s
+            AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
+            AND d.status IN ('pending', 'approved')
+        )
         SELECT
-          rd.id,
-          d.id,
-          p.id,
-          d.display_name,
-          d.email,
-          d.contact_phone,
-          rd.status,
-          COALESCE(p.is_profile_approved, false),
-          COALESCE(sel.status, ''),
-          sel.slot_number
-        FROM requested_dates rd
-        JOIN profile_submission_drafts d
-          ON d.id = rd.draft_id
-        LEFT JOIN profiles p
-          ON p.id = d.profile_id
-        LEFT JOIN event_performer_selections sel
-          ON sel.event_id = rd.event_id
-         AND sel.profile_id = p.id
-        WHERE rd.event_id = %s
-          AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
-          AND d.status <> 'superseded'
-        ORDER BY d.display_name, rd.id
+          requested_date_id,
+          draft_id,
+          profile_id,
+          display_name,
+          email,
+          contact_phone,
+          availability_status,
+          is_profile_approved,
+          selection_status,
+          slot_number
+        FROM ranked_candidates
+        WHERE candidate_rank = 1
+        ORDER BY display_name, requested_date_id
         """,
         (event_id,),
     )

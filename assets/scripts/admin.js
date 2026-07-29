@@ -40,7 +40,8 @@
 
   document.querySelector("[data-admin-login]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     status("Sending login link…");
     try {
       const data = await api("/api/v1/admin/login-links", {
@@ -48,7 +49,7 @@
         body: JSON.stringify({ email: form.get("email"), next: form.get("next") }),
       });
       status(data.message);
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (error) {
       status(error.message, true);
     }

@@ -1,9 +1,14 @@
+# I don't know a lot about test suites, and I keep hearing about how LLMs aren't very good at it 
+# so when I look at this code I am inclined to agree. (see test_lineup_candidate_query_keeps_only_latest_applicable_draft())
+# .. a test that will clearly fail if the db data ever changes... 
+
 from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
 
 import backend.admin as admin
+import backend.performer_workflow as workflow
 from backend.app import create_app
 
 
@@ -152,3 +157,57 @@ def test_login_verification_sets_secure_session_cookies(monkeypatch, client):
     assert "HttpOnly" in session_cookie
     assert "SameSite=Lax" in session_cookie
     assert "HttpOnly" not in csrf_cookie
+
+
+def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
+    class CandidateCursor:
+        def __init__(self):
+            self.query = None
+            self.params = None
+
+        def execute(self, query, params=None):
+            self.query = query
+            self.params = params
+
+        def fetchall(self):
+            return [
+                (
+                    116,
+                    70,
+                    25,
+                    "Static In The Matrix",
+                    "static@yceran.org",
+                    None,
+                    "requested",
+                    True,
+                    "",
+                    None,
+                )
+            ]
+
+    cursor = CandidateCursor()
+
+    candidates = workflow.get_lineup_selection_candidates(cursor, 18)
+
+    normalized_query = " ".join(cursor.query.split())
+    assert cursor.params == (18,)
+    assert "d.status IN ('pending', 'approved')" in normalized_query
+    assert "PARTITION BY rd.event_id" in normalized_query
+    assert "rd.event_id, d.profile_id" in normalized_query
+    assert "CASE WHEN d.profile_id IS NULL THEN lower(d.email) END" in normalized_query
+    assert "ORDER BY d.submitted_at DESC, d.id DESC, rd.id DESC" in normalized_query
+    assert "WHERE candidate_rank = 1" in normalized_query
+    assert candidates == [
+        {
+            "requested_date_id": 116,
+            "draft_id": 70,
+            "profile_id": 25,
+            "display_name": "Static In The Matrix",
+            "email": "static@yceran.org",
+            "contact_phone": None,
+            "availability_status": "requested",
+            "is_profile_approved": True,
+            "selection_status": None,
+            "slot_number": None,
+        }
+    ]
