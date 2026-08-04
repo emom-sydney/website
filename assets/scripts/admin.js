@@ -98,7 +98,7 @@
       await api("/api/v1/admin/session", { method: "DELETE" });
       window.location.assign("/admin/login/");
     } catch (error) {
-      window.alert(error.message);
+      window.showToast?.(error.message, { kind: "error" });
     }
   });
 
@@ -172,9 +172,9 @@
             `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/availability-reminders`,
             { method: "POST" }
           );
-          window.alert(result.message);
+          window.showToast?.(result.message, { kind: "success" });
         } catch (error) {
-          window.alert(error.message);
+          window.showToast?.(error.message, { kind: "error" });
         } finally {
           button.disabled = false;
         }
@@ -287,7 +287,8 @@
       </form>`;
     node.querySelector("[data-decision-form]")?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formElement = event.currentTarget;
+      const form = new FormData(formElement);
       const statusNode = node.querySelector("[data-decision-status]");
       statusNode.textContent = "Saving decision…";
       try {
@@ -300,12 +301,12 @@
           }),
         });
         statusNode.textContent = `Submission ${result.decision}.`;
-        event.currentTarget.querySelectorAll("button, input, select, textarea").forEach((field) => {
+        formElement.querySelectorAll("button, input, select, textarea").forEach((field) => {
           field.disabled = true;
         });
       } catch (error) {
-        statusNode.textContent = error.message;
-        statusNode.classList.add("is-error");
+        statusNode.textContent = "";
+        window.showToast?.(error.message, { kind: "error" });
       }
     });
   }
