@@ -3595,6 +3595,23 @@ def send_selected_performer_emails(event, candidates, selected_requested_date_id
         )
 
 
+def send_lineup_status_notification(event, candidate, *, status=None):
+    status = status or candidate.get("selection_status")
+    if status not in LINEUP_SELECTION_ALLOWED_STATUSES:
+        raise ValueError("This performer does not have a lineup status to notify.")
+    status_label = format_selection_status_label(status)
+    text_body = (
+        f"Your current lineup status for {event['event_name']} on {event['event_date']} is: {status_label}.\n\n"
+        "Please contact us if you have any questions.\n"
+    )
+    send_mail(
+        candidate["email"],
+        f"sydney.emom | lineup status for {event['event_name']}",
+        text_body,
+    )
+    return candidate
+
+
 def send_backup_selection_email(
     *, moderator_email, event_name, event_date, cancelled_performer_name, backup_url, backups, expires_at
 ):

@@ -157,7 +157,7 @@
                     </select>`
                   : `<small>${lineupEligibilityMessage(item)}</small>`}
               </td>
-              <td><button type="button" data-reminder-id="${item.requested_date_id}">Send</button></td>
+              <td><button type="button" data-reminder-id="${item.requested_date_id}" data-reminder-kind="${item.availability_status === "availability_confirmed" && item.is_profile_approved ? "lineup-status" : "availability"}">Send</button></td>
             </tr>`).join("")}</tbody>
         </table></div>
         <button type="submit">Save lineup</button>
@@ -168,10 +168,16 @@
       button.addEventListener("click", async () => {
         button.disabled = true;
         try {
-          const result = await api(
-            `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/availability-reminders`,
-            { method: "POST" }
-          );
+          const path = button.dataset.reminderKind === "lineup-status"
+            ? `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/lineup-status-notifications`
+            : `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/availability-reminders`;
+          const body = button.dataset.reminderKind === "lineup-status"
+            ? { status: button.closest("tr")?.querySelector("select")?.value }
+            : undefined;
+          const result = await api(path, {
+            method: "POST",
+            ...(body ? { body: JSON.stringify(body) } : {}),
+          });
           window.showToast?.(result.message, { kind: "success" });
         } catch (error) {
           window.showToast?.(error.message, { kind: "error" });

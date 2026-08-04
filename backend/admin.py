@@ -547,6 +547,33 @@ def register_admin_api_routes(app):
         except ValueError as exc:
             return api_error("availability_reminder_failed", str(exc))
 
+    @app.post(
+        "/api/v1/admin/events/<int:event_id>/performer-requests/"
+        "<int:requested_date_id>/lineup-status-notifications"
+    )
+    @require_staff(admin=True)
+    def send_lineup_status_notification(event_id, requested_date_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        try:
+            payload = request.get_json(silent=True) or {}
+            status = payload.get("status")
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    event = workflow.get_event_selection_context(cursor, event_id)
+                    candidates = workflow.get_lineup_selection_candidates(cursor, event_id)
+                    candidate = next(
+                        (item for item in candidates if item["requested_date_id"] == requested_date_id),
+                        None,
+                    )
+                    if not candidate:
+                        raise ValueError("That performer request is not available for this event.")
+                    sent = workflow.send_lineup_status_notification(event, candidate, status=status)
+            return api_data({"message": f"Lineup status sent to {sent['display_name']}."}, 201)
+        except ValueError as exc:
+            return api_error("lineup_status_notification_failed", str(exc))
+
     @app.get("/api/v1/admin/events/<int:event_id>/standby")
     @require_staff(moderator=True)
     def admin_event_standby(event_id):
