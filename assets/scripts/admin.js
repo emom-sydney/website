@@ -139,7 +139,7 @@
     const data = await api(`/api/v1/admin/events/${eventId}/lineup`);
     node.innerHTML = `
       <h2>${escapeHtml(data.event.event_name)} — ${escapeHtml(data.event.event_date)}</h2>
-      <p>Select no more than ${data.max_performers} performers.</p>
+      <p>${data.candidates.length} performers have expressed interest in this date.</p>
       <form data-lineup-form>
         <div class="admin-table-wrap"><table>
           <thead><tr><th>Performer</th><th>Social media</th><th>Availability</th><th>Status</th><th>Reminder</th></tr></thead>

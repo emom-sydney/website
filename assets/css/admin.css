@@ -87,6 +87,12 @@
 .admin-table-wrap table {
   width: 100%;
   border-collapse: collapse;
+  margin: 0;
+  padding: 20px;
+  flex: 1;
+  color: #333;
+  background: #FFF;
+  border-radius: 12px;
 }
 
 .admin-table-wrap th,

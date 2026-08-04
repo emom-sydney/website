@@ -9,7 +9,9 @@ def get_connection_string():
 
     host = os.getenv("PGHOST", "127.0.0.1")
     port = os.getenv("PGPORT", "15432")
-    database = os.getenv("PGDATABASE", "emomweb")
+
+    ## Don't add a default for PGDATABASE, better that this breaks than connects to the wrong database
+    database = os.getenv("PGDATABASE")
     user = os.getenv("PGUSER")
     password = os.getenv("PGPASSWORD")
 
