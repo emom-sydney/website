@@ -1,6 +1,7 @@
 # A. Postgres Setup
 
 This project uses a remote Postgres database that is not exposed directly to the internet. Access is intended to happen through an SSH tunnel to the remote host, with Postgres listening only on `127.0.0.1` on that host.
+However, a local database for development purposes can also be made to work.
 
 The database name is:
 
@@ -16,7 +17,8 @@ The recommended pattern is:
 
 ## 1. Create The Standard Postgres Roles
 
-SSH to the remote host using your normal admin account, then open `psql` as a superuser or database owner.
+- If required, SSH to the remote host using your normal admin account
+- Open `psql` as a superuser or database owner.
 
 Create the read-only site role:
 
@@ -417,5 +419,3 @@ To get to a Windows PostGresQL server from a WSL install, you need to do two thi
 7. Select "Allow the connection"
 8. Select "Public"
 9. Save it with a memorable name
-
-
