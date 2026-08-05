@@ -136,12 +136,46 @@
           <article>
             <h2>${escapeHtml(event.event_name)}</h2>
             <p>${escapeHtml(event.event_date)}</p>
+            <p>${escapeHtml(event.event_description)}</p>
             <div class="admin-actions">
-              ${session.is_admin ? `<a href="/admin/events/${event.event_id}/lineup/">Edit lineup</a>` : ""}
+              ${session.is_admin ? `<a href="/admin/events/${event.event_id}/edit/">Edit event</a>
+              <a href="/admin/events/${event.event_id}/lineup/">Edit lineup</a>` : ""}
               <a href="/admin/events/${event.event_id}/standby/">Standby performers</a>
             </div>
           </article>`).join("")}</div>`
       : "<p>No upcoming Open Mic events.</p>";
+  }
+
+  async function loadEventEdit(node) {
+    const eventId = Number(node.dataset.eventId);
+    const event = await api(`/api/v1/admin/events/${eventId}`);
+    node.innerHTML = `
+      <form data-event-edit-form>
+        <label>Event date <input name="event_date" type="date" required value="${escapeHtml(event.event_date)}"></label>
+        <label>Event type <select name="type_id">
+          <option value="1"${event.type_id === 1 ? " selected" : ""}>open mic</option>
+          <option value="2"${event.type_id === 2 ? " selected" : ""}>other</option>
+        </select></label>
+        <label>Event name <input name="event_name" required value="${escapeHtml(event.event_name)}"></label>
+        <label>Event description <textarea name="event_description" rows="6">${escapeHtml(event.event_description)}</textarea></label>
+        <button type="submit">Save event</button>
+        <p role="status" data-event-edit-status></p>
+      </form>`;
+    node.querySelector("[data-event-edit-form]").addEventListener("submit", async (submitEvent) => {
+      submitEvent.preventDefault();
+      const form = new FormData(submitEvent.currentTarget);
+      const statusNode = node.querySelector("[data-event-edit-status]");
+      statusNode.textContent = "Saving event…";
+      try {
+        const result = await api(`/api/v1/admin/events/${eventId}`, {
+          method: "PUT",
+          body: JSON.stringify(Object.fromEntries(form)),
+        });
+        statusNode.textContent = result.message;
+      } catch (error) {
+        statusNode.textContent = error.message;
+      }
+    });
   }
 
   async function loadLineup(node) {
@@ -358,6 +392,7 @@
   const loaders = [
     ["[data-admin-dashboard]", loadDashboard],
     ["[data-admin-events]", loadEvents],
+    ["[data-admin-event-edit]", loadEventEdit],
     ["[data-admin-lineup]", loadLineup],
     ["[data-admin-standby]", loadStandby],
     ["[data-admin-profiles]", loadProfiles],

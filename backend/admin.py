@@ -377,6 +377,16 @@ def register_admin_routes(app):
             event_id=event_id,
         )
 
+    @app.get("/admin/events/<int:event_id>/edit/")
+    @require_staff(admin=True, api=False)
+    def admin_event_edit_page(event_id):
+        return render_template(
+            "admin/event_edit.html",
+            staff=g.staff,
+            active_tab="events",
+            event_id=event_id,
+        )
+
     @app.get("/admin/events/<int:event_id>/standby/")
     @require_staff(moderator=True, api=False)
     def admin_standby_page(event_id):
@@ -427,6 +437,66 @@ def register_admin_api_routes(app):
             with connection.cursor() as cursor:
                 events = workflow.get_upcoming_open_mic_events(cursor)
         return api_data({"events": events})
+
+    @app.get("/api/v1/admin/events/<int:event_id>")
+    @require_staff(admin=True)
+    def get_admin_event(event_id):
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, event_date, type_id, event_name, event_description
+                    FROM events
+                    WHERE id = %s
+                    """,
+                    (event_id,),
+                )
+                row = cursor.fetchone()
+        if not row:
+            return api_error("not_found", "Event not found.", 404)
+        return api_data({
+            "event_id": row[0],
+            "event_date": row[1].isoformat(),
+            "type_id": row[2],
+            "event_name": row[3],
+            "event_description": row[4] or "",
+        })
+
+    @app.put("/api/v1/admin/events/<int:event_id>")
+    @require_staff(admin=True)
+    def update_admin_event(event_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        event_date = str(payload.get("event_date") or "").strip()
+        event_name = str(payload.get("event_name") or "").strip()
+        event_description = str(payload.get("event_description") or "").strip()
+        try:
+            from datetime import date
+            date.fromisoformat(event_date)
+            type_id = int(payload.get("type_id"))
+            if type_id not in (1, 2):
+                raise ValueError
+        except (TypeError, ValueError):
+            return api_error("invalid_event", "Date must be valid and event type must be 1 or 2.")
+        if not event_name:
+            return api_error("invalid_event", "Event name is required.")
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE events
+                    SET event_date = %s, type_id = %s, event_name = %s,
+                        event_description = %s
+                    WHERE id = %s
+                    RETURNING id
+                    """,
+                    (event_date, type_id, event_name, event_description, event_id),
+                )
+                if not cursor.fetchone():
+                    return api_error("not_found", "Event not found.", 404)
+        return api_data({"message": "Event saved."})
 
     @app.get("/api/v1/admin/events/<int:event_id>/lineup")
     @require_staff(admin=True)
