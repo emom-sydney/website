@@ -134,7 +134,7 @@
     node.innerHTML = data.events.length
       ? `<div class="admin-list">${data.events.map((event) => `
           <article>
-            <h2>${escapeHtml(event.event_name)}</h2>
+            <h2>${escapeHtml(event.type_description)}: ${escapeHtml(event.event_name)}</h2>
             <p>${escapeHtml(event.event_date)}</p>
             <p>${escapeHtml(event.event_description)}</p>
             <div class="admin-actions">
@@ -148,15 +148,17 @@
 
   async function loadEventEdit(node) {
     const eventId = node.dataset.eventId ? Number(node.dataset.eventId) : null;
-    const event = eventId
-      ? await api(`/api/v1/admin/events/${eventId}`)
-      : { event_date: "", type_id: 1, event_name: "", event_description: "" };
+    const [event, typeData] = await Promise.all([
+      eventId
+        ? api(`/api/v1/admin/events/${eventId}`)
+        : Promise.resolve({ event_date: "", type_id: 1, event_name: "", event_description: "" }),
+      api("/api/v1/admin/event-types"),
+    ]);
     node.innerHTML = `
       <form data-event-edit-form>
         <label>Event date <input name="event_date" type="date" required value="${escapeHtml(event.event_date)}"></label>
         <label>Event type <select name="type_id">
-          <option value="1"${event.type_id === 1 ? " selected" : ""}>open mic</option>
-          <option value="2"${event.type_id === 2 ? " selected" : ""}>other</option>
+          ${typeData.event_types.map((type) => `<option value="${type.id}"${event.type_id === type.id ? " selected" : ""}>${escapeHtml(type.description)}</option>`).join("")}
         </select></label>
         <label>Event name <input name="event_name" required value="${escapeHtml(event.event_name)}"></label>
         <label>Event description <textarea name="event_description" rows="6">${escapeHtml(event.event_description)}</textarea></label>
@@ -179,6 +181,55 @@
 
   async function loadLineup(node) {
     const eventId = Number(node.dataset.eventId);
+    const eventDetails = await api(`/api/v1/admin/events/${eventId}`);
+    if (eventDetails.type_id === 2) {
+      let performers = eventDetails.performers || [];
+      node.innerHTML = `<h2>${escapeHtml(eventDetails.event_name)} — performers</h2>
+        <label>Find performer <input data-performer-search autocomplete="off"></label>
+        <div data-performer-suggestions></div>
+        <table><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Mobile</th><th>Actions</th></tr></thead>
+        <tbody data-performer-list></tbody></table>
+        <button type="button" data-save-performers>Save lineup</button>`;
+      const listNode = node.querySelector("[data-performer-list]");
+      const suggestionsNode = node.querySelector("[data-performer-suggestions]");
+      const render = () => { listNode.innerHTML = performers.map((item, index) => `<tr>
+        <td>${index + 1}</td><td>${escapeHtml(item.display_name)}</td>
+        <td>${item.email ? `<a href="mailto:${escapeHtml(item.email)}">${escapeHtml(item.email)}</a>` : ""}</td>
+        <td>${escapeHtml(item.contact_phone)}</td><td>
+        <button type="button" data-up="${index}"${index ? "" : " disabled"}>Up</button>
+        <button type="button" data-down="${index}"${index === performers.length - 1 ? " disabled" : ""}>Down</button>
+        <button type="button" data-remove="${index}">Remove</button></td></tr>`).join(""); };
+      render();
+      node.addEventListener("click", (clickEvent) => {
+        const button = clickEvent.target.closest("button");
+        if (!button) return;
+        const index = Number(button.dataset.up ?? button.dataset.down ?? button.dataset.remove);
+        if (button.dataset.up !== undefined && index > 0) [performers[index - 1], performers[index]] = [performers[index], performers[index - 1]];
+        if (button.dataset.down !== undefined && index < performers.length - 1) [performers[index], performers[index + 1]] = [performers[index + 1], performers[index]];
+        if (button.dataset.remove !== undefined) performers.splice(index, 1);
+        if (button.dataset.up !== undefined || button.dataset.down !== undefined || button.dataset.remove !== undefined) render();
+      });
+      node.querySelector("[data-performer-search]").addEventListener("input", async (inputEvent) => {
+        const query = inputEvent.target.value.trim();
+        if (query.length < 2) { suggestionsNode.innerHTML = ""; return; }
+        try {
+          const result = await api(`/api/v1/admin/profiles/search?q=${encodeURIComponent(query)}`);
+          suggestionsNode.innerHTML = result.profiles.map((item, index) => `<button type="button" data-suggestion="${index}">${escapeHtml(item.display_name)}${item.email ? ` — ${escapeHtml(item.email)}` : ""}</button>`).join("");
+          suggestionsNode.querySelectorAll("[data-suggestion]").forEach((button) => button.addEventListener("click", () => {
+            const item = result.profiles[Number(button.dataset.suggestion)];
+            if (!performers.some((performer) => performer.profile_id === item.profile_id)) performers.push(item);
+            render(); inputEvent.target.value = ""; suggestionsNode.innerHTML = "";
+          }));
+        } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+      });
+      node.querySelector("[data-save-performers]").addEventListener("click", async () => {
+        try {
+          await api(`/api/v1/admin/events/${eventId}/performers`, { method: "PUT", body: JSON.stringify({ profile_ids: performers.map((item) => item.profile_id) }) });
+          window.location.assign("/admin/events/");
+        } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+      });
+      return;
+    }
     await api(`/api/v1/admin/events/${eventId}/lineup/lock`, { method: "POST" });
     const data = await api(`/api/v1/admin/events/${eventId}/lineup`);
     node.innerHTML = `
@@ -260,21 +311,42 @@
 
     node.querySelector("[data-lineup-form]")?.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const form = event.currentTarget;
       const statuses = {};
-      new FormData(event.currentTarget).forEach((value, key) => {
+      new FormData(form).forEach((value, key) => {
         if (key.startsWith("status_")) statuses[key.slice(7)] = value;
       });
-      const statusNode = node.querySelector("[data-lineup-status]");
-      statusNode.textContent = "Saving…";
       try {
-        const result = await api(`/api/v1/admin/events/${eventId}/lineup`, {
-          method: "PUT",
+        const preview = await api(`/api/v1/admin/events/${eventId}/lineup/preview`, {
+          method: "POST",
           body: JSON.stringify({ statuses }),
         });
-        statusNode.textContent = result.message;
+        const confirmation = document.createElement("div");
+        confirmation.innerHTML = `<h3>Continue and notify</h3>
+          <p>The following performers will be notified:</p>
+          ${preview.recipients.length ? `<ul>${preview.recipients.map((item) => `<li>${escapeHtml(item.display_name)} — ${escapeHtml(item.email)}</li>`).join("")}</ul>` : "<p>No new selection notifications will be sent.</p>"}
+          <button type="button" data-confirm-lineup>Continue</button>
+          <button type="button" data-cancel-lineup>Cancel</button>
+          <button type="button" data-exit-lineup>Exit without saving</button>`;
+        form.replaceWith(confirmation);
+        confirmation.querySelector("[data-cancel-lineup]").addEventListener("click", () => confirmation.replaceWith(form));
+        confirmation.querySelector("[data-exit-lineup]").addEventListener("click", () => {
+          window.location.assign("/admin/events/");
+        });
+        confirmation.querySelector("[data-confirm-lineup]").addEventListener("click", async () => {
+          try {
+            const result = await api(`/api/v1/admin/events/${eventId}/lineup`, {
+              method: "PUT",
+              body: JSON.stringify({ statuses }),
+            });
+            window.showToast?.(result.message, { kind: "success" });
+            confirmation.replaceWith(form);
+          } catch (error) {
+            window.showToast?.(error.message, { kind: "error" });
+          }
+        });
       } catch (error) {
-        statusNode.textContent = error.message;
-        statusNode.classList.add("is-error");
+        window.showToast?.(error.message, { kind: "error" });
       }
     });
 

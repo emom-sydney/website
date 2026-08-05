@@ -455,13 +455,32 @@ def register_admin_api_routes(app):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, event_date, type_id, event_name, event_description
-                    FROM events
-                    WHERE id = %s
+                    SELECT e.id, e.event_date, e.type_id, e.event_name, e.event_description,
+                           et.description
+                    FROM events e
+                    JOIN event_types et ON et.id = e.type_id
+                    WHERE e.id = %s
                     """,
                     (event_id,),
                 )
                 row = cursor.fetchone()
+                if row:
+                    cursor.execute(
+                        """
+                        SELECT p.id, p.display_name, p.email, p.contact_phone
+                        FROM performances perf
+                        JOIN profiles p ON p.id = perf.profile_id
+                        WHERE perf.event_id = %s
+                        ORDER BY perf.sort_order, perf.id
+                        """,
+                        (event_id,),
+                    )
+                    performers = [
+                        {"profile_id": item[0], "display_name": item[1], "email": item[2], "contact_phone": item[3]}
+                        for item in cursor.fetchall()
+                    ]
+                else:
+                    performers = []
         if not row:
             return api_error("not_found", "Event not found.", 404)
         return api_data({
@@ -470,7 +489,79 @@ def register_admin_api_routes(app):
             "type_id": row[2],
             "event_name": row[3],
             "event_description": row[4] or "",
+            "type_description": row[5],
+            "performers": performers,
         })
+
+    @app.get("/api/v1/admin/event-types")
+    @require_staff(admin=True)
+    def admin_event_types():
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, description FROM event_types ORDER BY id")
+                types = [{"id": row[0], "description": row[1]} for row in cursor.fetchall()]
+        return api_data({"event_types": types})
+
+    @app.get("/api/v1/admin/profiles/search")
+    @require_staff(admin=True)
+    def search_admin_profiles():
+        query = str(request.args.get("q") or "").strip()
+        if len(query) < 2:
+            return api_data({"profiles": []})
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, display_name, email, contact_phone
+                    FROM profiles
+                    WHERE display_name ILIKE %s OR email ILIKE %s
+                    ORDER BY display_name, id
+                    LIMIT 10
+                    """,
+                    (f"%{query}%", f"%{query}%"),
+                )
+                profiles = [
+                    {"profile_id": item[0], "display_name": item[1], "email": item[2], "contact_phone": item[3]}
+                    for item in cursor.fetchall()
+                ]
+        return api_data({"profiles": profiles})
+
+    @app.put("/api/v1/admin/events/<int:event_id>/performers")
+    @require_staff(admin=True)
+    def update_admin_event_performers(event_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        profile_ids = payload.get("profile_ids")
+        if not isinstance(profile_ids, list):
+            return api_error("invalid_performers", "A profile_ids list is required.")
+        try:
+            profile_ids = [int(profile_id) for profile_id in profile_ids]
+        except (TypeError, ValueError):
+            return api_error("invalid_performers", "Profile IDs must be integers.")
+        if len(profile_ids) != len(set(profile_ids)):
+            return api_error("invalid_performers", "A performer cannot be listed twice.")
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT type_id FROM events WHERE id = %s", (event_id,))
+                event = cursor.fetchone()
+                if not event:
+                    return api_error("not_found", "Event not found.", 404)
+                if event[0] != 2:
+                    return api_error("invalid_event", "Performer lists are only available for type 2 events.")
+                if profile_ids:
+                    cursor.execute("SELECT id FROM profiles WHERE id = ANY(%s)", (profile_ids,))
+                    found = {row[0] for row in cursor.fetchall()}
+                    if found != set(profile_ids):
+                        return api_error("invalid_performers", "One or more performers were not found.")
+                cursor.execute("DELETE FROM performances WHERE event_id = %s", (event_id,))
+                for sort_order, profile_id in enumerate(profile_ids):
+                    cursor.execute(
+                        "INSERT INTO performances (event_id, profile_id, sort_order) VALUES (%s, %s, %s)",
+                        (event_id, profile_id, sort_order),
+                    )
+        return api_data({"message": "Performers saved."})
 
     @app.put("/api/v1/admin/events/<int:event_id>")
     @require_staff(admin=True)
@@ -609,6 +700,37 @@ def register_admin_api_routes(app):
             return api_data({"message": "Lineup saved."})
         except (TypeError, ValueError) as exc:
             return api_error("invalid_lineup", str(exc))
+
+    @app.post("/api/v1/admin/events/<int:event_id>/lineup/preview")
+    @require_staff(admin=True)
+    def preview_admin_event_lineup(event_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        statuses = payload.get("statuses")
+        if not isinstance(statuses, dict):
+            return api_error("invalid_lineup", "A statuses object is required.")
+        try:
+            parsed_statuses = {int(key): str(value) for key, value in statuses.items()}
+            if any(value not in {
+                workflow.LINEUP_STATUS_SELECTED,
+                workflow.LINEUP_STATUS_STANDBY,
+                workflow.LINEUP_STATUS_RESERVE,
+            } for value in parsed_statuses.values()):
+                raise ValueError("One or more lineup statuses are invalid.")
+        except (TypeError, ValueError) as exc:
+            return api_error("invalid_lineup", str(exc))
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                candidates = workflow.get_lineup_selection_candidates(cursor, event_id)
+        recipients = [
+            {"display_name": item["display_name"], "email": item["email"]}
+            for item in candidates
+            if parsed_statuses.get(item["requested_date_id"]) == workflow.LINEUP_STATUS_SELECTED
+            and item.get("selection_status") != workflow.LINEUP_STATUS_SELECTED
+        ]
+        return api_data({"recipients": recipients})
 
     @app.post("/api/v1/admin/events/<int:event_id>/lineup/lock")
     @require_staff(admin=True)

@@ -2617,10 +2617,11 @@ def get_upcoming_open_mic_events(cursor):
 def get_upcoming_events(cursor):
     cursor.execute(
         """
-        SELECT id, event_name, event_description, event_date
-        FROM events
-        WHERE event_date >= CURRENT_DATE
-        ORDER BY event_date, id
+        SELECT e.id, e.event_name, e.event_description, e.event_date, e.type_id, et.description
+        FROM events e
+        JOIN event_types et ON et.id = e.type_id
+        WHERE e.event_date >= CURRENT_DATE
+        ORDER BY e.event_date, e.id
         """
     )
     return [
@@ -2629,6 +2630,8 @@ def get_upcoming_events(cursor):
             "event_name": row[1],
             "event_description": row[2],
             "event_date": row[3].isoformat(),
+            "type_id": row[4],
+            "type_description": row[5],
         }
         for row in cursor.fetchall()
     ]
