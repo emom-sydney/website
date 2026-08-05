@@ -147,8 +147,10 @@
   }
 
   async function loadEventEdit(node) {
-    const eventId = Number(node.dataset.eventId);
-    const event = await api(`/api/v1/admin/events/${eventId}`);
+    const eventId = node.dataset.eventId ? Number(node.dataset.eventId) : null;
+    const event = eventId
+      ? await api(`/api/v1/admin/events/${eventId}`)
+      : { event_date: "", type_id: 1, event_name: "", event_description: "" };
     node.innerHTML = `
       <form data-event-edit-form>
         <label>Event date <input name="event_date" type="date" required value="${escapeHtml(event.event_date)}"></label>
@@ -158,22 +160,19 @@
         </select></label>
         <label>Event name <input name="event_name" required value="${escapeHtml(event.event_name)}"></label>
         <label>Event description <textarea name="event_description" rows="6">${escapeHtml(event.event_description)}</textarea></label>
-        <button type="submit">Save event</button>
-        <p role="status" data-event-edit-status></p>
+        <button type="submit">Save and close</button>
       </form>`;
     node.querySelector("[data-event-edit-form]").addEventListener("submit", async (submitEvent) => {
       submitEvent.preventDefault();
       const form = new FormData(submitEvent.currentTarget);
-      const statusNode = node.querySelector("[data-event-edit-status]");
-      statusNode.textContent = "Saving event…";
       try {
-        const result = await api(`/api/v1/admin/events/${eventId}`, {
-          method: "PUT",
+        await api(eventId ? `/api/v1/admin/events/${eventId}` : "/api/v1/admin/events", {
+          method: eventId ? "PUT" : "POST",
           body: JSON.stringify(Object.fromEntries(form)),
         });
-        statusNode.textContent = result.message;
+        window.location.assign("/admin/events/");
       } catch (error) {
-        statusNode.textContent = error.message;
+        window.showToast?.(error.message, { kind: "error" });
       }
     });
   }

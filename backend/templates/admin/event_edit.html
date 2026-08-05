@@ -2,5 +2,5 @@
 {% block title %}Edit event{% endblock %}
 {% block content %}
 <h1>Edit event</h1>
-<div data-admin-event-edit data-event-id="{{ event_id }}">Loading event…</div>
+<div data-admin-event-edit data-event-id="{{ event_id|default('', true) }}">Loading event…</div>
 {% endblock %}

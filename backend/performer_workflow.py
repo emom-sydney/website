@@ -2614,6 +2614,26 @@ def get_upcoming_open_mic_events(cursor):
     ]
 
 
+def get_upcoming_events(cursor):
+    cursor.execute(
+        """
+        SELECT id, event_name, event_description, event_date
+        FROM events
+        WHERE event_date >= CURRENT_DATE
+        ORDER BY event_date, id
+        """
+    )
+    return [
+        {
+            "event_id": row[0],
+            "event_name": row[1],
+            "event_description": row[2],
+            "event_date": row[3].isoformat(),
+        }
+        for row in cursor.fetchall()
+    ]
+
+
 def get_open_mic_event_for_lineup_selection(cursor, event_id):
     cursor.execute(
         """
