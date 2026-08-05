@@ -41,6 +41,8 @@ Dashboard and domains:
 - `GET|PUT /api/v1/admin/events/<event_id>/lineup`
 - `POST|DELETE /api/v1/admin/events/<event_id>/lineup/lock`
 - `POST /api/v1/admin/events/<event_id>/performer-requests/<request_id>/availability-reminders`
+- `POST /api/v1/admin/events/<event_id>/performer-requests/<request_id>/lineup-status-notifications`
+- `DELETE /api/v1/admin/events/<event_id>/performer-requests/<request_id>`
 - `GET /api/v1/admin/events/<event_id>/standby`
 - `POST /api/v1/admin/events/<event_id>/lineup/promotions`
 - `GET /api/v1/admin/profiles/submissions?status=pending`

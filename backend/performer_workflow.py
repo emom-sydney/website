@@ -2233,11 +2233,17 @@ def send_availability_confirmation_for_requested_date(app, cursor, *, requested_
         UPDATE requested_dates
         SET availability_email_sent_at = now()
         WHERE id = %s
+        RETURNING (extract(epoch FROM availability_email_sent_at) * 1000)::bigint
         """,
         (requested_date["id"],),
     )
+    availability_email_sent_at_epoch = cursor.fetchone()[0]
 
-    return {"display_name": requested_date["display_name"], "email": requested_date["email"]}
+    return {
+        "display_name": requested_date["display_name"],
+        "email": requested_date["email"],
+        "availability_email_sent_at_epoch": availability_email_sent_at_epoch,
+    }
 
 
 def create_availability_action_links(app, cursor, *, requested_date_id, event_id, ttl_hours):
@@ -2833,6 +2839,8 @@ def get_lineup_selection_candidates(cursor, event_id):
             d.email,
           d.contact_phone,
           rd.status AS availability_status,
+          (extract(epoch FROM rd.availability_email_sent_at) * 1000)::bigint
+            AS availability_email_sent_at_epoch,
           COALESCE(p.is_profile_approved, false) AS is_profile_approved,
           COALESCE(
             (
@@ -2881,6 +2889,7 @@ def get_lineup_selection_candidates(cursor, event_id):
           email,
           contact_phone,
           availability_status,
+          availability_email_sent_at_epoch,
           is_profile_approved,
           social_links,
           selection_status,
@@ -2900,13 +2909,29 @@ def get_lineup_selection_candidates(cursor, event_id):
             "email": row[4],
             "contact_phone": row[5],
             "availability_status": row[6],
-            "is_profile_approved": row[7],
-            "social_links": row[8],
-            "selection_status": row[9] or None,
-            "slot_number": row[10],
+            "availability_email_sent_at_epoch": row[7],
+            "is_profile_approved": row[8],
+            "social_links": row[9],
+            "selection_status": row[10] or None,
+            "slot_number": row[11],
         }
         for row in cursor.fetchall()
     ]
+
+
+def remove_cancelled_lineup_candidate(cursor, *, event_id, requested_date_id):
+    cursor.execute(
+        """
+        DELETE FROM requested_dates
+        WHERE id = %s
+          AND event_id = %s
+          AND status = 'availability_cancelled'
+        RETURNING id
+        """,
+        (requested_date_id, event_id),
+    )
+    if not cursor.fetchone():
+        raise ValueError("Only cancelled performer requests can be removed from the lineup list.")
 
 
 def is_lineup_selection_candidate_eligible(candidate):
@@ -3525,7 +3550,7 @@ def send_availability_email(*, email, display_name, event_name, event_date, conf
         f"Hello {display_name or 'performer'},\n\n"
         f"You previously registered interest in playing at {event_name} on {event_date}.\n"
         "Please use one of the links below to confirm or cancel your availability.\n\n"
-        "NB: This is NOT an invitation to play, we're just confirming that you're still available before we choose a lineup for the night. We'll be in touch within the next few days to let you know if you're on."
+        "NB: This is NOT an invitation to play, we're just confirming that you're still available before we choose a lineup for the night. We'll be in touch within the next few days to let you know if you're on.\n\n"
         f"Confirm availability: {confirm_url}\n"
         f"Cancel availability: {cancel_url}\n\n"
         f"These links expire at {format_link_expiry_local(expires_at)}.\n"

@@ -49,6 +49,17 @@
     return "Awaiting availability confirmation";
   }
 
+  function formatAvailabilityEmailSent(epoch) {
+    const sentAt = new Date(Number(epoch));
+    if (Number.isNaN(sentAt.getTime())) return "";
+    const day = String(sentAt.getDate()).padStart(2, "0");
+    const month = String(sentAt.getMonth() + 1).padStart(2, "0");
+    const hours = String(sentAt.getHours()).padStart(2, "0");
+    const minutes = String(sentAt.getMinutes()).padStart(2, "0");
+    const elapsedHours = Math.max(0, Math.floor((Date.now() - sentAt.getTime()) / 3600000));
+    return `${day}/${month} ${hours}:${minutes} (${elapsedHours} hours ago)`;
+  }
+
   function socialLinkUrl(link) {
     const profileName = String(link.profile_name || "").trim();
     const urlFormat = String(link.url_format || "").trim();
@@ -139,7 +150,7 @@
     const data = await api(`/api/v1/admin/events/${eventId}/lineup`);
     node.innerHTML = `
       <h2>${escapeHtml(data.event.event_name)} — ${escapeHtml(data.event.event_date)}</h2>
-      <p>${data.candidates.length} performers have expressed interest in this date.</p>
+      <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date.</p>
       <form data-lineup-form>
         <div class="admin-table-wrap"><table>
           <thead><tr><th>Performer</th><th>Social media</th><th>Availability</th><th>Status</th><th>Reminder</th></tr></thead>
@@ -149,15 +160,19 @@
               <td>${renderSocialLinks(item.social_links)}</td>
               <td>${escapeHtml(item.availability_status)}</td>
               <td>
-                ${item.availability_status === "availability_confirmed" && item.is_profile_approved
+                ${item.availability_status === "availability_cancelled"
+                  ? ""
+                  : item.availability_status === "availability_confirmed" && item.is_profile_approved
                   ? `<select name="status_${item.requested_date_id}">
                       ${["standby", "selected", "reserve"].map((value) =>
                         `<option value="${value}"${item.selection_status === value ? " selected" : ""}>${value}</option>`
                       ).join("")}
                     </select>`
+                  : item.availability_email_sent_at_epoch
+                  ? `<small>Availability confirmation sent ${escapeHtml(formatAvailabilityEmailSent(item.availability_email_sent_at_epoch))}</small>`
                   : `<small>${lineupEligibilityMessage(item)}</small>`}
               </td>
-              <td><button type="button" data-reminder-id="${item.requested_date_id}" data-reminder-kind="${item.availability_status === "availability_confirmed" && item.is_profile_approved ? "lineup-status" : "availability"}">Send</button></td>
+              <td><button type="button" data-reminder-id="${item.requested_date_id}" data-reminder-kind="${item.availability_status === "availability_cancelled" ? "remove" : item.availability_status === "availability_confirmed" && item.is_profile_approved ? "lineup-status" : "availability"}">${item.availability_status === "availability_cancelled" ? "Remove" : "Send"}</button></td>
             </tr>`).join("")}</tbody>
         </table></div>
         <button type="submit">Save lineup</button>
@@ -168,6 +183,23 @@
       button.addEventListener("click", async () => {
         button.disabled = true;
         try {
+          if (button.dataset.reminderKind === "remove") {
+            try {
+              const result = await api(
+                `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}`,
+                { method: "DELETE" }
+              );
+              button.closest("tr")?.remove();
+              const countNode = node.querySelector("[data-interest-count]");
+              if (countNode) countNode.textContent = String(Math.max(0, Number(countNode.textContent) - 1));
+              window.showToast?.(result.message, { kind: "success" });
+            } catch (error) {
+              window.showToast?.(error.message, { kind: "error" });
+            } finally {
+              button.disabled = false;
+            }
+            return;
+          }
           const path = button.dataset.reminderKind === "lineup-status"
             ? `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/lineup-status-notifications`
             : `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/availability-reminders`;
@@ -178,6 +210,12 @@
             method: "POST",
             ...(body ? { body: JSON.stringify(body) } : {}),
           });
+          if (button.dataset.reminderKind === "availability" && result.availability_email_sent_at_epoch) {
+            const statusCell = button.closest("tr")?.children[3];
+            if (statusCell) {
+              statusCell.innerHTML = `<small>Availability confirmation sent ${escapeHtml(formatAvailabilityEmailSent(result.availability_email_sent_at_epoch))}</small>`;
+            }
+          }
           window.showToast?.(result.message, { kind: "success" });
         } catch (error) {
           window.showToast?.(error.message, { kind: "error" });

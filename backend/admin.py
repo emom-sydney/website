@@ -543,7 +543,13 @@ def register_admin_api_routes(app):
                     sent = workflow.send_availability_confirmation_for_requested_date(
                         app, cursor, requested_date_id=requested_date_id, event_id=event_id
                     )
-            return api_data({"message": f"Availability reminder sent to {sent['display_name']}."}, 201)
+            return api_data(
+                {
+                    "message": f"Availability reminder sent to {sent['display_name']}.",
+                    "availability_email_sent_at_epoch": sent["availability_email_sent_at_epoch"],
+                },
+                201,
+            )
         except ValueError as exc:
             return api_error("availability_reminder_failed", str(exc))
 
@@ -573,6 +579,24 @@ def register_admin_api_routes(app):
             return api_data({"message": f"Lineup status sent to {sent['display_name']}."}, 201)
         except ValueError as exc:
             return api_error("lineup_status_notification_failed", str(exc))
+
+    @app.delete(
+        "/api/v1/admin/events/<int:event_id>/performer-requests/<int:requested_date_id>"
+    )
+    @require_staff(admin=True)
+    def remove_cancelled_performer_request(event_id, requested_date_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    workflow.remove_cancelled_lineup_candidate(
+                        cursor, event_id=event_id, requested_date_id=requested_date_id
+                    )
+            return api_data({"message": "Cancelled performer removed from the lineup list."})
+        except ValueError as exc:
+            return api_error("performer_request_removal_failed", str(exc))
 
     @app.get("/api/v1/admin/events/<int:event_id>/standby")
     @require_staff(moderator=True)
