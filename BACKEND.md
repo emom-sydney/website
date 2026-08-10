@@ -74,3 +74,22 @@ Install:
 
 Validate nginx, reload it, and restart `emom-backend`. There is no
 legacy compatibility layer.
+
+## WSL/Debian notes
+
+Some parts of Python are not installed on Debian by default, so you need to do the following before
+you do anything else:
+
+```bash
+apt-get install python3 python3-dev python3-pip python-is-python3
+python3 -m venv venv/local
+```
+
+This will create a virtual environment which is where all python packages will be created.
+
+Now add the following to your `.bashrc`:
+
+```bash
+export VIRTUAL_ENV_DISABLE_PROMPT=1
+source ~/venv/local/bin/activate
+```

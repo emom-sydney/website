@@ -23,15 +23,18 @@ The site currently includes:
 ## Build Process
 To build the site files, from the top level directory run
 ```
+npm install
 npx @11ty/eleventy 
 ```
 and the site will be generated in the _site directory. (add the `--serve` flag to have it served to `localhost:8080`)
+
+NB: This requires a working connection to the Database (see next block).
 
 See the functions defined in [package.json](./package.json) for some useful `npm run` shortcuts
 
 ## Postgres runtime
 
-The build process reads relational data from Postgres through an SSH tunnel documented in [DB_SETUP.md](./DB_SETUP.md).
+The build process reads relational data from Postgres tunnel documented in [DB_SETUP.md](./DB_SETUP.md).
 
 Canonical schema:
 
@@ -51,6 +54,7 @@ set +a
 Then build normally with Eleventy.
 
 `DATABASE_URL` can be used instead of the individual `PG*` variables if preferred, but the current repo workflow uses `.pgenv`.
+For those who have forgotten, the `set -a` exports the variables for visibility in subsequent shells and programs.
 
 ## Backend
 

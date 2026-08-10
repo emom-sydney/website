@@ -9,11 +9,12 @@ from urllib.parse import quote
 from flask import jsonify, request
 
 from backend.db import connect
+from backend.keila_workflow import (
+    is_contact_active_in_keila_project,
+    subscribe_contact_in_keila_project,
+    unsubscribe_contact_from_keila_project,
+)
 from backend.mailer import send_mail
-from backend.keila_workflow import is_contact_active_in_keila_project
-from backend.keila_workflow import subscribe_contact_in_keila_project
-from backend.keila_workflow import unsubscribe_contact_from_keila_project
-
 
 ACTION_TYPE_REGISTRATION_LINK = "profile_submission_access"
 ACTION_TYPE_STAFF_LOGIN = "staff_login"
@@ -1444,7 +1445,7 @@ def get_available_events(cursor, profile_id, settings):
     if last_performance is None:
         cursor.execute(
             """
-            SELECT 
+            SELECT
               id,
               event_name,
               event_description,
