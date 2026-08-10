@@ -7,10 +7,9 @@ from urllib.parse import quote
 
 from flask import g, jsonify, make_response, redirect, render_template, request
 
+import backend.performer_workflow as workflow
 from backend.db import connect
 from backend.mailer import send_mail
-import backend.performer_workflow as workflow
-
 
 STAFF_LOGIN_ACTION = "staff_login"
 SESSION_COOKIE = "emom_staff_session"
