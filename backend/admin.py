@@ -7,15 +7,16 @@ from urllib.parse import quote
 
 from flask import g, jsonify, make_response, redirect, render_template, request
 
+import backend.performer_workflow as workflow
 from backend.db import connect
 from backend.mailer import send_mail
-import backend.performer_workflow as workflow
-
 
 STAFF_LOGIN_ACTION = "staff_login"
 SESSION_COOKIE = "emom_staff_session"
 CSRF_COOKIE = "emom_staff_csrf"
 
+# TODO Split into multiple files. This one is way too big.
+# TODO Move database queries into their own library files.
 
 def now_utc():
     return datetime.now(timezone.utc)
@@ -872,6 +873,48 @@ def register_admin_api_routes(app):
             return api_data({"promoted": promoted}, 201)
         except (TypeError, ValueError) as exc:
             return api_error("promotion_failed", str(exc))
+
+    @app.get("/api/v1/admin/events/<int:event_id>/performer/<int:position>/name")
+    # @require_staff(admin=True) # Should probably require this at some point
+    def get_perfomer_subtitle_name(event_id, position)
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT e.id, e.event_date, e.type_id, e.event_name, e.event_description,
+                        et.description
+                    FROM events e
+                    JOIN event_types et ON et.id = e.type_id
+                    WHERE e.id = %s
+                    """,
+                    (event_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    _ = cursor.execute(
+                        """
+                        SELECT profiles.display_name, profile_social_profiles.profile_name,
+                            REPLACE(social_platforms.url_format, '{profileName}', profile_social_profiles.profile_name) AS social_link
+                        FROM performances
+                        JOIN profiles ON profiles.id = performances.profile_id
+                        LEFT JOIN profile_social_profiles ON profiles.profile_id = profile_social_profiles.profile_id
+                        LEFT JOIN social_platforms ON profile_social_profiles.social_platform_id = social_platforms.id
+                        WHERE performances.event_id = %s AND performances.id = %s
+                        -- LIMIT 2 -- should limit it but this doesn't let us pick which two
+                        """,
+                        (event_id, position),
+                    )
+                    performer = cursor.fetchall();
+                    if not performer:
+                        return None
+                    return render_template(
+                        "admin/subtitle-performer.html",
+                        name=performer[0][0],
+                        social1=performer[0][2],
+                        social2=performer[1][2]
+                    )
+                else:
+                    return api_error("not_found", "Event not found.", 404)
 
     @app.get("/api/v1/admin/profiles/submissions")
     @require_staff(moderator=True)

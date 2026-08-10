@@ -2,9 +2,7 @@ import re
 
 from flask import jsonify, request
 
-from backend.mailer import get_from_address
-from backend.mailer import send_mail
-
+from backend.mailer import get_from_address, send_mail
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 

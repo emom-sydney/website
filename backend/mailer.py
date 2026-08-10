@@ -1,10 +1,9 @@
+import html as html_lib
 import os
 import re
 import smtplib
-import html as html_lib
 from email.message import EmailMessage
-from email.utils import formatdate
-from email.utils import make_msgid
+from email.utils import formatdate, make_msgid
 
 URL_PATTERN = re.compile(r"(https?://[^\s<>()]+)")
 EMAIL_PATTERN = re.compile(r"\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")

@@ -6,17 +6,14 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from urllib.error import HTTPError
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from flask import jsonify, request
 
 from backend.db import connect
 from backend.mailer import send_mail
-
 
 NEWSLETTER_CONFIRM_ACTION = "newsletter_subscribe_confirm"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
