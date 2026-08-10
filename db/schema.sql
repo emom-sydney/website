@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS events (
   type_id integer NOT NULL REFERENCES event_types(id),
   event_name text NOT NULL,
   event_description text,
+  performance_slots integer NOT NULL DEFAULT 7 CONSTRAINT events_performance_slots_positive CHECK (performance_slots > 0),
   gallery_url text UNIQUE,
   youtube_embed_url text,
   lineup_selection_email_sent_at timestamptz
@@ -332,8 +333,7 @@ VALUES
   ('performer_request_cooldown_events', '3'::jsonb),
   ('availability_confirmation_lead_days', '10'::jsonb),
   ('lineup_selection_lead_days', '7'::jsonb),
-  ('action_token_ttl_hours', '24'::jsonb),
-  ('max_performers_per_event', '7'::jsonb)
+  ('action_token_ttl_hours', '24'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 INSERT INTO volunteer_roles (role_key, display_name, description, role_scope, default_capacity, sort_order)

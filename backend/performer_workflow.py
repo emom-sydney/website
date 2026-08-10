@@ -423,13 +423,12 @@ def register_performer_workflow_routes(app):
                             )
                         event = get_event_selection_context(cursor, event_id)
                         candidates = get_lineup_selection_candidates(cursor, event_id)
-                        max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
                 return render_lineup_selection_form(
                     raw_token,
                     event,
                     available_events,
                     candidates,
-                    max_performers,
+                    event["performance_slots"],
                     selected_event_id=event_id,
                     active_editor_name=(
                         lock_state.get("locked_by_name")
@@ -471,7 +470,6 @@ def register_performer_workflow_routes(app):
                             f"{holder_name} is currently editing this lineup. "
                             f"Please try again after {locked_until}."
                         )
-                    settings = get_workflow_settings(cursor)
                     event = get_event_selection_context(cursor, event_id)
                     candidates = get_lineup_selection_candidates(cursor, event_id)
                     candidate_statuses = parse_lineup_selection_statuses(request.form, candidates)
@@ -487,7 +485,7 @@ def register_performer_workflow_routes(app):
                         admin_profile_id=token_row["profile_id"],
                         candidates=candidates,
                         candidate_statuses=candidate_statuses,
-                        max_performers=settings["max_performers_per_event"],
+                        performance_slots=event["performance_slots"],
                     )
                     release_lineup_selection_lock(
                         cursor,
@@ -567,7 +565,6 @@ def register_performer_workflow_routes(app):
                         event_id=event_id,
                     )
                     candidates = get_lineup_selection_candidates(cursor, event_id)
-                    max_performers = get_workflow_settings(cursor)["max_performers_per_event"]
 
                 notice_message = f"Availability confirmation email sent to {sent['display_name']} ({sent['email']})."
                 if wants_json:
@@ -578,7 +575,7 @@ def register_performer_workflow_routes(app):
                     event,
                     available_events,
                     candidates,
-                    max_performers,
+                    event["performance_slots"],
                     selected_event_id=event_id,
                     notice_message=notice_message,
                     active_editor_name=(
@@ -1016,7 +1013,6 @@ def get_workflow_settings(cursor):
                 "availability_confirmation_lead_days",
                 "lineup_selection_lead_days",
                 "action_token_ttl_hours",
-                "max_performers_per_event",
             ],
         ),
     )
@@ -1025,7 +1021,6 @@ def get_workflow_settings(cursor):
         "availability_confirmation_lead_days": 10,
         "lineup_selection_lead_days": 7,
         "action_token_ttl_hours": 24,
-        "max_performers_per_event": 7,
     }
     for key, value_json in cursor.fetchall():
         value = value_json if not isinstance(value_json, str) else json.loads(value_json)
@@ -2572,7 +2567,7 @@ def mark_expired_moderation_tokens_replaced(cursor, *, draft_id, moderator_profi
 def get_due_lineup_selection_events(cursor, target_date):
     cursor.execute(
         """
-        SELECT id, event_name, event_description, event_date
+        SELECT id, event_name, event_description, event_date, performance_slots
         FROM events
         WHERE event_date = %s
           AND type_id = %s
@@ -2586,7 +2581,8 @@ def get_due_lineup_selection_events(cursor, target_date):
             "event_id": row[0],
             "event_name": row[1],
             "event_description": row[2],
-            "event_date": row[3].isoformat()
+            "event_date": row[3].isoformat(),
+            "performance_slots": row[4],
         }
         for row in cursor.fetchall()
     ]
@@ -2595,7 +2591,7 @@ def get_due_lineup_selection_events(cursor, target_date):
 def get_upcoming_open_mic_events(cursor):
     cursor.execute(
         """
-        SELECT id, event_name, event_description, event_date
+        SELECT id, event_name, event_description, event_date, performance_slots
         FROM events
         WHERE type_id = %s
           AND event_date >= CURRENT_DATE
@@ -2608,7 +2604,8 @@ def get_upcoming_open_mic_events(cursor):
             "event_id": row[0],
             "event_name": row[1],
             "event_description": row[2],
-            "event_date": row[3].isoformat()
+            "event_date": row[3].isoformat(),
+            "performance_slots": row[4],
         }
         for row in cursor.fetchall()
     ]
@@ -2640,7 +2637,7 @@ def get_upcoming_events(cursor):
 def get_open_mic_event_for_lineup_selection(cursor, event_id):
     cursor.execute(
         """
-        SELECT id, event_name, event_description, event_date
+        SELECT id, event_name, event_description, event_date, performance_slots
         FROM events
         WHERE id = %s
           AND type_id = %s
@@ -2655,7 +2652,8 @@ def get_open_mic_event_for_lineup_selection(cursor, event_id):
             "event_id": row[0],
             "event_name": row[1],
             "event_description": row[2],
-            "event_date": row[3].isoformat()
+            "event_date": row[3].isoformat(),
+            "performance_slots": row[4],
             }
 
 
@@ -2833,7 +2831,7 @@ def get_admin_profile_by_email(cursor, email):
 def get_event_selection_context(cursor, event_id):
     cursor.execute(
         """
-        SELECT id, event_name, event_description, event_date
+        SELECT id, event_name, event_description, event_date, performance_slots
         FROM events
         WHERE id = %s
         """,
@@ -2846,7 +2844,8 @@ def get_event_selection_context(cursor, event_id):
              "event_id": row[0],
              "event_name": row[1],
              "event_description": row[2],
-             "event_date": row[3].isoformat()
+             "event_date": row[3].isoformat(),
+             "performance_slots": row[4],
            }
 
 
@@ -2965,7 +2964,7 @@ def is_lineup_selection_candidate_eligible(candidate):
     )
 
 
-def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, max_performers):
+def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, performance_slots):
     candidate_by_requested_date_id = {item["requested_date_id"]: item for item in candidates}
     invalid_ids = [item for item in candidate_statuses if item not in candidate_by_requested_date_id]
     if invalid_ids:
@@ -2977,8 +2976,8 @@ def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, can
         if is_lineup_selection_candidate_eligible(item)
         if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
     ]
-    if len(selected_requested_date_ids) > max_performers:
-        raise ValueError(f"You can select at most {max_performers} performers.")
+    if len(selected_requested_date_ids) > performance_slots:
+        raise ValueError(f"You can select at most {performance_slots} performers.")
 
     selected_profile_ids = []
     for item in candidates:
@@ -3302,13 +3301,13 @@ def handle_selection_cancellation_if_needed(app, cursor, requested_date):
             )
         return
 
-    if get_selected_count(cursor, requested_date["event_id"]) < get_workflow_settings(cursor)["max_performers_per_event"]:
+    if get_selected_count(cursor, requested_date["event_id"]) < event["performance_slots"]:
         send_open_slot_alert_email(
             moderator_emails=moderator_emails,
             event_name=event["event_name"],
             event_date=event["event_date"],
             selected_count=get_selected_count(cursor, requested_date["event_id"]),
-            slot_count=get_workflow_settings(cursor)["max_performers_per_event"],
+            slot_count=event["performance_slots"],
         )
 
 
@@ -3619,28 +3618,31 @@ def send_lineup_selection_access_email(*, admin_email, selection_url, expires_at
 
 def send_selected_performer_emails(event, candidates, selected_requested_date_ids):
     selected_set = set(selected_requested_date_ids)
+    for item in candidates:
+        if item["requested_date_id"] in selected_set:
+            send_selected_performer_email(event, item)
+
+
+def send_selected_performer_email(event, candidate):
     faq_url = "https://sydney.emom.me/perform/faq"
     contact_email = "admin@sydney.emom.me"
-    for item in candidates:
-        if item["requested_date_id"] not in selected_set:
-            continue
-        text_body = (
-            f"Yay! Your appearance at {event['event_name']} on {event['event_date']} has been confirmed.\n"
-            f"Please see our FAQ for everything you need to know: {faq_url}\n"
-            f"And feel free to email us with any further questions: {contact_email}\n"
-        )
-        html_body = (
-            f"<p>Yay! Your appearance at {html.escape(event['event_name'])} on {html.escape(event['event_date'])} has been confirmed.</p>"
-            f"<p>Please see our <a href=\"{html.escape(faq_url, quote=True)}\">FAQ</a> for everything you need to know, "
-            f"and feel free to <a href=\"mailto:{html.escape(contact_email, quote=True)}\">email us</a> "
-            "with any further questions.</p>"
-        )
-        send_mail(
-            item["email"],
-            f"sydney.emom | performance confirmed for {event['event_name']}",
-            text_body,
-            html_body=html_body,
-        )
+    text_body = (
+        f"Yay! Your appearance at {event['event_name']} on {event['event_date']} has been confirmed.\n"
+        f"Please see our FAQ for everything you need to know: {faq_url}\n"
+        f"And feel free to email us with any further questions: {contact_email}\n"
+    )
+    html_body = (
+        f"<p>Yay! Your appearance at {html.escape(event['event_name'])} on {html.escape(event['event_date'])} has been confirmed.</p>"
+        f"<p>Please see our <a href=\"{html.escape(faq_url, quote=True)}\">FAQ</a> for everything you need to know, "
+        f"and feel free to <a href=\"mailto:{html.escape(contact_email, quote=True)}\">email us</a> "
+        "with any further questions.</p>"
+    )
+    send_mail(
+        candidate["email"],
+        f"sydney.emom | performance confirmed for {event['event_name']}",
+        text_body,
+        html_body=html_body,
+    )
 
 
 def send_lineup_status_notification(event, candidate, *, status=None):
@@ -3737,7 +3739,7 @@ def render_lineup_selection_form(
     event,
     available_events,
     candidates,
-    max_performers,
+    performance_slots,
     selected_event_id,
     notice_message=None,
     active_editor_name=None,
@@ -3817,14 +3819,10 @@ def render_lineup_selection_form(
         + event_tabs
         + "</div>"
         + "<p>All requests for this event are shown below. Only confirmed performers can be assigned lineup status.</p>"
-        "<div class='summary'>"
-        "<strong>Total selected to perform:</strong> "
-        "<span id='selected-count'>0</span>"
-        "<span> / "
-        + html.escape(str(max_performers))
-        + "</span>"
-        "</div>"
         "<form method='post' action='/api/v1/admin/events'>"
+        "<div class='summary'><strong><span id='selected-count'>0</span> / "
+        + html.escape(str(performance_slots))
+        + " slots selected</strong></div>"
         "<input type='hidden' name='token' value='"
         + html.escape(raw_token, quote=True)
         + "'>"
@@ -3905,8 +3903,13 @@ def render_lineup_selection_form(
         "control.textContent = originalText;"
         "}"
         "}"
-        "function updateSelectedCount() {"
+        "function updateSelectedCount(changedSelect) {"
         "const count = selects.filter((node) => node.value === 'selected').length;"
+        f"if (count > {to_js_literal(performance_slots)} && changedSelect) {{"
+        "if (changedSelect) { changedSelect.value = changedSelect.dataset.previousValue || 'standby'; }"
+        f"window.alert('You can select at most {performance_slots} performers.');"
+        "return updateSelectedCount();"
+        "}"
         "countNode.textContent = String(count);"
         "}"
         "async function refreshLock() {"
@@ -3921,7 +3924,7 @@ def render_lineup_selection_form(
         "/* Ignore transient network issues and keep the page usable. */"
         "}"
         "}"
-        "selects.forEach((node) => node.addEventListener('change', updateSelectedCount));"
+        "selects.forEach((node) => { node.dataset.previousValue = node.value; node.addEventListener('change', () => { updateSelectedCount(node); node.dataset.previousValue = node.value; }); });"
         "confirmationLinks.forEach((node) => node.addEventListener('click', sendConfirmationByAjax));"
         "updateSelectedCount();"
         "window.setInterval(refreshLock, 60000);"

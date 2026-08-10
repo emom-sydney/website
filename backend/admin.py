@@ -1,11 +1,12 @@
 import hashlib
+import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import quote
 
-from flask import g, jsonify, make_response, redirect, render_template, request
+from flask import Response, g, jsonify, make_response, redirect, render_template, request, stream_with_context
 
 from backend.db import connect
 from backend.mailer import send_mail
@@ -455,7 +456,7 @@ def register_admin_api_routes(app):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT e.id, e.event_date, e.type_id, e.event_name, e.event_description,
+                    SELECT e.id, e.event_date, e.type_id, e.event_name, e.event_description, e.performance_slots,
                            et.description
                     FROM events e
                     JOIN event_types et ON et.id = e.type_id
@@ -489,7 +490,8 @@ def register_admin_api_routes(app):
             "type_id": row[2],
             "event_name": row[3],
             "event_description": row[4] or "",
-            "type_description": row[5],
+            "performance_slots": row[5],
+            "type_description": row[6],
             "performers": performers,
         })
 
@@ -573,27 +575,42 @@ def register_admin_api_routes(app):
         event_date = str(payload.get("event_date") or "").strip()
         event_name = str(payload.get("event_name") or "").strip()
         event_description = str(payload.get("event_description") or "").strip()
+        performance_slots = payload.get("performance_slots")
         try:
             from datetime import date
             date.fromisoformat(event_date)
             type_id = int(payload.get("type_id"))
-            if type_id not in (1, 2):
+            performance_slots = int(performance_slots)
+            if type_id not in (1, 2) or performance_slots <= 0:
                 raise ValueError
         except (TypeError, ValueError):
-            return api_error("invalid_event", "Date must be valid and event type must be 1 or 2.")
+            return api_error("invalid_event", "Date, event type, and a positive number of performance slots are required.")
         if not event_name:
             return api_error("invalid_event", "Event name is required.")
         with connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
+                    SELECT COUNT(*)
+                    FROM event_performer_selections
+                    WHERE event_id = %s AND status = %s
+                    """,
+                    (event_id, workflow.LINEUP_STATUS_SELECTED),
+                )
+                if cursor.fetchone()[0] > performance_slots:
+                    return api_error(
+                        "invalid_event",
+                        "Performance slots cannot be lower than the current number of selected performers.",
+                    )
+                cursor.execute(
+                    """
                     UPDATE events
                     SET event_date = %s, type_id = %s, event_name = %s,
-                        event_description = %s
+                        event_description = %s, performance_slots = %s
                     WHERE id = %s
                     RETURNING id
                     """,
-                    (event_date, type_id, event_name, event_description, event_id),
+                    (event_date, type_id, event_name, event_description, performance_slots, event_id),
                 )
                 if not cursor.fetchone():
                     return api_error("not_found", "Event not found.", 404)
@@ -609,25 +626,27 @@ def register_admin_api_routes(app):
         event_date = str(payload.get("event_date") or "").strip()
         event_name = str(payload.get("event_name") or "").strip()
         event_description = str(payload.get("event_description") or "").strip()
+        performance_slots = payload.get("performance_slots")
         try:
             from datetime import date
             date.fromisoformat(event_date)
             type_id = int(payload.get("type_id"))
-            if type_id not in (1, 2):
+            performance_slots = int(performance_slots)
+            if type_id not in (1, 2) or performance_slots <= 0:
                 raise ValueError
         except (TypeError, ValueError):
-            return api_error("invalid_event", "Date must be valid and event type must be 1 or 2.")
+            return api_error("invalid_event", "Date, event type, and a positive number of performance slots are required.")
         if not event_name:
             return api_error("invalid_event", "Event name is required.")
         with connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO events (event_date, type_id, event_name, event_description)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO events (event_date, type_id, event_name, event_description, performance_slots)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (event_date, type_id, event_name, event_description),
+                    (event_date, type_id, event_name, event_description, performance_slots),
                 )
                 event_id = cursor.fetchone()[0]
         return api_data({"event_id": event_id, "message": "Event saved."}, 201)
@@ -639,8 +658,7 @@ def register_admin_api_routes(app):
             with connection.cursor() as cursor:
                 event = workflow.get_event_selection_context(cursor, event_id)
                 candidates = workflow.get_lineup_selection_candidates(cursor, event_id)
-                max_performers = workflow.get_workflow_settings(cursor)["max_performers_per_event"]
-        return api_data({"event": event, "candidates": candidates, "max_performers": max_performers})
+        return api_data({"event": event, "candidates": candidates})
 
     @app.put("/api/v1/admin/events/<int:event_id>/lineup")
     @require_staff(admin=True)
@@ -689,14 +707,37 @@ def register_admin_api_routes(app):
                         admin_profile_id=g.staff["profile_id"],
                         candidates=candidates,
                         candidate_statuses=parsed_statuses,
-                        max_performers=workflow.get_workflow_settings(cursor)["max_performers_per_event"],
+                        performance_slots=event["performance_slots"],
                     )
                     workflow.release_lineup_selection_lock(
                         cursor,
                         event_id=event_id,
                         profile_id=g.staff["profile_id"],
                     )
-                workflow.send_selected_performer_emails(event, candidates, newly_selected)
+            if payload.get("progress") is True:
+                selected_request_ids = set(newly_selected)
+
+                @stream_with_context
+                def notification_progress():
+                    for candidate in candidates:
+                        if candidate["requested_date_id"] not in selected_request_ids:
+                            continue
+                        try:
+                            workflow.send_selected_performer_email(event, candidate)
+                        except Exception:
+                            app.logger.exception("Selected performer notification failed")
+                            yield json.dumps({"type": "error", "email": candidate["email"]}) + "\n"
+                            return
+                        yield json.dumps({"type": "sent", "email": candidate["email"]}) + "\n"
+                    yield json.dumps({"type": "complete", "message": "Lineup saved."}) + "\n"
+
+                return Response(
+                    notification_progress(),
+                    mimetype="application/x-ndjson",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+
+            workflow.send_selected_performer_emails(event, candidates, newly_selected)
             return api_data({"message": "Lineup saved."})
         except (TypeError, ValueError) as exc:
             return api_error("invalid_lineup", str(exc))
@@ -730,7 +771,13 @@ def register_admin_api_routes(app):
             if parsed_statuses.get(item["requested_date_id"]) == workflow.LINEUP_STATUS_SELECTED
             and item.get("selection_status") != workflow.LINEUP_STATUS_SELECTED
         ]
-        return api_data({"recipients": recipients})
+        unselected_emails = [
+            item["email"]
+            for item in candidates
+            if item.get("email")
+            and parsed_statuses.get(item["requested_date_id"]) != workflow.LINEUP_STATUS_SELECTED
+        ]
+        return api_data({"recipients": recipients, "unselected_emails": unselected_emails})
 
     @app.post("/api/v1/admin/events/<int:event_id>/lineup/lock")
     @require_staff(admin=True)

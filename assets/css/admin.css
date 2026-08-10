@@ -130,3 +130,50 @@
 .is-error {
   color: #ff8c8c;
 }
+
+[data-event-edit-form] {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-event-edit__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+[data-event-edit-form] label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .35rem;
+  margin: 0;
+}
+
+.admin-event-edit__name {
+  flex: 0 1 auto;
+  width: fit-content;
+}
+
+.admin-event-edit__name input {
+  width: 30ch;
+}
+
+.admin-event-edit__compact {
+  flex: 0 0 auto;
+  width: fit-content;
+}
+
+.admin-event-edit__compact :is(input, select) {
+  width: auto;
+  field-sizing: content;
+}
+
+.admin-event-edit__description {
+  width: 100%;
+}
+
+[data-event-edit-form] button[type="submit"] {
+  justify-self: end;
+}
