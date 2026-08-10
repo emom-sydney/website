@@ -923,7 +923,7 @@ def register_admin_api_routes(app):
 
     @app.get("/api/v1/admin/events/<int:event_id>/performer/<int:position>/name")
     # @require_staff(admin=True) # Should probably require this at some point
-    def get_perfomer_subtitle_name(event_id, position)
+    def get_perfomer_subtitle_name(event_id, position):
         with connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
