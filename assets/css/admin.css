@@ -102,6 +102,52 @@
   text-align: left;
 }
 
+.admin-table-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  background: transparent;
+  cursor: pointer;
+}
+
+.admin-table-sort span {
+  width: .7rem;
+  color: #777;
+  font-size: .8em;
+  line-height: 1;
+  opacity: .45;
+}
+
+.admin-table-sort span::before {
+  content: "↕";
+}
+
+.admin-table-sort[data-sort-direction="ascending"] span {
+  width: 0;
+  height: 0;
+  border-right: .28rem solid transparent;
+  border-left: .28rem solid transparent;
+  border-bottom: .35rem solid currentColor;
+}
+
+.admin-table-sort[data-sort-direction="descending"] span {
+  width: 0;
+  height: 0;
+  border-right: .28rem solid transparent;
+  border-left: .28rem solid transparent;
+  border-top: .35rem solid currentColor;
+}
+
+.admin-table-sort[data-sort-direction="ascending"] span::before,
+.admin-table-sort[data-sort-direction="descending"] span::before {
+  content: "";
+}
+
 .admin-social-links {
   margin: 0;
   padding-left: 1.1rem;

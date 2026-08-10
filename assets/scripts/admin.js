@@ -124,6 +124,37 @@
     }).join("")}</ul>`;
   }
 
+  function setupSortableTable(table) {
+    const headers = Array.from(table.querySelectorAll("thead th"));
+    const body = table.tBodies[0];
+    if (!body) return;
+
+    headers.forEach((header, columnIndex) => {
+      const label = header.textContent.trim();
+      header.innerHTML = `<button type="button" class="admin-table-sort" aria-label="Sort by ${escapeHtml(label)}" aria-sort="none">${escapeHtml(label)}<span aria-hidden="true"></span></button>`;
+      header.querySelector("button").addEventListener("click", () => {
+        const button = header.querySelector("button");
+        const descending = button.dataset.sortDirection === "ascending";
+        headers.forEach((otherHeader) => {
+          const otherButton = otherHeader.querySelector("button");
+          otherButton.dataset.sortDirection = "none";
+          otherButton.setAttribute("aria-sort", "none");
+        });
+        button.dataset.sortDirection = descending ? "descending" : "ascending";
+        button.setAttribute("aria-sort", button.dataset.sortDirection);
+
+        const rows = Array.from(body.rows);
+        rows.sort((left, right) => {
+          const leftText = left.cells[columnIndex]?.textContent.trim() || "";
+          const rightText = right.cells[columnIndex]?.textContent.trim() || "";
+          const result = leftText.localeCompare(rightText, undefined, { numeric: true, sensitivity: "base" });
+          return descending ? -result : result;
+        });
+        body.append(...rows);
+      });
+    });
+  }
+
   document.querySelector("[data-admin-login]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -279,7 +310,7 @@
       <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date.</p>
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
-        <div class="admin-table-wrap"><table>
+        <div class="admin-table-wrap"><table data-sortable-table>
           <thead><tr><th>Performer</th><th>Social media</th><th>Availability</th><th>Status</th><th>Reminder</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
             <tr>
@@ -305,6 +336,8 @@
         <button type="submit">Save lineup</button>
         <p role="status" data-lineup-status></p>
       </form>`;
+
+    setupSortableTable(node.querySelector("[data-sortable-table]"));
 
     node.querySelectorAll("[data-reminder-id]").forEach((button) => {
       button.addEventListener("click", async () => {
