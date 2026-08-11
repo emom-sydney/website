@@ -130,28 +130,38 @@
     if (!body) return;
 
     headers.forEach((header, columnIndex) => {
+      if (header.dataset.sortable === "false") return;
       const label = header.textContent.trim();
-      header.innerHTML = `<button type="button" class="admin-table-sort" aria-label="Sort by ${escapeHtml(label)}" aria-sort="none">${escapeHtml(label)}<span aria-hidden="true"></span></button>`;
-      header.querySelector("button").addEventListener("click", () => {
-        const button = header.querySelector("button");
-        const descending = button.dataset.sortDirection === "ascending";
-        headers.forEach((otherHeader) => {
-          const otherButton = otherHeader.querySelector("button");
+      header.dataset.sortColumn = String(columnIndex);
+      const labels = header.dataset.sortLabels?.split(",") || [label];
+      const keys = header.dataset.sortKeys?.split(",") || [""];
+      header.innerHTML = labels.map((sortLabel, index) => `<button type="button" class="admin-table-sort" aria-label="Sort by ${escapeHtml(sortLabel.trim())}" aria-sort="none" data-sort-direction="none" data-sort-key="${escapeHtml(keys[index]?.trim() || "")}">${escapeHtml(sortLabel.trim())}<span aria-hidden="true"></span></button>`).join(" ");
+    });
+
+    table.addEventListener("click", (event) => {
+      const button = event.target.closest(".admin-table-sort");
+      if (!button || !table.contains(button)) return;
+      const header = button.closest("th");
+      const columnIndex = Number(header.dataset.sortColumn);
+      const descending = button.dataset.sortDirection === "ascending";
+      headers.forEach((otherHeader) => {
+        otherHeader.querySelectorAll(".admin-table-sort").forEach((otherButton) => {
           otherButton.dataset.sortDirection = "none";
           otherButton.setAttribute("aria-sort", "none");
         });
-        button.dataset.sortDirection = descending ? "descending" : "ascending";
-        button.setAttribute("aria-sort", button.dataset.sortDirection);
-
-        const rows = Array.from(body.rows);
-        rows.sort((left, right) => {
-          const leftText = left.cells[columnIndex]?.textContent.trim() || "";
-          const rightText = right.cells[columnIndex]?.textContent.trim() || "";
-          const result = leftText.localeCompare(rightText, undefined, { numeric: true, sensitivity: "base" });
-          return descending ? -result : result;
-        });
-        body.append(...rows);
       });
+      button.dataset.sortDirection = descending ? "descending" : "ascending";
+      button.setAttribute("aria-sort", button.dataset.sortDirection);
+
+      const rows = Array.from(body.rows);
+      rows.sort((left, right) => {
+        const sortKey = button.dataset.sortKey;
+        const leftText = sortKey ? left.cells[columnIndex]?.dataset[sortKey] || "" : left.cells[columnIndex]?.textContent.trim() || "";
+        const rightText = sortKey ? right.cells[columnIndex]?.dataset[sortKey] || "" : right.cells[columnIndex]?.textContent.trim() || "";
+        const result = leftText.localeCompare(rightText, undefined, { numeric: true, sensitivity: "base" });
+        return descending ? -result : result;
+      });
+      body.append(...rows);
     });
   }
 
@@ -311,11 +321,12 @@
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
         <div class="admin-table-wrap"><table data-sortable-table>
-          <thead><tr><th>Performer</th><th>Social media</th><th>Availability</th><th>Status</th><th>Reminder</th></tr></thead>
+          <thead><tr><th>Performer</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Sel" data-sort-keys="requestCount,selectionCount">Req / Sel</th><th>Availability</th><th>Status</th><th data-sortable="false">Reminder</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
             <tr>
               <td>${escapeHtml(item.display_name)}<br><small>${escapeHtml(item.email)}</small></td>
               <td>${renderSocialLinks(item.social_links)}</td>
+              <td data-request-count="${escapeHtml(item.request_count)}" data-selection-count="${escapeHtml(item.selection_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.selection_count)}</td>
               <td>${escapeHtml(item.availability_status)}</td>
               <td>
                 ${item.availability_status === "availability_cancelled"
