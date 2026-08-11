@@ -10,6 +10,7 @@ import pytest
 import backend.admin as admin
 import backend.performer_workflow as workflow
 from backend.app import create_app
+from backend.lib import common
 
 
 @pytest.fixture()
@@ -68,7 +69,7 @@ def test_moderator_cannot_open_full_lineup(monkeypatch, client):
             "session_id": 1,
             "profile_id": 2,
             "csrf_token_hash": "unused",
-            "expires_at": admin.now_utc() + timedelta(hours=1),
+            "expires_at": common.now_utc() + timedelta(hours=1),
             "email": "moderator@example.com",
             "display_name": "Moderator",
             "is_admin": False,
@@ -88,7 +89,7 @@ def test_admin_mutation_requires_csrf_before_database_use(monkeypatch, client):
             "session_id": 1,
             "profile_id": 2,
             "csrf_token_hash": "unused",
-            "expires_at": admin.now_utc() + timedelta(hours=1),
+            "expires_at": common.now_utc() + timedelta(hours=1),
             "email": "admin@example.com",
             "display_name": "Admin",
             "is_admin": True,
@@ -112,7 +113,7 @@ def test_next_path_rejects_external_redirects():
 class FakeCursor:
     def __init__(self):
         self.fetches = [
-            (10, 20, admin.now_utc() + timedelta(minutes=5), None),
+            (10, 20, common.now_utc() + timedelta(minutes=5), None),
             (20, "staff@example.com", "Staff", True, False),
         ]
 

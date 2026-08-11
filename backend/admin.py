@@ -9,7 +9,8 @@ from urllib.parse import quote
 from flask import Response, g, jsonify, make_response, redirect, render_template, request, stream_with_context
 
 import backend.performer_workflow as workflow
-from backend.db import connect
+from backend.lib.db import connect
+from backend.lib.common import now_utc, positive_int_from_env, hash_token
 from backend.mailer import send_mail
 
 STAFF_LOGIN_ACTION = "staff_login"
@@ -18,13 +19,6 @@ CSRF_COOKIE = "emom_staff_csrf"
 
 # TODO Split into multiple files. This one is way too big.
 # TODO Move database queries into their own library files.
-
-def now_utc():
-    return datetime.now(timezone.utc)
-
-
-def hash_secret(value):
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def api_data(data, status=200):
@@ -39,27 +33,6 @@ def normalize_next_path(value, default="/admin/"):
     value = (value or "").strip()
     if not value.startswith("/admin/") or value.startswith("//"):
         return default
-    return value
-
-
-def get_staff_login_ttl_minutes():
-    return positive_int_env("STAFF_LOGIN_TOKEN_TTL_MINUTES", 15)
-
-
-def get_staff_session_ttl_hours():
-    return positive_int_env("STAFF_SESSION_TTL_HOURS", 12)
-
-
-def positive_int_env(name, default):
-    raw = (os.getenv(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a positive integer.") from exc
-    if value <= 0:
-        raise ValueError(f"{name} must be a positive integer.")
     return value
 
 
@@ -103,7 +76,7 @@ def create_staff_login_token(
     event_id=None,
 ):
     raw_token = secrets.token_urlsafe(32)
-    expires_at = now_utc() + timedelta(minutes=get_staff_login_ttl_minutes())
+    expires_at = now_utc() + timedelta(minutes=positive_int_from_env("STAFF_LOGIN_TOKEN_IN_MINUTES", 15))
     cursor.execute(
         """
         INSERT INTO action_tokens
@@ -111,7 +84,7 @@ def create_staff_login_token(
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (
-            hash_secret(raw_token),
+            hash_token(raw_token),
             STAFF_LOGIN_ACTION,
             staff["email"],
             staff["profile_id"],
@@ -169,7 +142,7 @@ def load_staff_session():
                     WHERE pr.profile_id = p.id AND pr.role = 'volunteer'
                   )
                 """,
-                (hash_secret(raw_session),),
+                (hash_token(raw_session),),
             )
             row = cursor.fetchone()
             if not row:
@@ -221,7 +194,7 @@ def require_csrf():
     cookie_csrf = request.cookies.get(CSRF_COOKIE)
     if not raw_csrf or not cookie_csrf or not secrets.compare_digest(raw_csrf, cookie_csrf):
         return api_error("csrf_failed", "The security token is missing or invalid.", 403)
-    if not secrets.compare_digest(hash_secret(raw_csrf), g.staff["csrf_token_hash"]):
+    if not secrets.compare_digest(hash_token(raw_csrf), g.staff["csrf_token_hash"]):
         return api_error("csrf_failed", "The security token is missing or invalid.", 403)
     return None
 
@@ -241,6 +214,7 @@ def register_admin_routes(app):
         if not raw_token:
             return render_template("admin/error.html", message="The staff login link is missing."), 400
         try:
+            staff_ttl_in_hours = positive_int_from_env("STAFF_SESSION_TTL_HOURS", 12)
             with connect() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -249,7 +223,7 @@ def register_admin_routes(app):
                         FROM action_tokens
                         WHERE token_hash = %s AND action_type = %s
                         """,
-                        (hash_secret(raw_token), STAFF_LOGIN_ACTION),
+                        (hash_token(raw_token), STAFF_LOGIN_ACTION),
                     )
                     token_row = cursor.fetchone()
                     if not token_row or token_row[3] is not None or token_row[2] <= now_utc():
@@ -273,7 +247,7 @@ def register_admin_routes(app):
                         raise ValueError("This profile no longer has staff access.")
                     raw_session = secrets.token_urlsafe(32)
                     raw_csrf = secrets.token_urlsafe(32)
-                    expires_at = now_utc() + timedelta(hours=get_staff_session_ttl_hours())
+                    expires_at = now_utc() + timedelta(hours=staff_ttl_in_hours)
                     cursor.execute("UPDATE action_tokens SET used_at = now() WHERE id = %s", (token_row[0],))
                     cursor.execute(
                         """
@@ -281,10 +255,10 @@ def register_admin_routes(app):
                           (session_token_hash, csrf_token_hash, profile_id, expires_at)
                         VALUES (%s, %s, %s, %s)
                         """,
-                        (hash_secret(raw_session), hash_secret(raw_csrf), staff_row[0], expires_at),
+                        (hash_token(raw_session), hash_token(raw_csrf), staff_row[0], expires_at),
                     )
             response = make_response(redirect(next_path))
-            max_age = get_staff_session_ttl_hours() * 60 * 60
+            max_age = staff_ttl_in_hours * 60 * 60
             response.set_cookie(
                 SESSION_COOKIE,
                 raw_session,
@@ -923,10 +897,10 @@ def register_admin_api_routes(app):
 
     @app.get("/api/v1/admin/events/<int:event_id>/performer/<int:position>/name")
     # @require_staff(admin=True) # Should probably require this at some point
-    def get_perfomer_subtitle_name(event_id, position)
+    def get_performer_subtitle_name(event_id, position):
         with connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
+                _ = cursor.execute(
                     """
                     SELECT e.id, e.event_date, e.type_id, e.event_name, e.event_description,
                         et.description
@@ -951,7 +925,7 @@ def register_admin_api_routes(app):
                         """,
                         (event_id, position),
                     )
-                    performer = cursor.fetchall();
+                    performer = cursor.fetchall()
                     if not performer:
                         return None
                     return render_template(

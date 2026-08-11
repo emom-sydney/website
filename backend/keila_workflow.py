@@ -12,8 +12,9 @@ from urllib.request import Request, urlopen
 
 from flask import jsonify, request
 
-from backend.db import connect
+from backend.lib.db import connect
 from backend.mailer import send_mail
+from backend.lib.common import now_utc, positive_int_from_env, hash_token, normalize_text, normalize_email
 
 NEWSLETTER_CONFIRM_ACTION = "newsletter_subscribe_confirm"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -38,7 +39,7 @@ def register_newsletter_workflow_routes(app):
 
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    ttl_hours = get_newsletter_token_ttl_hours()
+                    ttl_hours = positive_int_from_env("NEWSLETTER_TOKEN_TTL_IN_HOURS", 24)
                     invalidated_count = invalidate_unused_newsletter_tokens(cursor, email)
                     raw_token, token_hash = generate_token_pair()
                     expires_at = now_utc() + timedelta(hours=ttl_hours)
@@ -151,49 +152,11 @@ def get_json_payload():
     return payload
 
 
-def normalize_text(value):
-    if value is None:
-        return None
-
-    text = str(value).strip()
-    return text or None
-
-
-def normalize_email(value):
-    text = normalize_text(value)
-    if not text:
-        return None
-
-    email = text.lower()
-    if not EMAIL_PATTERN.match(email):
-        return None
-
-    return email
-
-
-def now_utc():
-    return datetime.now(timezone.utc)
-
-
-def hash_token(raw_token):
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-
 
 def generate_token_pair():
     raw_token = secrets.token_urlsafe(32)
     return raw_token, hash_token(raw_token)
 
-
-def get_newsletter_token_ttl_hours():
-    value = normalize_text(os.getenv("NEWSLETTER_TOKEN_TTL_HOURS"))
-    if not value:
-        return 24
-    if not value.isdigit():
-        raise ValueError("NEWSLETTER_TOKEN_TTL_HOURS must be an integer.")
-    ttl_hours = int(value)
-    if ttl_hours <= 0:
-        raise ValueError("NEWSLETTER_TOKEN_TTL_HOURS must be greater than zero.")
-    return ttl_hours
 
 
 def invalidate_unused_newsletter_tokens(cursor, email):

@@ -11,7 +11,7 @@ This is the codebase for sydney.emom.me website. We are building with the [11ty]
   - `lib/data/loadEmomData.js`
 - write-side forms and tokenized workflows handled by:
   - `backend/app.py`
-  - `backend/db.py`
+  - `backend/lib/db.py`
   - `backend/performer_workflow.py`
 
 The site currently includes:
