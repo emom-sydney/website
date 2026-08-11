@@ -223,15 +223,20 @@ Primary files:
 - `assets/scripts/performer_registration_form.js`
 - `src/perform.njk`
 
-Canonical URL surfaces:
+Current performer workflow capabilities:
 
-- public JSON API: `/api/v1/<domain>/...`
-- staff JSON API: `/api/v1/admin/<domain>/...`
-- staff browser UI: `/admin/...`
-- performer availability pages: `/perform/availability/...`
-- newsletter confirmation page: `/newsletter/confirm/`
-
-See `API.md` for the endpoint inventory.
+- `POST /api/v1/artists/registration/start`
+  - sends a 24-hour one-time registration link
+- `GET /api/v1/artists/registration/session?token=...`
+  - loads existing profile context, social platforms, and eligible Open Mic dates
+- `POST /api/v1/artists/registration/submissions`
+  - stores a moderated draft, social links, and requested dates
+- `GET /api/v1/profiles/submissions/moderation/approve?token=...`
+- `GET|POST /api/v1/profiles/submissions/moderation/deny?token=...`
+- `GET /api/v1/events/performer-requests/availability/confirm?token=...`
+- `GET /api/v1/events/performer-requests/availability/cancel?token=...`
+- `GET|POST /api/v1/events/performer-selections/admin?token=...`
+- `GET|POST /api/v1/events/performer-selections/backup?token=...`
 
 Current workflow notes:
 
