@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sydney.emom | {% block title %}Admin{% endblock %}</title>
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <link rel="stylesheet" href="/assets/css/admin.css">
+</head>
+<body class="admin-body">
+  <header class="admin-header">
+    <a href="/" class="admin-brand">sydney.emom</a>
+    {% if staff %}
+      <span>{{ staff.display_name }}</span>
+      <button type="button" data-admin-logout>Sign out</button>
+    {% endif %}
+  </header>
+  {% if staff %}
+    <nav class="admin-tabs" aria-label="Admin domains">
+      <a href="/admin/"{% if active_tab == "dashboard" %} aria-current="page"{% endif %}>Dashboard</a>
+      <a href="/admin/events/"{% if active_tab == "events" %} aria-current="page"{% endif %}>Events</a>
+      <a href="/admin/profiles/"{% if active_tab == "profiles" %} aria-current="page"{% endif %}>Profiles</a>
+    </nav>
+  {% endif %}
+  <main class="admin-main">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/assets/scripts/toast.js"></script>
+  <script src="/assets/scripts/admin.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -15,10 +15,19 @@ export const data = {
     alias: "artistPage"
   },
   eleventyComputed: {
-    pageTitle: data => data.artistPage.artist.stageName
+    pageTitle: data => data.artistPage?.artist?.stageName || "Artist",
+    description: data => {
+      const artist = data.artistPage?.artist;
+      if (!artist) return "Artist profile at sydney.emom";
+      const bio = artist.isBioPublic && artist.bio
+        ? artist.bio.substring(0, 150).replace(/\n/g, " ") + (artist.bio.length > 150 ? "..." : "")
+        : "Electronic music performer at sydney.emom";
+      return `${artist.stageName || "Artist"} - ${bio}`;
+    },
+    ogType: () => "profile"
   },
   permalink: data => {
-    return `artists/${data.artistPage.slug}/index.html`;
+    return `artists/${data.artistPage?.slug || "unknown"}/index.html`;
   }
 };
 

@@ -26,7 +26,15 @@ export const data = {
     alias: "volunteerPage"
   },
   eleventyComputed: {
-    pageTitle: data => getCrewDisplayName(data.volunteerPage.profile)
+    pageTitle: data => getCrewDisplayName(data.volunteerPage.profile),
+    description: data => {
+      const profile = data.volunteerPage.profile;
+      const name = profile?.isNamePublic && profile?.firstName
+        ? `${profile.firstName} ${profile.lastName || ""}`.trim()
+        : profile?.stageName || "Volunteer";
+      return `${name} - Volunteer crew member at sydney.emom`;
+    },
+    ogType: () => "profile"
   },
   permalink: data => {
     return `crew/${data.volunteerPage.slug}/index.html`;

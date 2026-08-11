@@ -1,0 +1,7 @@
+{% extends "admin/base.html" %}
+{% block title %}Admin error{% endblock %}
+{% block content %}
+<h1>Unable to continue</h1>
+<p>{{ message }}</p>
+<p><a href="/admin/login/">Request a new login link</a></p>
+{% endblock %}

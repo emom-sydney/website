@@ -15,10 +15,13 @@ if (appNode) {
   const additionalInfoField = document.getElementById("performer-additional-info");
   const isEmailPublicField = document.getElementById("performer-is-email-public");
   const isNamePublicField = document.getElementById("performer-is-name-public");
+  const subscribeAlumniField = document.getElementById("performer-subscribe-alumni");
+  const subscribeAlumniContainer = document.getElementById("performer-subscribe-alumni-row");
   const socialLinksNode = document.getElementById("performer-social-links");
   const addSocialLinkButton = document.getElementById("performer-add-social-link");
   const eventOptionsNode = document.getElementById("performer-event-options");
   const eventsNoteNode = document.getElementById("performer-events-note");
+  const persistentStatusNode = document.getElementById("performer-registration-persistent-status");
 
   let registrationToken = new URLSearchParams(window.location.search).get("token") || "";
   let socialPlatforms = [];
@@ -32,12 +35,45 @@ if (appNode) {
     }
   }
 
+  function setPersistentStatus(message, kind = "error") {
+    if (!persistentStatusNode) return;
+
+    const text = String(message || "").trim();
+    persistentStatusNode.textContent = text;
+    persistentStatusNode.className = `performer-registration-alert performer-registration-alert--${kind}`;
+    persistentStatusNode.hidden = !text;
+  }
+
+  function clearPersistentStatus() {
+    if (!persistentStatusNode) return;
+
+    persistentStatusNode.textContent = "";
+    persistentStatusNode.hidden = true;
+  }
+
+  async function parseJsonResponse(response, fallbackMessage) {
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const payload = await response.json();
+      return {
+        ok: response.ok,
+        ...(payload.data || {}),
+        error: payload?.error?.message,
+      };
+    }
+
+    if (!response.ok) {
+      throw new Error(`${fallbackMessage} (HTTP ${response.status})`);
+    }
+
+    throw new Error("The server returned an unexpected response. Please try again or contact us if the problem continues.");
+  }
+
   function formatDate(value) {
     if (!value) return "";
     const date = new Date(`${value}T00:00:00`);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleDateString("en-AU", {
-      year: "numeric",
       month: "long",
       day: "numeric",
     });
@@ -214,7 +250,7 @@ if (appNode) {
         : "";
       wrapper.innerHTML = `
         <input type="checkbox" value="${eventItem.id}" data-event-checkbox${isChecked ? " checked" : ""}>
-        <span>${escapeHtml(eventItem.event_name)} <small>(${escapeHtml(formatDate(eventItem.event_date))})</small>${backupOnlyHtml}</span>
+        <span>${escapeHtml(eventItem.event_name)} (${escapeHtml(formatDate(eventItem.event_date))}) ${escapeHtml(eventItem.event_description)} ${backupOnlyHtml}</span>
       `;
       eventOptionsNode.appendChild(wrapper);
     });
@@ -258,29 +294,46 @@ if (appNode) {
 
   async function loadSession(token) {
     // setStatus("Loading registration form...");
+    clearPersistentStatus();
     try {
-      const response = await fetch(`/api/v1/artists/registration/session?token=${encodeURIComponent(token)}`);
-      const result = await response.json();
+      const response = await fetch("/api/v1/profiles/submissions/context", {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+      const result = await parseJsonResponse(response, "Unable to load registration form right now.");
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to load registration form.");
       }
 
       socialPlatforms = result.social_platforms || [];
       applyProfile(result.profile, result.email);
+      if (subscribeAlumniField) {
+        // only offer the option to subscribe to alumni list if they've actually performed
+        const canSubscribeAlumni = Boolean(result.can_subscribe_alumni);
+        subscribeAlumniField.checked = canSubscribeAlumni && Boolean(result.subscribe_alumni);
+        subscribeAlumniField.disabled = !canSubscribeAlumni;
+        if (subscribeAlumniContainer) {
+          subscribeAlumniContainer.hidden = !canSubscribeAlumni;
+          subscribeAlumniContainer.style.display = canSubscribeAlumni ? "" : "none";
+        }
+      }
       populateEvents(result.available_events || [], result.profile?.requested_event_ids || []);
 
       const hasBackupOnlyDates = (result.available_events || []).some(
         (eventItem) => Boolean(eventItem.is_backup_only)
       );
       eventsNoteNode.textContent = hasBackupOnlyDates
-        ? "Tell us the dates you'd like to play. Dates marked 'backup only' fall within the cooldown period after your most recent performance."
-        : "Tell us the dates you'd like to play.";
+        ? "We'll be in touch 10-12 days before each date to confirm you're still available. Once you've confirmed you will be notified if you've been selected to play. NB Dates marked 'backup only' fall within the cooldown period after your most recent performance, meaning you will only be called to perform if someone drops out and we need to make up the numbers."
+        : "We'll be in touch 10-12 days before each date to confirm you're still available. Once you've confirmed you will be notified if you've been selected to play.";
 
       startSection.hidden = true;
       sessionSection.hidden = false;
       setStatus("");
     } catch (error) {
-      setStatus(error.message || "Unable to load registration form.", "error");
+      const message = error.message || "Unable to load registration form.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please request a fresh registration link or contact us if the problem continues.`);
       startSection.hidden = false;
       sessionSection.hidden = true;
     }
@@ -296,15 +349,18 @@ if (appNode) {
     }
 
     setStatus("Sending your registration link...");
+    clearPersistentStatus();
+    const submitButton = startForm.querySelector("button[type='submit']");
+    if (submitButton) submitButton.disabled = true;
     try {
-      const response = await fetch("/api/v1/artists/registration/start", {
+      const response = await fetch("/api/v1/profiles/submissions/access-links", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ email }),
       });
-      const result = await response.json();
+      const result = await parseJsonResponse(response, "Unable to send registration link right now.");
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to send registration link.");
       }
@@ -312,7 +368,11 @@ if (appNode) {
       setStatus("Your registration link has been emailed. Please check your inbox.", "success");
       startForm.reset();
     } catch (error) {
-      setStatus(error.message || "Unable to send registration link.", "error");
+      const message = error.message || "Unable to send registration link.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
   });
 
@@ -343,7 +403,6 @@ if (appNode) {
     );
 
     const payload = {
-      token: registrationToken,
       profile_type: profileTypeField.value,
       display_name: String(displayNameField.value || "").trim(),
       first_name: String(firstNameField.value || "").trim() || null,
@@ -351,6 +410,7 @@ if (appNode) {
       contact_phone: String(contactPhoneField.value || "").trim(),
       is_email_public: isEmailPublicField.checked,
       is_name_public: isNamePublicField.checked,
+      subscribe_alumni: Boolean(subscribeAlumniField?.checked && !subscribeAlumniField?.disabled),
       artist_bio: String(bioField.value || "").trim() || null,
       additional_info: String(additionalInfoField.value || "").trim() || null,
       social_links: socialLinks,
@@ -368,15 +428,17 @@ if (appNode) {
     }
 
     setStatus("Submitting your registration...");
+    clearPersistentStatus();
     try {
-      const response = await fetch("/api/v1/artists/registration/submissions", {
+      const response = await fetch("/api/v1/profiles/submissions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${registrationToken}`,
         },
         body: JSON.stringify(payload),
       });
-      const result = await response.json();
+      const result = await parseJsonResponse(response, "Unable to submit registration right now.");
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Unable to submit registration.");
       }
@@ -392,11 +454,16 @@ if (appNode) {
       startSection.hidden = false;
       sessionSection.hidden = true;
     } catch (error) {
-      setStatus(error.message || "Unable to submit registration.", "error");
+      const message = error.message || "Unable to submit registration.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
     }
   });
 
   if (registrationToken) {
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete("token");
+    window.history.replaceState({}, "", cleanUrl.toString());
     loadSession(registrationToken);
   }
 }

@@ -1,0 +1,16 @@
+[Unit]
+Description=EMOM Backend
+After=network.target
+
+[Service]
+Type=simple
+User=emom
+Group=www-data
+WorkingDirectory=/opt/emom/website
+EnvironmentFile=/etc/emom/backend.env
+ExecStart=/opt/emom/website/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5001 backend.wsgi:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

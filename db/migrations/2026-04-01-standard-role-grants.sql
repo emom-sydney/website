@@ -26,6 +26,8 @@ DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'emom_forms_writer') THEN
     EXECUTE 'GRANT USAGE ON SCHEMA public TO emom_forms_writer';
+    -- Keep this list limited to tables created by migrations dated 2026-04-01
+    -- or earlier. Later migrations grant their own tables when they create them.
     EXECUTE $grant$
       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
         app_settings,
@@ -40,11 +42,7 @@ BEGIN
         profile_submission_social_profiles,
         requested_dates,
         moderation_actions,
-        event_performer_selections,
-        newsletter_subscribe_requests,
-        merch_interest_submissions,
-        merch_interest_lines,
-        merch_variants
+        event_performer_selections
       TO emom_forms_writer
     $grant$;
     EXECUTE 'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO emom_forms_writer';

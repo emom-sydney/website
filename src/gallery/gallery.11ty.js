@@ -1,6 +1,6 @@
-import s3files from "../_data/s3files.js";
+import mediaserverfiles from "../../lib/media/mediaserverfiles.js";
 import lightbox from "./lightbox.js";
-import { getImageThumbnailResult } from "../_data/imageHelpers.js";
+import { getThumbnailUrl } from "../../lib/media/thumbnailUrls.js";
 import { loadEmomData } from "../../lib/data/loadEmomData.js";
 
 
@@ -97,7 +97,7 @@ export const data = async () => {
   const galleriesSummary = [];
 
   for (const gallery of emom.galleries) {
-    const files = await s3files(gallery);
+    const files = await mediaserverfiles(gallery);
     const galleryEvent = emom.eventsByGalleryUrl[gallery];
 
     // create summary entry (safe gallery name used in URLs)
@@ -182,7 +182,15 @@ export const data = async () => {
         const heading = getGalleryHeading(data.page, data.emom);
         if (data.page?.topIndex) return heading;
         return `gallery | ${heading}`;
-      }
+      },
+      description: (data) => {
+        const page = data.page;
+        if (page?.topIndex) return "Photo and video galleries from sydney.emom events.";
+        const event = data.emom?.eventsByGalleryUrl?.[page.gallery];
+        const eventName = event?.EventName || page.gallery;
+        return `Gallery: ${eventName} - Photos and videos from sydney.emom`;
+      },
+      ogType: () => "website"
     },
     // ensure each paginated item controls its own output path
     permalink: data => data.page.permalink,
@@ -294,13 +302,7 @@ export default async function render(data) {
 
   // If there are image files, render lightbox gallery
   if (imageFiles.length) {
-    // Generate thumbnails; if generation fails, use configured missing-image fallback.
-    const thumbPaths = await Promise.all(
-      imageFiles.map(async (f) => {
-        const thumbnail = await getImageThumbnailResult(f.url, gallery);
-        return thumbnail.ok ? thumbnail.url : missingImageThumbnailUrl;
-      })
-    );
+    const thumbPaths = imageFiles.map((f) => getThumbnailUrl("sm", f.url) || missingImageThumbnailUrl);
 
     const lightboxData = {
       imgPath: imageFiles.map(f => f.url),

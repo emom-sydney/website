@@ -1,6 +1,6 @@
 # Repository Guide
 
-This file is the Codex-facing source of truth for this repository. The notes in `.amazonq/rules/memory-bank/` and `.github/copilot-instructions.md` are historical context only and should not be treated as authoritative without checking the code.
+This file is the Codex-facing source of truth for this repository.
 
 ## What This Repo Is
 
@@ -8,7 +8,7 @@ This file is the Codex-facing source of truth for this repository. The notes in 
 - Built with Eleventy and ES modules
 - Main source lives in `src/`
 - Generated output goes to `_site/`
-- Includes a small Flask-based `forms_bridge` app for form writes and tokenized workflow steps
+- Includes a Flask-based `backend` app for form writes and tokenized workflow steps
 
 ## Build
 
@@ -23,15 +23,25 @@ Relational site data comes from Postgres through:
 - `src/_data/emom.js`
 - `lib/data/loadEmomData.js`
 
-There is no CSV fallback in the current repo.
+Functional separation between `src/` and `lib/` matters:
 
-Postgres connections are expected to come through the local SSH tunnel described in `DB_SETUP.md`.
+- `src/_data/` is Eleventy-facing adapter code only
+  - files there are loaded by Eleventy's data cascade and may re-export or call reusable helpers
+  - keep these files thin unless the code is truly specific to Eleventy global data
+- `lib/` contains reusable application/domain code
+  - `lib/data/` owns Postgres reads and normalized data shaping
+  - `lib/media/` owns media manifest loading, media URL normalization, and media-server thumbnail URL derivation
+  - `lib/render/` owns shared HTML rendering helpers used by generated routes
+- normal application code should import reusable helpers from `lib/`, not from `src/_data/`
+- if a helper is needed by both templates/data files and route generators, put the implementation in `lib/` and expose a tiny `src/_data/` adapter only when Eleventy needs it
+
+Postgres connections come through a local SSH tunnel. You can use the npm `pg` package to query the remote db by loading credentials from the `.pgenv` file at the root of the repo. Any writes needed to the db should be output as SQL commands for your human to run manually after reviewing.
 
 Write-side form and workflow actions go through:
 
-- `forms_bridge/app.py`
-- `forms_bridge/db.py`
-- `forms_bridge/performer_workflow.py`
+- `backend/app.py`
+- `backend/db.py`
+- `backend/performer_workflow.py`
 
 ## Current Schema
 
@@ -54,16 +64,21 @@ Current relational tables:
 - `moderation_actions`
 - `event_performer_selections`
 - `app_settings`
-- `merch_items`
-- `merch_variants`
-- `merch_interest_submissions`
-- `merch_interest_lines`
+- `lineup_selection_locks`
+- `staff_sessions`
+- `volunteer_roles`
+- `event_volunteer_role_overrides`
+- `profile_submission_volunteer_claims`
+- `profile_submission_volunteer_general_claims`
+- `event_volunteer_role_claims`
+- `volunteer_general_role_claims`
+- `newsletter_subscribe_requests`
 
 Important model details:
 
 - `profiles` is the base entity for both people and groups
 - `profiles.profile_type` is `person` or `group`
-- `profile_roles.role` is currently `artist` or `volunteer`
+- `profile_roles.role` is currently either `artist` or `volunteer` although the latter is not applicable to profiles of type `group`
 - `profiles` now also stores moderation, visibility, and staff flags:
   - `contact_phone`
   - `is_profile_approved`
@@ -100,7 +115,7 @@ Primary relational usage is concentrated in a few places:
 - `src/crew/profile.11ty.js`
   - crew detail pages
 - `src/gallery/gallery.11ty.js`
-  - gallery pages use relational event/profile metadata plus live S3 media listings
+  - gallery pages use relational event/profile metadata plus media-server manifest listings
   - root event gallery pages may render an embedded YouTube video sourced from `events.youtube_embed_url`
 - `src/perform.njk`
   - performer registration start + token-backed submission page
@@ -121,7 +136,7 @@ The rest of the site is mostly static Nunjucks templates.
 
 Compatibility notes:
 
-- artist detail/index templates still use `artistPage.artist` as an alias for `artistPage.profile`
+- artist detail/index templates use `artistPage.artist` as an alias for `artistPage.profile`
 - volunteer pages use `volunteerPage.profile`
 - role cross-links are already attached in the loader:
   - artist pages may have `volunteerProfile`
@@ -141,28 +156,40 @@ Shared profile-page rendering helpers live in:
 That module currently handles:
 
 - HTML escaping
-- thumbnail rendering
+- profile image rendering using media-server thumbnail URLs
 - public bio rendering
 - social link rendering
 - contact line rendering
 
 Route generators should stay thin and keep only section-specific layout/content.
 
-## Media And S3
+## Media And Gallery Manifest
 
 The gallery system is hybrid:
 
 - relational metadata comes from Postgres
-- media inventory comes live from S3 at build time
+- media inventory comes from a gallery manifest at build time
+  - default URL is `${MEDIA_BASEURL}/.well-known/gallery-manifest.json`
+  - optional local fallback file path via `MEDIA_MANIFEST_PATH`
+  - URLs are built from `MEDIA_BASEURL` (default `https://media.emom.me:909`)
+- thumbnails are generated and hosted by the media server, not by the Eleventy build
+  - thumbnail paths live under `/thumbs/`
+  - `/thumbs/` mirrors the path structure under `/gallery/`
+  - thumbnail filenames use size suffixes before `.jpg`: `.sm.jpg`, `.md.jpg`, `.lg.jpg`
+  - gallery and profile pages use small thumbnails via `getThumbnailUrl("sm", imageUrl)`
+  - gallery thumbnail display size is controlled by CSS and remains 150px in the current design
+  - profile thumbnail display size is controlled by CSS and remains 250px in the current design
 
 Relevant files:
 
-- `src/_data/s3files.js`
-- `src/_data/imageHelpers.js`
+- `lib/media/mediaserverfiles.js`
+- `lib/media/thumbnailUrls.js`
+- `lib/media/mediaBaseUrl.js`
+- `src/_data/mediaserverfiles.js`
 - `src/_data/media_baseurl.js`
 - `src/gallery/gallery.11ty.js`
 
-Moving gallery media off S3 is not part of the current architecture yet.
+The `src/_data/` media files are Eleventy adapters. Keep shared media behavior in `lib/media/`; do not move media manifest parsing or thumbnail URL derivation into `src/_data/`.
 
 ## Current Site Sections
 
@@ -173,23 +200,26 @@ Moving gallery media off S3 is not part of the current architecture yet.
 - `/crew/`
   - crew list and crew detail pages
 - `/volunteer/`
-  - volunteer signup/application page, currently separate from the `/crew/` profile section
+  - simple contact prompt for prospective volunteers, separate from the `/crew/` profile section
 - `/perform/`
-  - performer registration page backed by `forms_bridge`
+  - performer registration page backed by `backend`
 - `/gallery/`
-  - gallery pages backed by S3 + Postgres
+  - gallery pages backed by media manifest + Postgres
 
-## Forms Bridge And Performer Workflow
+## Backend And Workflows
 
-The repo now includes a small Flask bridge for write-side forms and tokenized email workflows.
+The repo includes a Flask backend for the versioned API, staff area, writes,
+and tokenized email workflows.
 
 Primary files:
 
-- `forms_bridge/app.py`
-- `forms_bridge/db.py`
-- `forms_bridge/performer_workflow.py`
-- `forms_bridge/send_availability_reminders.py`
-- `forms_bridge/send_admin_selection_links.py`
+- `backend/app.py`
+- `backend/db.py`
+- `backend/performer_workflow.py`
+- `backend/keila_workflow.py`
+- `backend/contact_us_workflow.py`
+- `backend/admin.py`
+- `backend/jobs/`
 - `assets/scripts/performer_registration_form.js`
 - `src/perform.njk`
 
@@ -210,13 +240,15 @@ Current performer workflow capabilities:
 
 Current workflow notes:
 
-- registration and moderation are email-link driven, not login-driven
+- performer registration is email-link driven
+- staff links create a 12-hour database-backed admin session
+- administrators have full access; moderators have moderation and standby access
 - existing profiles are matched by email first, then exact case-insensitive stage name as a fallback
 - session prefill prefers the latest relevant submission for that email, including approved drafts when needed
 - moderator emails include both the existing live profile snapshot and the submitted draft
-- moderation links are single-use, and the opposite action is invalidated once one action is taken
-- availability reminders and admin-selection links are sent by standalone bridge scripts
-- SMTP delivery is relayed to `mail.f8.com.au` via bridge environment variables, not local `sendmail`
+- staff login and public action links are single-use
+- availability, moderation, and lineup-selection notifications are sent by standalone backend jobs
+- SMTP delivery is relayed to `mail.f8.com.au` via backend environment variables, not local `sendmail`
 - `event_performer_selections` is the pre-event lineup source of truth; `performances` should only reflect who actually played
 
 ## Migrations
@@ -237,11 +269,22 @@ Notable migrations in the repo:
 - `2026-04-04-admin-selection-workflow.sql`
 - `2026-04-05-cooldown-backup-status.sql`
 - `2026-04-15-standby-reserve-status.sql`
+- `2026-04-16-profile-submission-additional-info.sql`
+- `2026-04-16-social-platform-input-metadata.sql`
+- `2026-04-17-admin-selection-locks.sql`
 - `2026-04-17-events-youtube-embed.sql`
+- `2026-04-20-action-tokens-drop-type-check.sql`
+- `2026-04-20-newsletter-action-tokens.sql`
+- `2026-04-21-prod-catchup.sql`
+- `2026-04-22-newsletter-subscribe-grants.sql`
+- `2026-04-25-volunteer-workflow.sql`
+- `2026-04-26-volunteer-general-roles.sql`
+- `2026-05-01-sync-identity-sequences.sql`
+- `2026-07-29-backend-api-v1-and-admin.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 
-The 2026-04 migrations add the performer workflow schema, grants, reminder tracking, admin-selection flow, and identity/default improvements for older integer-key tables.
+The 2026-04 migrations add the performer workflow schema, grants, reminder tracking, the original lineup-selection flow, and identity/default improvements for older integer-key tables.
 
 ## Roles And DB Access
 
@@ -258,15 +301,15 @@ The standard DB roles currently expected by the repo are:
 - default privileges for future tables/sequences
 - local SSH tunnel usage
 
-The forms bridge should use `emom_forms_writer`, not the older merch-only writer role.
+The backend should use `emom_forms_writer`.
 
 ## Operational Docs
 
 For performer-workflow continuity and diagrams, check:
 
-- `REGO_STATUS.md`
 - `PERFORMER_WORKFLOW_FLOW.md`
-- `FORMS_API.md`
+- `BACKEND.md`
+- `API.md`
 - `DB_SETUP.md`
 
 ## Docs Drift
@@ -281,10 +324,12 @@ When updating documentation, verify against:
 
 - `db/schema.sql`
 - `lib/data/loadEmomData.js`
+- `lib/media/`
 - `lib/render/profilePage.js`
-- `forms_bridge/performer_workflow.py`
-- `FORMS_API.md`
-- `REGO_STATUS.md`
+- `backend/performer_workflow.py`
+- `backend/keila_workflow.py`
+- `backend/contact_us_workflow.py`
+- `API.md`
 - `src/_data/`
 - `src/artists/`
 - `src/crew/`
@@ -293,12 +338,12 @@ When updating documentation, verify against:
 
 ## Notes For Future Agents
 
-- Do not reintroduce CSV assumptions; the current repo is Postgres-backed
 - Keep the site statically generated unless there is an explicit architectural change
 - Prefer extending the normalized loader and shared render helpers over duplicating section logic
+- Preserve the `src/_data` versus `lib` boundary: `src/_data` should stay as Eleventy glue, while reusable data, media, and rendering behavior should live under `lib`
 - Do not assume public artist visibility is unconditional; loader output is now approval/visibility filtered
 - Do not assume `performances` contains planned future lineups; use `event_performer_selections` for pre-event workflow state
 - The performer workflow is in active development; check `REGO_STATUS.md` and `PERFORMER_WORKFLOW_FLOW.md` before changing it
 - Treat `/volunteer/` and `/crew/` as different things:
-  - `/volunteer/` is the signup/application page
+  - `/volunteer/` is the prospective-volunteer contact page
   - `/crew/` is the public volunteer profile section

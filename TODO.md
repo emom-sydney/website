@@ -1,43 +1,41 @@
 # TODO
 
-Consolidated from `*.md` files containing `TODO` / `TODO:` markers.
-
 ## Open
 
-- [ ] Add a file uploader for gallery media uploads.  
-  Source: `README.md:43`
+### Bugs
 
-- [ ] Add/restore regular contact form support in forms bridge/site.  
-  Source: `README.md:93`
+- [ ] Gallery lightbox is fixed to top of page instead of scrolling with content
 
-- [ ] Upload files to media server as part of gallery workflow (currently manual via SSH tunnel/jump host).  
-  Source: `README.md:129`
+- [x] User reported error "Unexpected token '<', "<html><h"...is not valid JSON" when "send registration link" is clicked at start of performer registration workflow. [It was an http/https mismatch]
+ 
+### Enhancements
 
-- [ ] Rename `events.gallery_url` to `events.gallery_slug` (or equivalent schema/usage cleanup).  
-  Source: `README.md:130`
+- [ ] Templates for email notifications (styled html with multipart text/plain alternatives)
+- [x] opt-in toggle on performer registration page for "add to alumni mailing list"
 
-- [ ] Media uploads page.  
-  Source: `README.md:145`
+- [ ] email admin details when toast alert triggered by error (if that's even possible given toast notifications happen client-side?)
 
-- [ ] Reinstate contact form.  
-  Source: `README.md:146`
+- [x] Thumbnail generation on media server instead of during 11ty build
+- [ ] Tag system for media so we can pull gallery pics into performer profiles, among other things. 
 
-- [ ] Move code repo to Forgejo instance `git.emom.me`.  
-  Source: `README.md:147`
+- [ ] New db table for profile options, containing:
+    - [ ] image_url from profile_images
+    - [ ] Tribuo link
+    - [ ] Fun question/answers on profile pages, eg Favourite TV show? Cat or dog person? Roland or Korg? They can pick one or two from (say) a dozen or so choices
+    - [ ] Content usage / copyright release consent flag
+    - [ ] "Notify when new event dates added" flag
+    - [ ] "always use bcc when emailing me" flag
 
-- [ ] Calendar/contacts solution (candidate: https://sabre.io/baikal).  
-  Source: `README.md:148`
+- [ ] Migrate static .json values in _data to Global/app settings in a db table (among other things this allows us to have separate settings for dev/test & prod server)
+- [ ] Tabbed admin interface, with tabs for performer profiles, event calender, other planned features. Speaking of which:
+    - [ ] Blog
+    - [ ] Classifieds 
 
-## Marked Done In Source
+- [ ] Stage Manager / MC page for use during event. Read performer bios, arrange running order. Use simple tile interface suitable for mobile phone screen.
+- [ ] Tied to the above, an api (maybe) to allow real-time display of current performer name and a QR code directed at performer profile.
 
-- [x] Work out a way for 11ty to build galleries without having to be logged in to AWS.  
-  Source: `README.md:149`
+### Later:
 
-- [x] Thumbnails for images in galleries.  
-  Source: `README.md:150`
-
-- [x] Artist profile pages.  
-  Source: `README.md:151`
-
-- [x] Set up MX for the domain.  
-  Source: `README.md:152`
+- [ ] move code repo to self-hosted forgejo instance 
+- [ ] calendar/contacts (https://sabre.io/baikal ?)
+- [ ] An SMS gateway so we can send & receive performer confirmation messages in a more immediate way than email currently does.

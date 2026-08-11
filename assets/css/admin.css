@@ -1,0 +1,179 @@
+.admin-body {
+  margin: 0;
+  background: #101014;
+  color: #f4f4f4;
+  min-height: 100vh;
+}
+
+.admin-header,
+.admin-tabs,
+.admin-main {
+  width: min(1100px, calc(100% - 2rem));
+  margin-inline: auto;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-block: 1rem;
+}
+
+.admin-header span {
+  margin-left: auto;
+}
+
+.admin-brand {
+  color: inherit;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: .25rem;
+  border-bottom: 1px solid #555;
+}
+
+.admin-tabs a {
+  padding: .75rem 1rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-tabs a[aria-current="page"] {
+  background: #333;
+  border-radius: .4rem .4rem 0 0;
+}
+
+.admin-main {
+  padding-block: 2rem 4rem;
+}
+
+.admin-summary,
+.admin-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-summary {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.admin-summary-card,
+.admin-list article {
+  display: block;
+  padding: 1rem;
+  color: inherit;
+  background: #CCC;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+}
+
+.admin-summary-card strong {
+  display: block;
+  font-size: 2rem;
+}
+
+.admin-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+  padding: 20px;
+  flex: 1;
+  color: #333;
+  background: #FFF;
+  border-radius: 12px;
+}
+
+.admin-table-wrap th,
+.admin-table-wrap td {
+  padding: .6rem;
+  border-bottom: 1px solid #555;
+  text-align: left;
+}
+
+.admin-social-links {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.admin-choice {
+  display: block;
+  padding: .5rem;
+}
+
+.admin-details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: .5rem 1rem;
+}
+
+.admin-details dt {
+  font-weight: 700;
+}
+
+.admin-details dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.is-error {
+  color: #ff8c8c;
+}
+
+[data-event-edit-form] {
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-event-edit__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+[data-event-edit-form] label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .35rem;
+  margin: 0;
+}
+
+.admin-event-edit__name {
+  flex: 0 1 auto;
+  width: fit-content;
+}
+
+.admin-event-edit__name input {
+  width: 30ch;
+}
+
+.admin-event-edit__compact {
+  flex: 0 0 auto;
+  width: fit-content;
+}
+
+.admin-event-edit__compact :is(input, select) {
+  width: auto;
+  field-sizing: content;
+}
+
+.admin-event-edit__description {
+  width: 100%;
+}
+
+[data-event-edit-form] button[type="submit"] {
+  justify-self: end;
+}

@@ -4,9 +4,10 @@ package-lock.json
 _site
 .vscode
 .cache
-assets/img/th/*
 assets/img/bg/*
 .pgenv
+deploy/etc/emom/.*.env
 __pycache__/
 *.pyc
 dev.sh
+.tokensave

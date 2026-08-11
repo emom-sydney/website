@@ -45,11 +45,11 @@ if (form) {
       });
 
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Unable to send confirmation email right now.");
+      if (!response.ok) {
+        throw new Error(result?.error?.message || "Unable to send confirmation email right now.");
       }
 
-      notify(result.message || "Thanks. Please check your email and click the confirmation link.", "success");
+      notify(result?.data?.message || "Thanks. Please check your email and click the confirmation link.", "success");
       form.reset();
     } catch (error) {
       notify(error.message || "Unable to send confirmation email right now.", "error");

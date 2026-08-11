@@ -1,6 +1,7 @@
-# Postgres Tunnel Setup
+# A. Postgres Setup
 
 This project uses a remote Postgres database that is not exposed directly to the internet. Access is intended to happen through an SSH tunnel to the remote host, with Postgres listening only on `127.0.0.1` on that host.
+However, a local database for development purposes can also be made to work.
 
 The database name is:
 
@@ -10,13 +11,14 @@ The recommended pattern is:
 
 - a dedicated read-only Postgres role for the website build: `emom_site_reader`
 - a dedicated write-capable Postgres role for admin/editor work: `emom_site_admin`
-- a dedicated forms bridge writer role: `emom_forms_writer`
+- a dedicated backend writer role: `emom_forms_writer`
 - a dedicated SSH user and SSH key for tunneling only
 - SSH key restrictions that allow forwarding only to `127.0.0.1:5432`
 
 ## 1. Create The Standard Postgres Roles
 
-SSH to the remote host using your normal admin account, then open `psql` as a superuser or database owner.
+- If required, SSH to the remote host using your normal admin account
+- Open `psql` as a superuser or database owner.
 
 Create the read-only site role:
 
@@ -46,7 +48,7 @@ NOINHERIT;
 GRANT CONNECT, TEMP ON DATABASE emomweb TO emom_site_admin;
 ```
 
-Create the forms bridge writer role:
+Create the backend writer role:
 
 ```sql
 CREATE ROLE emom_forms_writer
@@ -73,7 +75,11 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO emom_site_reader;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO emom_site_admin;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO emom_site_admin;
+```
 
+If you've somehow already created the tables, run this:
+
+```sql
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   app_settings,
   profiles,
@@ -88,11 +94,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   requested_dates,
   moderation_actions,
   event_performer_selections,
-  admin_selection_locks,
-  newsletter_subscribe_requests,
-  merch_interest_submissions,
-  merch_interest_lines,
-  merch_variants
+  lineup_selection_locks,
+  staff_sessions,
+  volunteer_roles,
+  event_volunteer_role_overrides,
+  profile_submission_volunteer_claims,
+  profile_submission_volunteer_general_claims,
+  event_volunteer_role_claims,
+  volunteer_general_role_claims,
+  newsletter_subscribe_requests
 TO emom_forms_writer;
 
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO emom_forms_writer;
@@ -122,10 +132,14 @@ Notes:
 - Run `ALTER DEFAULT PRIVILEGES` as the role that owns future schema objects.
 - `GRANT ... ON ALL TABLES IN SCHEMA public` covers ordinary tables and views such as `galleries`.
 - `emom_site_reader` is intentionally broad read-only access because the static build and admin tooling may need to inspect multiple parts of the schema.
-- `emom_forms_writer` is the intended DB role for `forms_bridge`, including the performer registration, moderation, reminder, and admin-selection workflows.
-- If you already have older roles such as `emom_merch_writer`, migrate the bridge config over to `emom_forms_writer` rather than continuing to widen the merch-only role.
+- `emom_forms_writer` is the intended DB role for `backend`, including performer registration, moderation, reminders, lineup selection, newsletter, and contact workflows.
 
-## 1A. Promote An Existing Profile To Moderator/Admin
+- Database grants do not carry across databases or similarly named roles. If the
+  test backend uses `emom_test_forms_writer` against `emomtest`, apply the same
+  backend table and sequence grants in `emomtest` with
+  `emom_test_forms_writer` as the grantee.
+
+## 2. Promote An Existing Profile To Moderator/Admin
 
 If you are promoting an existing profile, do it in this order:
 
@@ -180,7 +194,11 @@ FROM profiles p
 WHERE p.id = 123;
 ```
 
-## 2. Create A Dedicated SSH User For Tunneling
+# B. Setting up a tunnel
+
+If you are running a local database, skip to section C.
+
+## 1. Create A Dedicated SSH User For Tunneling
 
 On the remote host:
 
@@ -191,7 +209,7 @@ sudo chmod 700 /home/emom-db-tunnel/.ssh
 sudo chown -R emom-db-tunnel:emom-db-tunnel /home/emom-db-tunnel/.ssh
 ```
 
-## 3. Generate A Dedicated Local SSH Key
+## 2. Generate A Dedicated Local SSH Key
 
 On the local machine:
 
@@ -201,7 +219,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/emom_db_tunnel -C "emom-db-tunnel"
 
 This key should be used only for the database tunnel, not for normal shell login.
 
-## 4. Restrict The Remote Authorized Key
+## 3. Restrict The Remote Authorized Key
 
 Add the public key to:
 
@@ -226,7 +244,7 @@ What this does:
 - `port-forwarding` re-enables forwarding
 - `permitopen="127.0.0.1:5432"` allows forwarding only to the local Postgres port on the remote host
 
-## 5. Check SSH Daemon Settings
+## 4. Check SSH Daemon Settings
 
 In `/etc/ssh/sshd_config`, make sure public key auth and TCP forwarding are allowed:
 
@@ -256,7 +274,7 @@ On some systems:
 sudo service ssh reload
 ```
 
-## 6. Add A Local SSH Config Entry
+## 5. Add A Local SSH Config Entry
 
 Add this to `~/.ssh/config` on the local machine:
 
@@ -269,17 +287,17 @@ Host emom-db
     LocalForward 15432 127.0.0.1:5432
 ```
 
-Start the tunnel:
+Start the tunnel (-f to fork to background, -N to just do the port forward, no remote shell):
 
 ```bash
-ssh -N emom-db
+ssh -fN emom-db
 ```
 
 This exposes the remote Postgres server locally on:
 
 - `127.0.0.1:15432`
 
-## 7. Validate The Tunnel
+## 6. Validate The Tunnel
 
 If `psql` is not installed locally, a quick connectivity check is:
 
@@ -308,7 +326,7 @@ INSERT INTO events (id, event_date, type_id, event_name, gallery_url)
 VALUES (999, CURRENT_DATE, 1, 'x', NULL);
 ```
 
-## 8. App Connection Settings
+## 7. App Connection Settings for the tunnel
 
 Once the tunnel is running, local tools can connect with:
 
@@ -339,12 +357,65 @@ source ./.pgenv
 set +a
 ```
 
-## Operational Notes
+# Section C: Using a local DB
+
+## 1. App Connection Settings for local install.
+
+To connect to a local DB, use either of:
+
+```text
+postgres://emom_site_reader:YOUR_PASSWORD@127.0.0.1:5432/emomweb
+```
+
+Or with separate env vars:
+
+```text
+PGHOST=127.0.0.1
+PGPORT=5432
+PGDATABASE=emomweb
+PGUSER=emom_site_reader
+PGPASSWORD=...
+```
+
+## 2. Create the tables from the `db/schema.sql` file.
+
+# Operational Notes
 
 - Keep the database bound to `127.0.0.1` on the remote host.
 - Use `emom_site_reader` only for the website build and read-only tooling.
 - Use `emom_site_admin` for admin/editor workflows that need write access across the schema.
-- Use `emom_forms_writer` for the `forms_bridge` service and its scheduled scripts.
+- Use `emom_forms_writer` for the `backend` service and its scheduled scripts.
 - Use a different Postgres role for schema migrations and ownership-level work.
 - Use a different SSH key from the one used for normal interactive login.
 - The repo now expects Postgres to be the only relational data source at build time.
+
+# Additional Setup Notes
+
+If *either* (but not both!) of your local hosting or local database in a virtual environment, 
+then you need to treat the connection as going from one machine another, and configure your
+virtual networking as appropriate.
+
+## Hosting in WSL in Windows with PgAdmin
+
+To get to a Windows PostGresQL server from a WSL install, you need to do two things:
+* modify PgAdmin to allow access from WSL
+* modify Windows' firewall to allow WSL to access
+
+### PGAdmin
+
+1. Find where PGAdmin says the data directory is. It will probably be C:\Program Files\PostgreSQL\18\data
+2. Add the following line to the end of `pg_hba.conf`:
+
+`host    all		all		172.0.0.0/8		scram-sha-256`
+
+### Windows Firewall
+
+1. Open Start
+2. Search for "Windows Defender"
+3. Click on *App* "Windows Defender With Firewall Security"
+4. Click on "New Rule" over on the right.
+5. Select Port
+6. Select TCP and for specific local posts enter 5432
+7. Select "Allow the connection"
+8. Select "Public"
+9. Save it with a memorable name

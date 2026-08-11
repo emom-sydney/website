@@ -1,10 +1,19 @@
 ---
 layout: "main.njk"
 pageTitle: "Performer Registration"
+description: "Register to perform at sydney.emom. Create your artist profile, select available dates, and join our lineup of electronic music creators."
 ---
 <h2>Performer Registration</h2>
 
 <div id="performer-registration-app" class="performer-registration">
+  <noscript>
+    <div class="performer-registration-alert performer-registration-alert--error">
+      This page requires JavaScript. Please enable JavaScript in your browser, then open the email link again.
+    </div>
+  </noscript>
+
+  <div id="performer-registration-persistent-status" class="performer-registration-alert" hidden></div>
+
   <section id="performer-registration-start" class="performer-registration-panel">
     <p>
       If you would like to register interest in playing at a future sydney.emom, enter your email address below.
@@ -57,6 +66,11 @@ pageTitle: "Performer Registration"
         <span>Show full name on your profile page</span>
       </label>
 
+      <label class="performer-registration-checkbox" id="performer-subscribe-alumni-row" hidden>
+        <input type="checkbox" id="performer-subscribe-alumni" name="subscribe_alumni">
+        <span>Subscribe me to the alumni mailing list</span>
+      </label>
+
       <label for="performer-contact-phone">Contact phone number</label>
       <input type="text" id="performer-contact-phone" name="contact_phone" required>
       <p class="performer-registration-note">Not displayed on your profile, only required in case we need to contact you urgently on the day of the event.</p>
@@ -74,7 +88,7 @@ pageTitle: "Performer Registration"
       </fieldset>
 
       <fieldset class="performer-registration-fieldset">
-        <legend>Nominate the dates you're able to play</legend>
+        <legend>Nominate the dates you're available to play.</legend>
         <p id="performer-events-note" class="performer-registration-note"></p>
         <div id="performer-event-options"></div>
       </fieldset>
