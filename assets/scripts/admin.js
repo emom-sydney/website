@@ -321,12 +321,12 @@
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
         <div class="admin-table-wrap"><table data-sortable-table>
-          <thead><tr><th>Performer</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Sel" data-sort-keys="requestCount,selectionCount">Req / Sel</th><th>Availability</th><th>Status</th><th data-sortable="false">Reminder</th></tr></thead>
+          <thead><tr><th>Performer</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Played" data-sort-keys="requestCount,playedCount">Req / Played</th><th>Availability</th><th>Status</th><th data-sortable="false">Reminder</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
             <tr>
               <td>${escapeHtml(item.display_name)}<br><small>${escapeHtml(item.email)}</small></td>
               <td>${renderSocialLinks(item.social_links)}</td>
-              <td data-request-count="${escapeHtml(item.request_count)}" data-selection-count="${escapeHtml(item.selection_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.selection_count)}</td>
+              <td data-request-count="${escapeHtml(item.request_count)}" data-played-count="${escapeHtml(item.played_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.played_count)}</td>
               <td>${escapeHtml(item.availability_status)}</td>
               <td>
                 ${item.availability_status === "availability_cancelled"

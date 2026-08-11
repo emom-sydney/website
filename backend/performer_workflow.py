@@ -2861,13 +2861,12 @@ def get_lineup_selection_candidates(cursor, event_id):
           WHERE counted_event.event_date <= (SELECT event_date FROM events WHERE id = %s)
           GROUP BY COALESCE(d.profile_id::text, lower(d.email))
         ),
-        selection_counts AS (
-          SELECT eps.profile_id, COUNT(*) AS selection_count
-          FROM event_performer_selections eps
-          JOIN events counted_event ON counted_event.id = eps.event_id
-          WHERE eps.status = 'selected'
-            AND counted_event.event_date <= (SELECT event_date FROM events WHERE id = %s)
-          GROUP BY eps.profile_id
+        played_counts AS (
+          SELECT perf.profile_id, COUNT(*) AS played_count
+          FROM performances perf
+          JOIN events counted_event ON counted_event.id = perf.event_id
+          WHERE counted_event.event_date <= (SELECT event_date FROM events WHERE id = %s)
+          GROUP BY perf.profile_id
         ),
         ranked_candidates AS (
           SELECT
@@ -2900,7 +2899,7 @@ def get_lineup_selection_candidates(cursor, event_id):
             '[]'::json
           ) AS social_links,
           COALESCE(rc.request_count, 0) AS request_count,
-          COALESCE(sc.selection_count, 0) AS selection_count,
+          COALESCE(pc.played_count, 0) AS played_count,
           COALESCE(sel.status, '') AS selection_status,
             sel.slot_number,
             ROW_NUMBER() OVER (
@@ -2920,7 +2919,7 @@ def get_lineup_selection_candidates(cursor, event_id):
            AND sel.profile_id = p.id
           LEFT JOIN request_counts rc
             ON rc.identity_key = COALESCE(p.id::text, lower(d.email))
-          LEFT JOIN selection_counts sc ON sc.profile_id = p.id
+          LEFT JOIN played_counts pc ON pc.profile_id = p.id
           WHERE rd.event_id = %s
             AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
             AND d.status IN ('pending', 'approved')
@@ -2937,7 +2936,7 @@ def get_lineup_selection_candidates(cursor, event_id):
           is_profile_approved,
           social_links,
           COALESCE(request_count, 0),
-          COALESCE(selection_count, 0),
+          COALESCE(played_count, 0),
           selection_status,
           slot_number
         FROM ranked_candidates
@@ -2959,7 +2958,7 @@ def get_lineup_selection_candidates(cursor, event_id):
             "is_profile_approved": row[8],
             "social_links": row[9],
             "request_count": row[10],
-            "selection_count": row[11],
+            "played_count": row[11],
             "selection_status": row[12] or None,
             "slot_number": row[13],
         }
