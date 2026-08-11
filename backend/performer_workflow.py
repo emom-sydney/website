@@ -710,7 +710,9 @@ def register_performer_workflow_routes(app):
                                 expires_at,
                             ),
                         )
-                        selection_url = build_absolute_url(app, f"/perform/admin/?token={raw_token}")
+                        from backend.admin import build_staff_login_url
+
+                        selection_url = build_staff_login_url(raw_token, "/admin/events/")
                     else:
                         selection_url = None
                         expires_at = None
@@ -2853,7 +2855,22 @@ def get_event_selection_context(cursor, event_id):
 def get_lineup_selection_candidates(cursor, event_id):
     cursor.execute(
         """
-        WITH ranked_candidates AS (
+        WITH request_counts AS (
+          SELECT COALESCE(d.profile_id::text, lower(d.email)) AS identity_key, COUNT(*) AS request_count
+          FROM requested_dates rd
+          JOIN profile_submission_drafts d ON d.id = rd.draft_id
+          JOIN events counted_event ON counted_event.id = rd.event_id
+          WHERE counted_event.event_date <= (SELECT event_date FROM events WHERE id = %s)
+          GROUP BY COALESCE(d.profile_id::text, lower(d.email))
+        ),
+        played_counts AS (
+          SELECT perf.profile_id, COUNT(*) AS played_count
+          FROM performances perf
+          JOIN events counted_event ON counted_event.id = perf.event_id
+          WHERE counted_event.event_date <= (SELECT event_date FROM events WHERE id = %s)
+          GROUP BY perf.profile_id
+        ),
+        ranked_candidates AS (
           SELECT
             rd.id AS requested_date_id,
             d.id AS draft_id,
@@ -2883,6 +2900,8 @@ def get_lineup_selection_candidates(cursor, event_id):
             ),
             '[]'::json
           ) AS social_links,
+          COALESCE(rc.request_count, 0) AS request_count,
+          COALESCE(pc.played_count, 0) AS played_count,
           COALESCE(sel.status, '') AS selection_status,
             sel.slot_number,
             ROW_NUMBER() OVER (
@@ -2900,6 +2919,9 @@ def get_lineup_selection_candidates(cursor, event_id):
           LEFT JOIN event_performer_selections sel
             ON sel.event_id = rd.event_id
            AND sel.profile_id = p.id
+          LEFT JOIN request_counts rc
+            ON rc.identity_key = COALESCE(p.id::text, lower(d.email))
+          LEFT JOIN played_counts pc ON pc.profile_id = p.id
           WHERE rd.event_id = %s
             AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
             AND d.status IN ('pending', 'approved')
@@ -2915,13 +2937,15 @@ def get_lineup_selection_candidates(cursor, event_id):
           availability_email_sent_at_epoch,
           is_profile_approved,
           social_links,
+          COALESCE(request_count, 0),
+          COALESCE(played_count, 0),
           selection_status,
           slot_number
         FROM ranked_candidates
         WHERE candidate_rank = 1
         ORDER BY display_name, requested_date_id
         """,
-        (event_id,),
+        (event_id, event_id, event_id),
     )
     return [
         {
@@ -2935,8 +2959,10 @@ def get_lineup_selection_candidates(cursor, event_id):
             "availability_email_sent_at_epoch": row[7],
             "is_profile_approved": row[8],
             "social_links": row[9],
-            "selection_status": row[10] or None,
-            "slot_number": row[11],
+            "request_count": row[10],
+            "played_count": row[11],
+            "selection_status": row[12] or None,
+            "slot_number": row[13],
         }
         for row in cursor.fetchall()
     ]

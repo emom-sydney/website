@@ -51,7 +51,10 @@ def register_newsletter_workflow_routes(app):
                         """,
                         (token_hash, NEWSLETTER_CONFIRM_ACTION, email, expires_at),
                     )
-                    action_token_id = cursor.fetchone()[0]
+                    row = cursor.fetchone()
+                    if not row:
+                        raise ValueError("Failed to create action token.")
+                    action_token_id = row[0]
 
                     cursor.execute(
                         """
