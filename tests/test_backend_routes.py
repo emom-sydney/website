@@ -9,6 +9,7 @@ import pytest
 
 import backend.admin as admin
 import backend.performer_workflow as workflow
+import backend.profile_qr as profile_qr
 from backend.app import create_app
 
 
@@ -31,6 +32,9 @@ def test_route_contract_has_v1_and_no_legacy_paths(app):
         "/api/v1/profiles/submissions/access-links",
         "/api/v1/profiles/submissions/context",
         "/api/v1/profiles/submissions",
+        "/api/v1/artists/<int:profile_id>/qr/scan",
+        "/api/v1/artists/<int:profile_id>/qr/download.svg",
+        "/api/v1/artists/<int:profile_id>/qr/download.png",
         "/api/v1/admin/events/<int:event_id>/lineup",
         "/api/v1/admin/profiles/submissions/<int:draft_id>/decisions",
         "/admin/",
@@ -46,6 +50,112 @@ def test_health_uses_api_envelope(client):
     response = client.get("/api/v1/health")
     assert response.status_code == 200
     assert response.get_json() == {"data": {"status": "ok"}}
+
+
+def test_artist_qr_scan_records_event_and_redirects(monkeypatch, client):
+    events = []
+    monkeypatch.setattr(profile_qr, "get_public_artist", lambda _profile_id: {"id": 12, "display_name": "Static In The Matrix"})
+    monkeypatch.setattr(profile_qr, "log_qr_event", lambda profile_id, action: events.append((profile_id, action)))
+
+    response = client.get(
+        "/api/v1/artists/12/qr/scan",
+        headers={"X-Real-IP": "203.0.113.9", "User-Agent": "QR test", "Referer": "https://example.test/"},
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/artists/static-in-the-matrix/index.html"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert events == [(12, "scan")]
+
+
+def test_artist_qr_downloads_log_events_and_return_requested_formats(monkeypatch, client):
+    events = []
+    monkeypatch.setenv("PUBLIC_SITE_BASE_URL", "https://sydney.emom.me")
+    monkeypatch.setattr(profile_qr, "get_public_artist", lambda _profile_id: {"id": 12, "display_name": "Static In The Matrix"})
+    monkeypatch.setattr(profile_qr, "log_qr_event", lambda profile_id, action: events.append((profile_id, action)))
+
+    svg_response = client.get("/api/v1/artists/12/qr/download.svg")
+    png_response = client.get("/api/v1/artists/12/qr/download.png")
+
+    assert svg_response.status_code == 200
+    assert svg_response.mimetype == "image/svg+xml"
+    assert "static-in-the-matrix-profile-qr.svg" in svg_response.headers["Content-Disposition"]
+    assert b"id=\"qr-path\"" in svg_response.data
+    assert profile_qr.get_scan_url(12) == "https://sydney.emom.me/api/v1/artists/12/qr/scan"
+    assert png_response.status_code == 200
+    assert png_response.mimetype == "image/png"
+    assert png_response.data.startswith(b"\x89PNG")
+    assert "static-in-the-matrix-profile-qr.png" in png_response.headers["Content-Disposition"]
+    assert events == [(12, "download"), (12, "download")]
+
+
+def test_artist_qr_rejects_non_public_profiles_without_logging(monkeypatch, client):
+    monkeypatch.setattr(profile_qr, "get_public_artist", lambda _profile_id: None)
+    monkeypatch.setattr(profile_qr, "log_qr_event", lambda *_args: pytest.fail("QR event should not be logged"))
+
+    assert client.get("/api/v1/artists/99/qr/scan").status_code == 404
+    assert client.get("/api/v1/artists/99/qr/download.svg").status_code == 404
+
+
+def test_qr_event_request_context_uses_proxy_ip(app):
+    with app.test_request_context(
+        "/api/v1/artists/12/qr/scan",
+        headers={"X-Real-IP": "203.0.113.9", "User-Agent": "QR test", "Referer": "https://example.test/"},
+    ):
+        assert profile_qr.get_client_ip_address() == "203.0.113.9"
+        assert profile_qr.request.headers["User-Agent"] == "QR test"
+        assert profile_qr.request.referrer == "https://example.test/"
+
+
+def test_qr_tracking_retention_setting_falls_back_to_default():
+    class SettingsCursor:
+        def execute(self, query, params):
+            assert "SELECT value_json FROM app_settings" in query
+            assert params == ("qr_tracking_retention_days",)
+
+        def fetchone(self):
+            return ("invalid",)
+
+    assert profile_qr.get_qr_tracking_retention_days(SettingsCursor()) == 90
+
+
+def test_purge_qr_events_uses_retention_setting(monkeypatch):
+    class PurgeCursor:
+        def __init__(self):
+            self.calls = []
+            self.rowcount = 4
+
+        def execute(self, query, params):
+            self.calls.append((" ".join(query.split()), params))
+
+        def fetchone(self):
+            return (45,)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class PurgeConnection:
+        def __init__(self):
+            self.cursor_instance = PurgeCursor()
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    connection = PurgeConnection()
+    monkeypatch.setattr(profile_qr, "connect", lambda: connection)
+
+    assert profile_qr.purge_expired_qr_events() == {"retention_days": 45, "deleted_count": 4}
+    assert connection.cursor_instance.calls[1][1] == (45,)
+    assert "DELETE FROM profile_qr_events" in connection.cursor_instance.calls[1][0]
 
 
 def test_admin_browser_page_redirects_to_login(client):
@@ -179,6 +289,7 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
                     "static@yceran.org",
                     None,
                     "requested",
+                    None,
                     True,
                     [
                         {
@@ -188,6 +299,8 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
                             "url_format": "https://instagram.com/{profileName}",
                         }
                     ],
+                    3,
+                    2,
                     "",
                     None,
                 )
@@ -198,7 +311,7 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
     candidates = workflow.get_lineup_selection_candidates(cursor, 18)
 
     normalized_query = " ".join(cursor.query.split())
-    assert cursor.params == (18,)
+    assert cursor.params == (18, 18, 18)
     assert "d.status IN ('pending', 'approved')" in normalized_query
     assert "PARTITION BY rd.event_id" in normalized_query
     assert "rd.event_id, d.profile_id" in normalized_query
@@ -216,6 +329,7 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
             "email": "static@yceran.org",
             "contact_phone": None,
             "availability_status": "requested",
+            "availability_email_sent_at_epoch": None,
             "is_profile_approved": True,
             "social_links": [
                 {
@@ -225,6 +339,8 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
                     "url_format": "https://instagram.com/{profileName}",
                 }
             ],
+            "request_count": 3,
+            "played_count": 2,
             "selection_status": None,
             "slot_number": None,
         }

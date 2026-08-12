@@ -717,6 +717,10 @@ form button:hover {
   margin: 0px;
 }
 
+.artist-profile-qr {
+  clear: both;
+}
+
 
 .sp-lightbox-caption-container {
   background-color: #FFF;

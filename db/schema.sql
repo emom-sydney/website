@@ -263,6 +263,16 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribe_requests (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS profile_qr_events (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  profile_id integer NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  action text NOT NULL CHECK (action IN ('scan', 'download')),
+  occurred_at timestamptz NOT NULL DEFAULT now(),
+  ip_address text,
+  user_agent text,
+  referrer text
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_type_id ON events(type_id);
 CREATE INDEX IF NOT EXISTS idx_events_gallery_url ON events(gallery_url) WHERE gallery_url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_performances_event_id ON performances(event_id);
@@ -327,13 +337,18 @@ CREATE INDEX IF NOT EXISTS idx_action_tokens_draft_action
   ON action_tokens(draft_id, action_type);
 CREATE INDEX IF NOT EXISTS idx_newsletter_subscribe_requests_action_token_id
   ON newsletter_subscribe_requests(action_token_id);
+CREATE INDEX IF NOT EXISTS idx_profile_qr_events_profile_occurred
+  ON profile_qr_events(profile_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_profile_qr_events_occurred
+  ON profile_qr_events(occurred_at);
 
 INSERT INTO app_settings (key, value_json)
 VALUES
   ('performer_request_cooldown_events', '3'::jsonb),
   ('availability_confirmation_lead_days', '10'::jsonb),
   ('lineup_selection_lead_days', '7'::jsonb),
-  ('action_token_ttl_hours', '24'::jsonb)
+  ('action_token_ttl_hours', '24'::jsonb),
+  ('qr_tracking_retention_days', '90'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 INSERT INTO volunteer_roles (role_key, display_name, description, role_scope, default_capacity, sort_order)
