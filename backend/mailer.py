@@ -21,10 +21,20 @@ def get_smtp_port():
     return int(os.getenv("SMTP_PORT", "25"))
 
 
+def get_email_redirect_address():
+    address = os.getenv("EMAIL_REDIRECT_ADDRESS", "").strip()
+    return address or None
+
+
 def send_mail(to_address, subject, text_body, html_body=None, reply_to=None):
+    redirect_address = get_email_redirect_address()
+    delivery_address = redirect_address or to_address
+
     message = EmailMessage()
     message["From"] = get_from_address()
-    message["To"] = to_address
+    message["To"] = delivery_address
+    if redirect_address:
+        message["X-Original-To"] = to_address
     if reply_to:
         message["Reply-To"] = reply_to
     message["Subject"] = subject
@@ -37,7 +47,7 @@ def send_mail(to_address, subject, text_body, html_body=None, reply_to=None):
     )
 
     with smtplib.SMTP(get_smtp_host(), get_smtp_port(), timeout=30) as smtp:
-        smtp.send_message(message)
+        smtp.send_message(message, to_addrs=[delivery_address])
 
 
 def render_basic_html_from_text(text_body):
