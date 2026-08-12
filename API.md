@@ -6,6 +6,7 @@ email-action pages deliberately live outside the API namespace.
 ## Public API
 
 - `GET /api/v1/health`
+- `GET /api/v1/live/now-playing`
 - `POST /api/v1/profiles/submissions/access-links`
 - `GET /api/v1/profiles/submissions/context`
   - requires `Authorization: Bearer <profile-submission-access-token>`
@@ -42,6 +43,7 @@ Authentication:
 Dashboard and domains:
 
 - `GET /api/v1/admin/dashboard`
+- `GET|PUT /api/v1/admin/live/now-playing`
 - `GET /api/v1/admin/events`
 - `GET|PUT /api/v1/admin/events/<event_id>/lineup`
 - `POST|DELETE /api/v1/admin/events/<event_id>/lineup/lock`
@@ -74,6 +76,9 @@ moderation and standby-promotion endpoints but cannot edit a full lineup.
 - `/perform/availability/confirm/?token=...`
 - `/perform/availability/cancel/?token=...`
 - `/newsletter/confirm/?token=...`
+- `/live/now-playing.txt`
+- `/live/now-playing.html`
+- `/live/stagemanager` (staff email-link login)
 
 ## Scheduled Jobs
 
