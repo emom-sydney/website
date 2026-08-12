@@ -102,7 +102,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   profile_submission_volunteer_general_claims,
   event_volunteer_role_claims,
   volunteer_general_role_claims,
-  newsletter_subscribe_requests
+  newsletter_subscribe_requests,
+  profile_qr_events
 TO emom_forms_writer;
 
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO emom_forms_writer;

@@ -7,6 +7,7 @@ from backend.admin import register_admin_routes
 from backend.contact_us_workflow import register_contact_us_workflow_routes
 from backend.keila_workflow import register_newsletter_workflow_routes
 from backend.performer_workflow import register_performer_workflow_routes
+from backend.profile_qr import register_profile_qr_routes
 
 
 def create_app():
@@ -71,6 +72,8 @@ def create_app():
     register_newsletter_workflow_routes(app)
 
     register_performer_workflow_routes(app)
+
+    register_profile_qr_routes(app)
 
     register_contact_us_workflow_routes(app)
 

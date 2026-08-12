@@ -70,6 +70,7 @@ export default async function render(data) {
   }
 
   html += renderContactLine(artist);
+  html += `<p class="artist-profile-qr">Download this profile's QR code: <a href="/api/v1/artists/${artist.ID}/qr/download.svg">SVG</a> or <a href="/api/v1/artists/${artist.ID}/qr/download.png">PNG</a>.</p>\n`;
   html += `<p><a href="/artists/index.html">&lt;&lt; Back to all artists</a></p>\n`;
 
   return html;

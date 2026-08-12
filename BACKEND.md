@@ -13,6 +13,7 @@ email actions, Keila integration, and scheduled workflow jobs live in
   lineup domain behavior.
 - `backend/keila_workflow.py` owns newsletter and Keila behavior.
 - `backend/contact_us_workflow.py` owns contact-message delivery.
+- `backend/profile_qr.py` owns public artist-profile QR downloads and scan tracking.
 - `backend/jobs/` contains standalone scheduled commands.
 - `backend/templates/admin/` contains the server-rendered staff shell.
 
@@ -47,6 +48,7 @@ The nginx production contract proxies `/api/v1/`, `/admin/`,
 - `STAFF_LOGIN_TOKEN_TTL_MINUTES` (default `15`)
 - `STAFF_SESSION_TTL_HOURS` (default `12`)
 - `LINEUP_SELECTION_LOCK_MINUTES` (default `30`)
+- `app_settings.qr_tracking_retention_days` controls QR event retention (default `90` days)
 - Keila variables documented in `deploy/etc/emom/backend.env.example`
 
 ## Staff Security
@@ -65,6 +67,9 @@ capabilities. Staff must retain a person profile and volunteer role.
 Apply `db/migrations/2026-07-29-backend-api-v1-and-admin.sql` before starting
 the new service. The migration is intentionally one-way and removes obsolete
 workflow tokens.
+
+Apply `db/migrations/2026-08-12-profile-qr-tracking.sql` before deploying QR
+tracking, then schedule `python -m backend.jobs.purge_profile_qr_events` daily.
 
 Install:
 

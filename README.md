@@ -76,6 +76,7 @@ Supporting scripts:
 - `python -m backend.jobs.send_availability_reminders`
 - `python -m backend.jobs.send_lineup_selection_links`
 - `python -m backend.jobs.send_moderation_reminders`
+- `python -m backend.jobs.purge_profile_qr_events` (schedule daily)
 
 Backend deployment and runtime details live in:
 
