@@ -37,7 +37,7 @@ def api_error(code, message, status=400):
 
 def normalize_next_path(value, default="/admin/"):
     value = (value or "").strip()
-    if not value.startswith("/admin/") or value.startswith("//"):
+    if not (value.startswith("/admin/") or value == "/live/stagemanager") or value.startswith("//"):
         return default
     return value
 

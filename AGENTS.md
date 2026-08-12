@@ -97,6 +97,8 @@ Important model details:
 - performer registration is for Open Mic events only, currently `events.type_id = 1`
 - `requested_dates` stores performer requests plus availability reminder tracking
 - `event_performer_selections` stores pre-event lineup state such as `selected`, `standby`, `reserve`, and `cancelled`
+- `event_performer_selections` is for pre-show management state only; it must not become the source of show order
+- `performances.sort_order` is the canonical order of performers in the live show and should be used by stage-manager and now-playing features
 - `action_tokens` powers all one-time emailed workflow links
 - `app_settings` stores configurable workflow values in `jsonb`
 - gallery identity comes from `events.gallery_url`
