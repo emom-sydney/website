@@ -25,6 +25,11 @@ BEGIN
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profile_qr_events TO emom_forms_writer;
     GRANT USAGE, SELECT ON SEQUENCE profile_qr_events_id_seq TO emom_forms_writer;
   END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'emom_test_forms_writer') THEN
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profile_qr_events TO emom_test_forms_writer;
+    GRANT USAGE, SELECT ON SEQUENCE profile_qr_events_id_seq TO emom_test_forms_writer;
+  END IF;
 END;
 $$;
 
