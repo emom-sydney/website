@@ -40,6 +40,19 @@ def register_profile_qr_routes(app):
             "image/svg+xml",
         )
 
+    @app.get("/api/v1/artists/<int:profile_id>/qr/display.svg")
+    def display_artist_profile_qr_svg(profile_id):
+        profile = get_public_artist(profile_id)
+        if not profile:
+            abort(404)
+
+        return send_file(
+            io.BytesIO(make_qr_svg(get_scan_url(profile_id))),
+            mimetype="image/svg+xml",
+            as_attachment=False,
+            max_age=0,
+        )
+
     @app.get("/api/v1/artists/<int:profile_id>/qr/download.png")
     def download_artist_profile_qr_png(profile_id):
         profile = get_public_artist(profile_id)

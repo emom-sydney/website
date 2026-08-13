@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS performances (
   event_id integer NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   profile_id integer NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   sort_order integer NOT NULL DEFAULT 0,
+  checked_in_at timestamptz,
   UNIQUE (event_id, profile_id)
 );
 

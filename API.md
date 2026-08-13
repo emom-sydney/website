@@ -44,6 +44,8 @@ Dashboard and domains:
 
 - `GET /api/v1/admin/dashboard`
 - `GET|PUT /api/v1/admin/live/now-playing`
+- `PUT /api/v1/admin/live/events/<event_id>/performers/<profile_id>/roll-call`
+- `PUT /api/v1/admin/live/events/<event_id>/performers/order`
 - `GET /api/v1/admin/events`
 - `GET|PUT /api/v1/admin/events/<event_id>/lineup`
 - `POST|DELETE /api/v1/admin/events/<event_id>/lineup/lock`
@@ -78,6 +80,8 @@ moderation and standby-promotion endpoints but cannot edit a full lineup.
 - `/newsletter/confirm/?token=...`
 - `/live/now-playing.txt`
 - `/live/now-playing.html`
+- `/now-playing.txt`
+- `/now-playing.html`
 - `/live/stagemanager` (staff email-link login)
 
 ## Scheduled Jobs
