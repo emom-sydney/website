@@ -99,6 +99,7 @@ Important model details:
 - `event_performer_selections` stores pre-event lineup state such as `selected`, `standby`, `reserve`, and `cancelled`
 - `event_performer_selections` is for pre-show management state only; it must not become the source of show order
 - `performances.sort_order` is the canonical order of performers in the live show and should be used by stage-manager and now-playing features
+- stage-manager roll-call records venue arrival in `performances.checked_in_at`; checking in a selected performer promotes them into `performances` and appends them to the live show order
 - `action_tokens` powers all one-time emailed workflow links
 - `app_settings` stores configurable workflow values in `jsonb`
 - gallery identity comes from `events.gallery_url`
