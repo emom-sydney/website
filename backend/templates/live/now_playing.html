@@ -263,11 +263,14 @@
                 const qrUrl = payload.data.artist_qr_url;
                 if (qrUrl) {
                     const existing = artistQr.querySelector('img');
-                    if (!existing || existing.getAttribute('src') !== qrUrl) {
+                    const profileId = String(state.profile_id);
+                    const versionedQrUrl = `${qrUrl}${qrUrl.includes('?') ? '&' : '?'}live=${encodeURIComponent(profileId)}`;
+                    if (!existing || existing.dataset.profileId !== profileId) {
                         const frame = document.createElement('div');
                         const image = document.createElement('img');
                         frame.className = 'artist-qr';
-                        image.src = qrUrl;
+                        image.src = versionedQrUrl;
+                        image.dataset.profileId = profileId;
                         image.alt = `QR code for ${name}'s artist profile`;
                         frame.append(image);
                         artistQr.replaceChildren(frame);
