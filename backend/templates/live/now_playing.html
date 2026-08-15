@@ -7,7 +7,7 @@
     <title>Now Playing</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Afacad+Flux:opsz,wght@6..96,400;6..96,500;6..96,600;6..96,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Afacad+Flux:wght@100..1000&display=swap" rel="stylesheet">
     <style>
         :root {
             --page-bg: #08131a;
@@ -207,7 +207,7 @@
                 <div class="heading"><p id="event-date" class="eyebrow">EMOM Sydney{% if event %} · {{ event.event_date }}{% endif %}</p>
                     <h1>Now Playing</h1>
                 </div>
-                <div id="artist-qr"{% if not artist_qr_url %} hidden{% endif %}>{% if artist_qr_url %}<div class="artist-qr"><img src="{{ artist_qr_url }}" alt="QR code for {{ now_playing.text }}'s artist profile"></div>{% endif %}</div>
+                <div id="artist-qr"{% if not artist_qr_url %} hidden{% endif %}>{% if artist_qr_url %}<div class="artist-qr"><img src="{{ artist_qr_url }}" data-profile-id="{{ now_playing.profile_id }}" alt="QR code for {{ now_playing.text }}'s artist profile"></div>{% endif %}</div>
             </header>
             <section id="current" class="current">
                 {% if now_playing.text.strip() %}<p id="current-name" class="current-name" data-empty-label="- - -">{{
@@ -215,24 +215,24 @@
             </section>
     </main>
     <script>
-        const currentName = document.querySelector('#current-name');
-        const current = document.querySelector('#current');
-        const artistQr = document.querySelector('#artist-qr');
-        const eventDate = document.querySelector('#event-date');
-        const emptyLabel = currentName.dataset.emptyLabel || '- - -';
-        const artistColours = ['#0082eb', '#bd3971', '#6646b8'];
-        const panel = document.querySelector('.panel');
-        let activeArtistColour = '#0082eb';
-        let lastArtistName = currentName.textContent.trim();
+        var currentName = document.querySelector('#current-name');
+        var current = document.querySelector('#current');
+        var artistQr = document.querySelector('#artist-qr');
+        var eventDate = document.querySelector('#event-date');
+        var emptyLabel = currentName.getAttribute('data-empty-label') || '- - -';
+        var artistColours = ['#0082eb', '#bd3971', '#6646b8'];
+        var panel = document.querySelector('.panel');
+        var activeArtistColour = '#0082eb';
+        var lastArtistName = currentName.textContent.replace(/^\s+|\s+$/g, '');
 
         function fitArtistName() {
-            const availableWidth = currentName.clientWidth;
+            var availableWidth = currentName.clientWidth;
             if (availableWidth <= 0) return;
-            let low = 1;
-            let high = 88;
+            var low = 1;
+            var high = 88;
             while (low < high) {
-                const middle = Math.ceil((low + high) / 2);
-                currentName.style.fontSize = `${middle}px`;
+                var middle = Math.ceil((low + high) / 2);
+                currentName.style.fontSize = middle + 'px';
                 if (currentName.scrollWidth <= availableWidth) low = middle;
                 else high = middle - 1;
             }
@@ -240,54 +240,69 @@
         }
 
         function changeArtistColour() {
-            const choices = artistColours.filter(colour => colour !== activeArtistColour);
+            var choices = [];
+            var index;
+            for (index = 0; index < artistColours.length; index += 1) {
+                if (artistColours[index] !== activeArtistColour) choices.push(artistColours[index]);
+            }
             activeArtistColour = choices[Math.floor(Math.random() * choices.length)];
             panel.style.setProperty('--artist-background', activeArtistColour);
         }
 
-        async function refreshNowPlaying() {
-            try {
-                const response = await fetch('/api/v1/live/now-playing', { cache: 'no-store' });
-                const payload = await response.json();
-                if (!response.ok || !payload.data) return;
-                const state = payload.data.now_playing;
-                const name = state.text.trim();
+        function clearChildren(node) {
+            while (node.firstChild) node.removeChild(node.firstChild);
+        }
+
+        function refreshNowPlaying() {
+            var request = new XMLHttpRequest();
+            request.open('GET', '/api/v1/live/now-playing?display=1', true);
+            request.setRequestHeader('Cache-Control', 'no-cache');
+            request.onreadystatechange = function () {
+                if (request.readyState !== 4 || request.status < 200 || request.status >= 300) return;
+                var payload;
+                try {
+                    payload = JSON.parse(request.responseText);
+                } catch (error) {
+                    return;
+                }
+                if (!payload || !payload.data || !payload.data.now_playing) return;
+                var state = payload.data.now_playing;
+                var name = String(state.text || '').replace(/^\s+|\s+$/g, '');
                 if (name && name !== lastArtistName) changeArtistColour();
                 currentName.textContent = name || emptyLabel;
-                currentName.classList.toggle('empty', !name);
+                currentName.className = 'current-name' + (name ? '' : ' empty');
                 lastArtistName = name;
                 fitArtistName();
                 eventDate.textContent = payload.data.event
-                    ? `EMOM Sydney · ${payload.data.event.event_date}`
+                    ? 'EMOM Sydney · ' + payload.data.event.event_date
                     : 'EMOM Sydney';
-                const qrUrl = payload.data.artist_qr_url;
+                var qrUrl = payload.data.artist_qr_url;
                 if (qrUrl) {
-                    const existing = artistQr.querySelector('img');
-                    const profileId = String(state.profile_id);
-                    const versionedQrUrl = `${qrUrl}${qrUrl.includes('?') ? '&' : '?'}live=${encodeURIComponent(profileId)}`;
-                    if (!existing || existing.dataset.profileId !== profileId) {
-                        const frame = document.createElement('div');
-                        const image = document.createElement('img');
+                    var existing = artistQr.querySelector('img');
+                    var profileId = String(state.profile_id);
+                    var versionedQrUrl = qrUrl + (qrUrl.indexOf('?') !== -1 ? '&' : '?') + 'live=' + encodeURIComponent(profileId);
+                    if (!existing || existing.getAttribute('data-profile-id') !== profileId) {
+                        var frame = document.createElement('div');
+                        var image = document.createElement('img');
                         frame.className = 'artist-qr';
                         image.src = versionedQrUrl;
-                        image.dataset.profileId = profileId;
-                        image.alt = `QR code for ${name}'s artist profile`;
-                        frame.append(image);
-                        artistQr.replaceChildren(frame);
+                        image.setAttribute('data-profile-id', profileId);
+                        image.alt = 'QR code for ' + name + "'s artist profile";
+                        frame.appendChild(image);
+                        clearChildren(artistQr);
+                        artistQr.appendChild(frame);
                     }
                     artistQr.hidden = false;
                 } else {
                     artistQr.hidden = true;
-                    artistQr.replaceChildren();
+                    clearChildren(artistQr);
                 }
-            } catch (error) {
-                console.warn('Unable to refresh now playing.', error);
-            }
+            };
+            request.send(null);
         }
 
-        document.fonts?.ready.then(fitArtistName);
-        new ResizeObserver(fitArtistName).observe(current);
         fitArtistName();
+        window.addEventListener('resize', fitArtistName);
         setInterval(refreshNowPlaying, 5000);
     </script>
 </body>
