@@ -86,17 +86,23 @@ def _now_playing_context(cursor):
 def _roll_call(cursor, event_id):
     cursor.execute(
         """
-        SELECT p.id, p.display_name, perf.sort_order, perf.checked_in_at,
+        SELECT p.id, p.display_name, p.contact_phone, artist_role.bio,
+          perf.sort_order, perf.checked_in_at,
           COALESCE(selection.status = 'selected', false), true
         FROM performances perf
         JOIN profiles p ON p.id = perf.profile_id
+        LEFT JOIN profile_roles artist_role
+          ON artist_role.profile_id = p.id AND artist_role.role = 'artist'
         LEFT JOIN event_performer_selections selection
           ON selection.event_id = perf.event_id AND selection.profile_id = perf.profile_id
         WHERE perf.event_id = %s
         UNION ALL
-        SELECT p.id, p.display_name, NULL, NULL, true, false
+        SELECT p.id, p.display_name, p.contact_phone, artist_role.bio,
+          NULL, NULL, true, false
         FROM event_performer_selections selection
         JOIN profiles p ON p.id = selection.profile_id
+        LEFT JOIN profile_roles artist_role
+          ON artist_role.profile_id = p.id AND artist_role.role = 'artist'
         WHERE selection.event_id = %s
           AND selection.status = 'selected'
           AND NOT EXISTS (
@@ -112,10 +118,12 @@ def _roll_call(cursor, event_id):
         {
             "profile_id": row[0],
             "display_name": row[1],
-            "sort_order": row[2],
-            "checked_in": row[3] is not None,
-            "selected": bool(row[4]),
-            "in_performances": bool(row[5]),
+            "contact_phone": row[2],
+            "bio": row[3],
+            "sort_order": row[4],
+            "checked_in": row[5] is not None,
+            "selected": bool(row[6]),
+            "in_performances": bool(row[7]),
         }
         for row in cursor.fetchall()
     ]

@@ -106,6 +106,17 @@ Important model details:
 - gallery identity comes from `events.gallery_url`
 - optional per-event gallery video is stored on `events.youtube_embed_url`
 
+### Performer publication flow
+
+The intended publication flow is:
+
+1. A performer submits a draft profile and selects one or more available event dates.
+2. An administrator runs lineup selection. A candidate set to `selected` is approved, receives the `artist` role, and is included in the next Eleventy build's individual `/artists/<slug>/` page input. Selection deliberately leaves `is_profile_index_visible = false`, so the profile page is generated but is not linked from the main artist index.
+3. On the event night, stage-manager roll-call checking a selected performer in creates or updates their `performances` record and sets `is_profile_index_visible = true`. The next Eleventy build can then list the artist, subject to the normal visibility and performance-year rules.
+4. After the event, an administrator manually adds the event's gallery slug to `events.gallery_url`. This publishes the event gallery and lets recorded performance links point to it; adding the gallery slug is not the mechanism that initially publishes the artist profile.
+
+Keep these concerns separate: `event_performer_selections` represents the planned/pre-event lineup, `performances` represents who actually played and their live order, and `events.gallery_url` identifies an event gallery.
+
 ## Where Relational Data Is Used
 
 Primary relational usage is concentrated in a few places:
