@@ -132,6 +132,7 @@ def _publish_arrived_artist(cursor, *, profile_id, staff_profile_id):
     cursor.execute(
         """UPDATE profiles
            SET is_profile_approved = true,
+               is_profile_index_visible = true,
                profile_visible_from = CASE
                  WHEN profile_visible_from IS NULL OR profile_visible_from > CURRENT_DATE
                    THEN CURRENT_DATE

@@ -1831,12 +1831,13 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
               is_email_public,
               is_name_public,
               is_profile_approved,
+              is_profile_index_visible,
               profile_visible_from,
               profile_expires_on,
               approved_at,
               approved_by_profile_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, NULL, CURRENT_DATE + INTERVAL '100 years', now(), %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, true, NULL, CURRENT_DATE + INTERVAL '100 years', now(), %s)
             RETURNING id
             """,
             (
@@ -1867,6 +1868,7 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
               is_email_public = %s,
               is_name_public = %s,
               is_profile_approved = true,
+              is_profile_index_visible = true,
               approved_at = now(),
               approved_by_profile_id = %s
             WHERE id = %s
@@ -3047,6 +3049,21 @@ def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, can
             ),
         )
         if status == LINEUP_STATUS_SELECTED:
+            cursor.execute(
+                """INSERT INTO profile_roles (profile_id, role)
+                   VALUES (%s, 'artist')
+                   ON CONFLICT (profile_id, role) DO NOTHING""",
+                (item["profile_id"],),
+            )
+            cursor.execute(
+                """UPDATE profiles
+                   SET is_profile_approved = true,
+                       is_profile_index_visible = false,
+                       approved_at = COALESCE(approved_at, now()),
+                       approved_by_profile_id = COALESCE(approved_by_profile_id, %s)
+                   WHERE id = %s""",
+                (admin_profile_id, item["profile_id"]),
+            )
             cursor.execute(
                 """
                 UPDATE requested_dates

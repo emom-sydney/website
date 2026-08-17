@@ -11,7 +11,7 @@ description: "Discover artists who have performed at sydney.emom. Browse our lin
 <h3>{{ currentYear }}</h3>
 <ul class="artist-list">
 {% for artistPage in sorted %}
-{% if artistPage.hasCurrentYearPerformance %}<li><a href="/artists/{{ artistPage.slug }}/index.html">{{ artistPage.artist.stageName }}</a></li>
+{% if artistPage.isPubliclyVisible and artistPage.hasCurrentYearPerformance %}<li><a href="/artists/{{ artistPage.slug }}/index.html">{{ artistPage.artist.stageName }}</a></li>
 {% endif %}
 {% endfor %}
 </ul>
@@ -19,7 +19,7 @@ description: "Discover artists who have performed at sydney.emom. Browse our lin
 <h3>Previous Years</h3>
 <ul class="artist-list">
 {% for artistPage in sorted %}
-{% if artistPage.hasPastPerformance and not artistPage.hasCurrentYearPerformance %}<li><a href="/artists/{{ artistPage.slug }}/index.html">{{ artistPage.artist.stageName }}</a></li>
+{% if artistPage.isPubliclyVisible and artistPage.hasPastPerformance and not artistPage.hasCurrentYearPerformance %}<li><a href="/artists/{{ artistPage.slug }}/index.html">{{ artistPage.artist.stageName }}</a></li>
 {% endif %}
 {% endfor %}
 </ul>
