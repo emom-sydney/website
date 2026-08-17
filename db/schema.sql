@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   is_email_public boolean NOT NULL DEFAULT false,
   is_name_public boolean NOT NULL DEFAULT false,
   is_profile_approved boolean NOT NULL DEFAULT false,
+  is_profile_index_visible boolean NOT NULL DEFAULT false,
   is_moderator boolean NOT NULL DEFAULT false,
   is_admin boolean NOT NULL DEFAULT false,
   profile_visible_from date,

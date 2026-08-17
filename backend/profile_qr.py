@@ -46,12 +46,15 @@ def register_profile_qr_routes(app):
         if not profile:
             abort(404)
 
-        return send_file(
+        response = send_file(
             io.BytesIO(make_qr_svg(get_scan_url(profile_id))),
             mimetype="image/svg+xml",
             as_attachment=False,
             max_age=0,
         )
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     @app.get("/api/v1/artists/<int:profile_id>/qr/download.png")
     def download_artist_profile_qr_png(profile_id):

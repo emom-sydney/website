@@ -1,6 +1,6 @@
 import json
 
-from flask import Response, jsonify, render_template, request
+from flask import Response, g, jsonify, render_template, request
 
 from backend.admin import api_data, api_error, require_csrf, require_staff
 from backend.db import connect
@@ -73,7 +73,8 @@ def _now_playing_context(cursor):
             (now_playing["profile_id"],),
         )
         if cursor.fetchone():
-            qr_url = f"/api/v1/artists/{now_playing['profile_id']}/qr/display.svg"
+            profile_id = now_playing["profile_id"]
+            qr_url = f"/api/v1/artists/{profile_id}/qr/display.svg?v={profile_id}"
     return {
         "now_playing": now_playing,
         "event": event,
@@ -118,6 +119,33 @@ def _roll_call(cursor, event_id):
         }
         for row in cursor.fetchall()
     ]
+
+
+def _publish_arrived_artist(cursor, *, profile_id, staff_profile_id):
+    """Make a checked-in performer's artist profile available to the next site build."""
+    cursor.execute(
+        """INSERT INTO profile_roles (profile_id, role)
+           VALUES (%s, 'artist')
+           ON CONFLICT (profile_id, role) DO NOTHING""",
+        (profile_id,),
+    )
+    cursor.execute(
+        """UPDATE profiles
+           SET is_profile_approved = true,
+               is_profile_index_visible = true,
+               profile_visible_from = CASE
+                 WHEN profile_visible_from IS NULL OR profile_visible_from > CURRENT_DATE
+                   THEN CURRENT_DATE
+                 ELSE profile_visible_from
+               END,
+               profile_expires_on = GREATEST(profile_expires_on, CURRENT_DATE),
+               approved_at = COALESCE(approved_at, now()),
+               approved_by_profile_id = COALESCE(approved_by_profile_id, %s)
+           WHERE id = %s""",
+        (staff_profile_id, profile_id),
+    )
+    if cursor.rowcount != 1:
+        raise ValueError("That performer profile no longer exists.")
 
 
 def register_live_routes(app):
@@ -190,6 +218,11 @@ def register_live_routes(app):
             if not cursor.fetchone():
                 return api_error("invalid_performer", "That performer is not on this event's roll-call.")
             if checked_in:
+                _publish_arrived_artist(
+                    cursor,
+                    profile_id=profile_id,
+                    staff_profile_id=g.staff["profile_id"],
+                )
                 cursor.execute(
                     """INSERT INTO performances (event_id, profile_id, sort_order, checked_in_at)
                        VALUES (
