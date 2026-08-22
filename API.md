@@ -12,6 +12,9 @@ email-action pages deliberately live outside the API namespace.
   - requires `Authorization: Bearer <profile-submission-access-token>`
 - `POST /api/v1/profiles/submissions`
   - requires the same Bearer token
+- `DELETE /api/v1/profiles/submissions`
+  - requires the same Bearer token
+  - permanently deletes the performer profile and pending workflow data, unsubscribes the alumni contact, retains only name-only historical performance credits, and emails the performer and administrators about the manual 48-hour site rebuild
 - `POST /api/v1/newsletter/subscriptions`
 - `POST /api/v1/contact/messages`
 - `GET /api/v1/artists/<profile_id>/qr/scan`

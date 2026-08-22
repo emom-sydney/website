@@ -28,6 +28,13 @@ sequenceDiagram
     Staff->>API: POST /api/v1/admin/profiles/submissions/:id/decisions
     API->>DB: Apply decision and audit action
     API-->>Artist: Approval or denial email
+
+    Artist->>Site: Confirm permanent profile deletion
+    Site->>API: DELETE submissions (Bearer token)
+    API->>DB: Preserve display name on completed performances
+    API->>DB: Delete profile and pending workflow data
+    API-->>Artist: Unsubscribe alumni contact and email deletion confirmation
+    API-->>Staff: Email deleted profile details and manual rebuild reminder
 ```
 
 ## Availability and Lineup Selection

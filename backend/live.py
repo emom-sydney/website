@@ -27,8 +27,8 @@ def _now_playing(cursor):
     name = None
     if event_id and (request_id or profile_id):
         cursor.execute(
-            """SELECT p.display_name FROM performances perf
-               JOIN profiles p ON p.id = perf.profile_id
+            """SELECT COALESCE(p.display_name, perf.performer_display_name) FROM performances perf
+               LEFT JOIN profiles p ON p.id = perf.profile_id
                WHERE perf.event_id = %s AND perf.profile_id = %s""",
             (event_id, profile_id or -1),
         )
@@ -50,9 +50,9 @@ def _now_playing_context(cursor):
         if row:
             event = {"event_name": row[0], "event_date": row[1].isoformat()}
             cursor.execute(
-                """SELECT p.id, p.display_name
+                """SELECT p.id, COALESCE(p.display_name, perf.performer_display_name)
                    FROM performances perf
-                   JOIN profiles p ON p.id = perf.profile_id
+                   LEFT JOIN profiles p ON p.id = perf.profile_id
                    WHERE perf.event_id = %s
                    ORDER BY perf.sort_order, perf.id""",
                 (now_playing["event_id"],),
@@ -86,11 +86,11 @@ def _now_playing_context(cursor):
 def _roll_call(cursor, event_id):
     cursor.execute(
         """
-        SELECT p.id, p.display_name, p.contact_phone, artist_role.bio,
+        SELECT p.id, COALESCE(p.display_name, perf.performer_display_name), p.contact_phone, artist_role.bio,
           perf.sort_order, perf.checked_in_at,
           COALESCE(selection.status = 'selected', false), true
         FROM performances perf
-        JOIN profiles p ON p.id = perf.profile_id
+        LEFT JOIN profiles p ON p.id = perf.profile_id
         LEFT JOIN profile_roles artist_role
           ON artist_role.profile_id = p.id AND artist_role.role = 'artist'
         LEFT JOIN event_performer_selections selection
@@ -232,15 +232,16 @@ def register_live_routes(app):
                     staff_profile_id=g.staff["profile_id"],
                 )
                 cursor.execute(
-                    """INSERT INTO performances (event_id, profile_id, sort_order, checked_in_at)
+                    """INSERT INTO performances (event_id, profile_id, performer_display_name, sort_order, checked_in_at)
                        VALUES (
                          %s, %s,
+                         (SELECT display_name FROM profiles WHERE id = %s),
                          (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM performances WHERE event_id = %s),
                          now()
                        )
                        ON CONFLICT (event_id, profile_id)
                        DO UPDATE SET checked_in_at = now()""",
-                    (event_id, profile_id, event_id),
+                    (event_id, profile_id, profile_id, event_id),
                 )
             else:
                 cursor.execute(
@@ -270,7 +271,7 @@ def register_live_routes(app):
             return api_error("invalid_order", "A performer cannot appear twice.")
         with connect() as connection, connection.cursor() as cursor:
             cursor.execute(
-                """SELECT profile_id FROM performances WHERE event_id = %s
+                """SELECT profile_id FROM performances WHERE event_id = %s AND profile_id IS NOT NULL
                    UNION
                    SELECT profile_id FROM event_performer_selections
                    WHERE event_id = %s AND status = 'selected'""",
@@ -280,8 +281,8 @@ def register_live_routes(app):
             if moved_profile_id not in available_ids or not set(profile_ids).issubset(available_ids):
                 return api_error("invalid_order", "One or more performers are not available for this event.")
             cursor.execute(
-                """INSERT INTO performances (event_id, profile_id, sort_order)
-                   VALUES (%s, %s, 0)
+                """INSERT INTO performances (event_id, profile_id, performer_display_name, sort_order)
+                   SELECT %s, p.id, p.display_name, 0 FROM profiles p WHERE p.id = %s
                    ON CONFLICT (event_id, profile_id) DO NOTHING""",
                 (event_id, moved_profile_id),
             )
