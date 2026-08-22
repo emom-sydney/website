@@ -51,8 +51,6 @@ export default async function render(data) {
     missingImageThumbnailUrl: data.missingImageThumbnailUrl
   });
   html += renderPublicBio(artist);
-  html += renderSocialLinks(socialLinks);
-  html += renderTribuoLink(artist, data.emom?.tribuoBaseUrl);
 
   // Performances
   if (performances.length) {
@@ -73,6 +71,9 @@ export default async function render(data) {
   } else {
     html += `<p>No performances recorded.</p>\n`;
   }
+
+  html += renderSocialLinks(socialLinks);
+  html += renderTribuoLink(artist, data.emom?.tribuoBaseUrl);
 
   if (artistPage.volunteerProfile) {
     const referenceName = getArtistReferenceName(artist);
