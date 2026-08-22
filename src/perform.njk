@@ -75,11 +75,6 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
       <input type="text" id="performer-contact-phone" name="contact_phone" required>
       <p class="performer-registration-note">Not displayed on your profile, only required in case we need to contact you urgently on the day of the event.</p>
 
-      <label class="performer-registration-checkbox">
-        <input type="checkbox" id="performer-show-tribuo-link" name="show_tribuo_link">
-        <span>Show Tribuo link (NB Tips will be sent using PayID to the mobile number you give above, please ensure your number is registered to accept payments)</span>
-      </label>
-
       <label for="performer-artist-bio">Artist bio (visible on profile page)</label>
       <textarea id="performer-artist-bio" name="artist_bio" rows="6"></textarea>
 
@@ -90,6 +85,14 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
         <legend>Social links</legend>
         <div id="performer-social-links"></div>
         <button type="button" id="performer-add-social-link">Add social link</button>
+      </fieldset>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend><span class="performer-registration-new" aria-label="New">🆕</span> Tribuo</legend>
+        <label class="performer-registration-checkbox">
+          <input type="checkbox" id="performer-show-tribuo-link" name="show_tribuo_link">
+          <span>Choose this option to allow your fans to send tips via our friends at <a href="https://gotribuo.io">Tribuo</a>. Sydney.emom will collect any money sent and pass it on to you using PayID to your mobile number.</span>
+        </label>
       </fieldset>
 
       <fieldset class="performer-registration-fieldset">

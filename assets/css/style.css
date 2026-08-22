@@ -541,6 +541,10 @@ form button:hover {
   border-radius: 4px;
 }
 
+.performer-registration-new {
+  color: #c00;
+}
+
 .performer-social-link-row {
   display: flex;
   align-items: flex-end;
