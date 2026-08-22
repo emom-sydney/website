@@ -125,6 +125,53 @@ def register_performer_workflow_routes(app):
     def performer_registration_submit_options():
         return ("", 204)
 
+    @app.route("/api/v1/profiles/submissions", methods=["DELETE"])
+    def delete_performer_profile():
+        try:
+            raw_token = get_bearer_token()
+            if not raw_token:
+                return error_response("A registration token is required.", 400)
+
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_REGISTRATION_LINK)
+                    email = token_row["email"]
+                    profile = get_existing_profile_by_email(cursor, email)
+
+                    if profile:
+                        cursor.execute(
+                            "SELECT is_moderator, is_admin FROM profiles WHERE id = %s",
+                            (profile["id"],),
+                        )
+                        staff_flags = cursor.fetchone()
+                        if staff_flags and (staff_flags[0] or staff_flags[1]):
+                            raise ValueError("Staff profiles must be deleted through an administrator.")
+
+                    deleted_display_name = profile["display_name"] if profile else "No live profile"
+                    admin_emails = get_admin_emails(cursor)
+                    delete_performer_profile_data(cursor, email=email, profile_id=profile["id"] if profile else None)
+
+            alumni_unsubscribe_succeeded = True
+            try:
+                unsubscribe_contact_from_keila_project(email=email, list_key="alumni")
+            except Exception:
+                alumni_unsubscribe_succeeded = False
+                app.logger.exception("performer_profile_deletion_alumni_unsubscribe_failed email=%s", email)
+            send_profile_deletion_notifications(
+                app,
+                email=email,
+                display_name=deleted_display_name,
+                profile_id=profile["id"] if profile else None,
+                admin_emails=admin_emails,
+                alumni_unsubscribe_succeeded=alumni_unsubscribe_succeeded,
+            )
+            return jsonify({"data": {"message": "Your profile has been deleted."}}), 200
+        except ValueError as exc:
+            return error_response(str(exc), 400)
+        except Exception:
+            app.logger.exception("Performer profile deletion failed")
+            return error_response("Unable to delete your profile right now.", 500)
+
     @app.route("/api/v1/profiles/submissions", methods=["POST"])
     def submit_performer_registration():
         try:
@@ -1247,6 +1294,88 @@ def has_profile_performed(cursor, profile_id):
         (profile_id,),
     )
     return bool(cursor.fetchone()[0])
+
+
+def delete_performer_profile_data(cursor, *, email, profile_id):
+    """Delete all performer-owned data while retaining name-only performance credits."""
+    if profile_id is not None:
+        cursor.execute(
+            """
+            UPDATE performances perf
+            SET performer_display_name = COALESCE(NULLIF(BTRIM(perf.performer_display_name), ''), p.display_name),
+                profile_id = NULL
+            FROM profiles p
+            WHERE p.id = %s
+              AND perf.profile_id = p.id
+            """,
+            (profile_id,),
+        )
+
+        # These are attribution fields on other records, not performer-owned data.
+        # Clear them before deleting the profile so the deletion cannot leave a
+        # personal foreign-key reference behind.
+        cursor.execute("UPDATE profiles SET approved_by_profile_id = NULL WHERE approved_by_profile_id = %s", (profile_id,))
+        cursor.execute(
+            "UPDATE profile_submission_drafts SET reviewed_by_profile_id = NULL WHERE reviewed_by_profile_id = %s",
+            (profile_id,),
+        )
+        cursor.execute(
+            "UPDATE requested_dates SET selected_by_profile_id = NULL WHERE selected_by_profile_id = %s",
+            (profile_id,),
+        )
+        cursor.execute(
+            "UPDATE event_performer_selections SET selected_by_profile_id = NULL WHERE selected_by_profile_id = %s",
+            (profile_id,),
+        )
+
+        cursor.execute("DELETE FROM profiles WHERE id = %s", (profile_id,))
+
+    # A person may have submitted drafts before a profile was created. Delete
+    # those by email as well; profile-linked drafts are already cascade-deleted.
+    cursor.execute("DELETE FROM profile_submission_drafts WHERE lower(email) = lower(%s)", (email,))
+    cursor.execute(
+        "DELETE FROM action_tokens WHERE lower(email) = lower(%s) OR (%s IS NOT NULL AND profile_id = %s)",
+        (email, profile_id, profile_id),
+    )
+
+
+def send_profile_deletion_notifications(
+    app, *, email, display_name, profile_id, admin_emails, alumni_unsubscribe_succeeded
+):
+    alumni_status = (
+        "you have been unsubscribed from the EMOM alumni mailing list"
+        if alumni_unsubscribe_succeeded
+        else "we were unable to complete the alumni mailing-list unsubscribe automatically and an administrator has been alerted"
+    )
+    performer_body = (
+        f"Your EMOM performer profile has been deleted and {alumni_status}.\n\n"
+        "Because the public site is statically generated, your existing profile page and other generated site content may remain visible temporarily. "
+        "An administrator has been notified and will manually rebuild the site to remove that content within 48 hours.\n\n"
+        "If you have already performed, your display/stage name will remain as an unlinked plain-text credit on the relevant event gallery page. "
+        "No other personal profile details will be retained.\n"
+    )
+    try:
+        send_mail(email, "sydney.emom | profile deletion confirmed", performer_body)
+    except Exception:
+        app.logger.exception("performer_profile_deletion_performer_email_failed email=%s", email)
+
+    admin_body = (
+        "A performer profile has been deleted through the self-service privacy flow.\n\n"
+        f"Display/stage name: {display_name}\n"
+        f"Profile ID: {profile_id or '(no live profile)'}\n"
+        f"Email: {email}\n\n"
+        "The site is statically generated and must be rebuilt manually. Please rebuild it within 48 hours so the deleted profile page and other generated profile content are removed. "
+        "Historical performance credits, if any, should remain as plain-text names without profile links.\n"
+    )
+    for admin in admin_emails:
+        try:
+            send_mail(admin["email"], "sydney.emom | performer profile deleted — rebuild required", admin_body)
+        except Exception:
+            app.logger.exception(
+                "performer_profile_deletion_admin_email_failed admin_email=%s profile_id=%s",
+                admin["email"],
+                profile_id,
+            )
 
 
 def get_existing_profile_by_id(cursor, profile_id):

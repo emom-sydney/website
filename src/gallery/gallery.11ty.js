@@ -284,7 +284,9 @@ export default async function render(data) {
         .replace(/[^\w\s-]/g, '')
         .replace(/[\s_]+/g, '-')
         .replace(/^-+|-+$/g, '');
-      html += `<li><a href="/artists/${slug}/index.html">${artist.stageName}</a></li>\n`;
+      html += artist.ID
+        ? `<li><a href="/artists/${slug}/index.html">${artist.stageName}</a></li>\n`
+        : `<li>${artist.stageName}</li>\n`;
     }
     html += `</ul>\n`;
   }

@@ -22,6 +22,11 @@ if (appNode) {
   const eventOptionsNode = document.getElementById("performer-event-options");
   const eventsNoteNode = document.getElementById("performer-events-note");
   const persistentStatusNode = document.getElementById("performer-registration-persistent-status");
+  const deleteStartButton = document.getElementById("performer-delete-start");
+  const deleteConfirmationNode = document.getElementById("performer-delete-confirmation");
+  const deleteAcknowledgement = document.getElementById("performer-delete-acknowledgement");
+  const deleteConfirmButton = document.getElementById("performer-delete-confirm");
+  const deleteCancelButton = document.getElementById("performer-delete-cancel");
 
   let registrationToken = new URLSearchParams(window.location.search).get("token") || "";
   let socialPlatforms = [];
@@ -377,6 +382,63 @@ if (appNode) {
   });
 
   addSocialLinkButton?.addEventListener("click", () => createSocialLinkRow());
+
+  deleteStartButton?.addEventListener("click", () => {
+    clearPersistentStatus();
+    deleteConfirmationNode.hidden = false;
+    deleteStartButton.hidden = true;
+    deleteAcknowledgement.checked = false;
+    deleteConfirmButton.disabled = true;
+    deleteAcknowledgement.focus();
+  });
+
+  deleteAcknowledgement?.addEventListener("change", () => {
+    deleteConfirmButton.disabled = !deleteAcknowledgement.checked;
+  });
+
+  deleteCancelButton?.addEventListener("click", () => {
+    deleteConfirmationNode.hidden = true;
+    deleteStartButton.hidden = false;
+    deleteAcknowledgement.checked = false;
+    deleteConfirmButton.disabled = true;
+  });
+
+  deleteConfirmButton?.addEventListener("click", async () => {
+    if (!deleteAcknowledgement.checked || !registrationToken) return;
+
+    setStatus("Deleting your profile...");
+    clearPersistentStatus();
+    deleteConfirmButton.disabled = true;
+    deleteCancelButton.disabled = true;
+    try {
+      const response = await fetch("/api/v1/profiles/submissions", {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${registrationToken}`,
+        },
+      });
+      const result = await parseJsonResponse(response, "Unable to delete your profile right now.");
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Unable to delete your profile.");
+      }
+
+      sessionForm.reset();
+      populateSocialLinks([]);
+      populateEvents(availableEvents, []);
+      registrationToken = "";
+      const url = new URL(window.location.href);
+      url.searchParams.delete("token");
+      window.history.replaceState({}, "", url.toString());
+      sessionSection.hidden = true;
+      setStatus("Your profile has been deleted and you have been unsubscribed from the alumni mailing list. An administrator will remove the generated site content within 48 hours.", "success");
+    } catch (error) {
+      const message = error.message || "Unable to delete your profile.";
+      setStatus(message, "error");
+      setPersistentStatus(`${message} Please try again or contact us if the problem continues.`);
+      deleteConfirmButton.disabled = false;
+      deleteCancelButton.disabled = false;
+    }
+  });
 
   sessionForm?.addEventListener("submit", async (event) => {
     event.preventDefault();

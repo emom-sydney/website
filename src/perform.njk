@@ -95,6 +95,37 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
 
       <button type="submit">Submit for moderation</button>
     </form>
+
+    <section class="performer-registration-danger-zone" aria-labelledby="performer-delete-heading">
+      <h3 id="performer-delete-heading">Delete my profile</h3>
+      <p>If you no longer want an EMOM performer profile, you can permanently delete it and unsubscribe from the alumni mailing list.</p>
+      <button type="button" id="performer-delete-start">Delete my profile</button>
+
+      <div id="performer-delete-confirmation" hidden>
+        <p><strong>This permanently deletes your EMOM performer profile and cannot be undone.</strong></p>
+        <h4>Deleted and unsubscribed</h4>
+        <ul>
+          <li>Your email address and contact phone number</li>
+          <li>Your first name and last name</li>
+          <li>Your profile/stage details, bio, social links, images, and profile page</li>
+          <li>Your registration submissions, nominated dates, selections, and other pending workflow records</li>
+          <li>Your one-time access links and profile-related QR records</li>
+          <li>Your subscription to the EMOM alumni mailing list</li>
+        </ul>
+        <h4>Retained</h4>
+        <ul>
+          <li>If you have already performed, your display/stage name will remain as a plain-text historical credit on the relevant event gallery page.</li>
+          <li>That credit will not link to a profile and no other personal details will be retained with it.</li>
+        </ul>
+        <p><strong>The live site is rebuilt manually.</strong> An administrator will remove your profile page and other generated site content within 48 hours of deletion. You will receive an email confirming this, and the existing page may remain visible until that rebuild is completed.</p>
+        <label class="performer-registration-checkbox">
+          <input type="checkbox" id="performer-delete-acknowledgement">
+          <span>I understand this deletion is permanent and cannot be undone.</span>
+        </label>
+        <button type="button" id="performer-delete-confirm" disabled>Permanently delete my profile</button>
+        <button type="button" id="performer-delete-cancel">Cancel</button>
+      </div>
+    </section>
   </section>
 </div>
 

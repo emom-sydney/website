@@ -52,6 +52,116 @@ def test_health_uses_api_envelope(client):
     assert response.get_json() == {"data": {"status": "ok"}}
 
 
+def test_profile_deletion_requires_registration_token(client):
+    response = client.delete("/api/v1/profiles/submissions")
+    assert response.status_code == 400
+    assert response.get_json()["error"]["message"] == "A registration token is required."
+
+
+def test_profile_deletion_rejects_staff_profile(monkeypatch, client):
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, *_args):
+            return None
+
+        def fetchone(self):
+            return (True, False)
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(workflow, "connect", lambda: Connection())
+    monkeypatch.setattr(workflow, "get_action_token", lambda *_args: {"email": "staff@example.com"})
+    monkeypatch.setattr(
+        workflow,
+        "get_existing_profile_by_email",
+        lambda *_args: {"id": 12},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "delete_performer_profile_data",
+        lambda *_args, **_kwargs: pytest.fail("Staff profile data must not be deleted"),
+    )
+
+    response = client.delete(
+        "/api/v1/profiles/submissions",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+    assert response.status_code == 400
+    assert "Staff profiles must be deleted" in response.get_json()["error"]["message"]
+
+
+def test_profile_deletion_cleans_orphaned_submissions_and_unsubscribes(monkeypatch, client):
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params=None):
+            calls.append((query, params))
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(workflow, "connect", lambda: Connection())
+    monkeypatch.setattr(workflow, "get_action_token", lambda *_args: {"email": "artist@example.com"})
+    monkeypatch.setattr(workflow, "get_existing_profile_by_email", lambda *_args: None)
+    monkeypatch.setattr(workflow, "get_admin_emails", lambda *_args: [{"profile_id": 2, "email": "admin@example.com"}])
+    monkeypatch.setattr(
+        workflow,
+        "delete_performer_profile_data",
+        lambda cursor, **kwargs: calls.append(("delete_performer_profile_data", kwargs)),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "unsubscribe_contact_from_keila_project",
+        lambda **kwargs: calls.append(("unsubscribe", kwargs)),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "send_profile_deletion_notifications",
+        lambda _app, **kwargs: calls.append(("notifications", kwargs)),
+    )
+
+    response = client.delete(
+        "/api/v1/profiles/submissions",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+    assert response.status_code == 200
+    assert ("delete_performer_profile_data", {"email": "artist@example.com", "profile_id": None}) in calls
+    assert ("unsubscribe", {"email": "artist@example.com", "list_key": "alumni"}) in calls
+    assert ("notifications", {
+        "email": "artist@example.com",
+        "display_name": "No live profile",
+        "profile_id": None,
+        "admin_emails": [{"profile_id": 2, "email": "admin@example.com"}],
+        "alumni_unsubscribe_succeeded": True,
+    }) in calls
+
+
 def test_artist_qr_scan_records_event_and_redirects(monkeypatch, client):
     events = []
     monkeypatch.setattr(profile_qr, "get_public_artist", lambda _profile_id: {"id": 12, "display_name": "Static In The Matrix"})

@@ -469,9 +469,9 @@ def register_admin_api_routes(app):
                 if row:
                     cursor.execute(
                         """
-                        SELECT p.id, p.display_name, p.email, p.contact_phone
+                        SELECT p.id, COALESCE(p.display_name, perf.performer_display_name), p.email, p.contact_phone
                         FROM performances perf
-                        JOIN profiles p ON p.id = perf.profile_id
+                        LEFT JOIN profiles p ON p.id = perf.profile_id
                         WHERE perf.event_id = %s
                         ORDER BY perf.sort_order, perf.id
                         """,
@@ -558,11 +558,12 @@ def register_admin_api_routes(app):
                     found = {row[0] for row in cursor.fetchall()}
                     if found != set(profile_ids):
                         return api_error("invalid_performers", "One or more performers were not found.")
-                cursor.execute("DELETE FROM performances WHERE event_id = %s", (event_id,))
+                cursor.execute("DELETE FROM performances WHERE event_id = %s AND profile_id IS NOT NULL", (event_id,))
                 for sort_order, profile_id in enumerate(profile_ids):
                     cursor.execute(
-                        "INSERT INTO performances (event_id, profile_id, sort_order) VALUES (%s, %s, %s)",
-                        (event_id, profile_id, sort_order),
+                        """INSERT INTO performances (event_id, profile_id, performer_display_name, sort_order)
+                           SELECT %s, id, display_name, %s FROM profiles WHERE id = %s""",
+                        (event_id, sort_order, profile_id),
                     )
         return api_data({"message": "Performers saved."})
 
@@ -940,11 +941,11 @@ def register_admin_api_routes(app):
                 if row:
                     _ = cursor.execute(
                         """
-                        SELECT profiles.display_name, profile_social_profiles.profile_name,
+                        SELECT COALESCE(profiles.display_name, performances.performer_display_name), profile_social_profiles.profile_name,
                             REPLACE(social_platforms.url_format, '{profileName}', profile_social_profiles.profile_name) AS social_link
                         FROM performances
-                        JOIN profiles ON profiles.id = performances.profile_id
-                        LEFT JOIN profile_social_profiles ON profiles.profile_id = profile_social_profiles.profile_id
+                        LEFT JOIN profiles ON profiles.id = performances.profile_id
+                        LEFT JOIN profile_social_profiles ON profiles.id = profile_social_profiles.profile_id
                         LEFT JOIN social_platforms ON profile_social_profiles.social_platform_id = social_platforms.id
                         WHERE performances.event_id = %s AND performances.id = %s
                         -- LIMIT 2 -- should limit it but this doesn't let us pick which two
