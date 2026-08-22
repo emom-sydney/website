@@ -535,6 +535,7 @@
         <dt>Profile type</dt><dd>${escapeHtml(item.profile_type)}</dd>
         <dt>Name</dt><dd>${escapeHtml([item.first_name, item.last_name].filter(Boolean).join(" "))}</dd>
         <dt>Phone</dt><dd>${escapeHtml(item.contact_phone)}</dd>
+        <dt>Show Tribuo link</dt><dd>${item.show_tribuo_link ? "Yes" : "No"}</dd>
         <dt>Artist bio</dt><dd>${escapeHtml(item.artist_bio)}</dd>
         <dt>Additional info</dt><dd>${escapeHtml(item.additional_info)}</dd>
       </dl>

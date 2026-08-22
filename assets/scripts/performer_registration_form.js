@@ -11,6 +11,7 @@ if (appNode) {
   const firstNameField = document.getElementById("performer-first-name");
   const lastNameField = document.getElementById("performer-last-name");
   const contactPhoneField = document.getElementById("performer-contact-phone");
+  const showTribuoLinkField = document.getElementById("performer-show-tribuo-link");
   const bioField = document.getElementById("performer-artist-bio");
   const additionalInfoField = document.getElementById("performer-additional-info");
   const isEmailPublicField = document.getElementById("performer-is-email-public");
@@ -290,6 +291,7 @@ if (appNode) {
     firstNameField.value = profile?.first_name || "";
     lastNameField.value = profile?.last_name || "";
     contactPhoneField.value = profile?.contact_phone || "";
+    showTribuoLinkField.checked = Boolean(profile?.show_tribuo_link);
     bioField.value = profile?.artist_bio || "";
     additionalInfoField.value = profile?.additional_info || "";
     isEmailPublicField.checked = Boolean(profile?.is_email_public);
@@ -472,6 +474,7 @@ if (appNode) {
       contact_phone: String(contactPhoneField.value || "").trim(),
       is_email_public: isEmailPublicField.checked,
       is_name_public: isNamePublicField.checked,
+      show_tribuo_link: Boolean(showTribuoLinkField?.checked),
       subscribe_alumni: Boolean(subscribeAlumniField?.checked && !subscribeAlumniField?.disabled),
       artist_bio: String(bioField.value || "").trim() || null,
       additional_info: String(additionalInfoField.value || "").trim() || null,
