@@ -1,4 +1,11 @@
-import { escapeHtml, renderContactLine, renderProfileIntro, renderTribuoLink } from "../../lib/render/profilePage.js";
+import {
+  escapeHtml,
+  renderContactLine,
+  renderProfileIntro,
+  renderPublicBio,
+  renderSocialLinks,
+  renderTribuoLink,
+} from "../../lib/render/profilePage.js";
 
 function getArtistReferenceName(profile) {
   if (!profile.isNamePublic) return profile.stageName;
@@ -43,6 +50,8 @@ export default async function render(data) {
   html += await renderProfileIntro(profilePage, {
     missingImageThumbnailUrl: data.missingImageThumbnailUrl
   });
+  html += renderPublicBio(artist);
+  html += renderSocialLinks(socialLinks);
   html += renderTribuoLink(artist, data.emom?.tribuoBaseUrl);
 
   // Performances
