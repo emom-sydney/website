@@ -62,6 +62,12 @@ Staff eligibility is checked on every request. Administrators receive all
 capabilities; moderators receive profile-moderation and standby-promotion
 capabilities. Staff must retain a person profile and volunteer role.
 
+Event deletion is available to administrators only for future events through
+the admin interface. Past events are treated as historical records and cannot
+be deleted there. An exceptional historical deletion—particularly one with
+galleries or performances—requires deliberate database-level intervention
+after reviewing its dependent records.
+
 ## Deployment
 
 Apply `db/migrations/2026-07-29-backend-api-v1-and-admin.sql` before starting

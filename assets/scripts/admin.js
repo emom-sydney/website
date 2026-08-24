@@ -267,6 +267,9 @@
 
   async function loadDashboard(node) {
     const data = await api("/api/v1/admin/dashboard");
+    const eventCounts = (data.event_counts || [])
+      .map((eventType) => `${eventType.count} ${escapeHtml(eventType.type_description)}`)
+      .join(", ");
     node.innerHTML = `
       <a class="admin-summary-card" href="/admin/profiles/">
         <strong>${data.pending_profile_submissions}</strong>
@@ -274,7 +277,8 @@
       </a>
       <a class="admin-summary-card" href="/admin/events/">
         <strong>${data.upcoming_events}</strong>
-        <span>upcoming Open Mic events</span>
+        <span>upcoming events</span>
+        <small>(${eventCounts})</small>
       </a>`;
   }
 
@@ -285,26 +289,79 @@
     ]);
     node.innerHTML = data.events.length
       ? `<div class="admin-list">${data.events.map((event) => `
-          <article>
+          <article class="admin-event-card">
             <h2>${escapeHtml(event.type_description)}: ${escapeHtml(event.event_name)}</h2>
-            <p>${escapeHtml(event.event_date)}</p>
+            <p>${escapeHtml(event.event_date)}${event.location_name ? ` · ${escapeHtml(event.location_name)}` : ""}</p>
             <p>${escapeHtml(event.event_description)}</p>
             <div class="admin-actions">
               ${session.is_admin ? `<a href="/admin/events/${event.event_id}/edit/">Edit event</a>
               <a href="/admin/events/${event.event_id}/lineup/">Edit lineup</a>` : ""}
               <a href="/admin/events/${event.event_id}/standby/">Standby performers</a>
             </div>
+            ${session.is_admin && event.can_delete ? `<button type="button" class="admin-event-delete" data-delete-event="${event.event_id}" aria-label="Delete ${escapeHtml(event.event_name)}" title="Delete event">&#128465;</button>` : ""}
           </article>`).join("")}</div>`
       : "<p>No upcoming Open Mic events.</p>";
+    node.querySelectorAll("[data-delete-event]").forEach((button) => button.addEventListener("click", async () => {
+      const eventName = button.getAttribute("aria-label").replace(/^Delete /, "");
+      if (!window.confirm(`Delete ${eventName}? This cannot be undone.`)) return;
+      try {
+        await api(`/api/v1/admin/events/${button.dataset.deleteEvent}`, { method: "DELETE" });
+        await loadEvents(node);
+      } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+    }));
+  }
+
+  async function loadLocations(node) {
+    const data = await api("/api/v1/admin/locations");
+    const renderRows = () => data.locations.map((location) => `
+      <tr data-location-id="${location.id}">
+        <td><input name="name" value="${escapeHtml(location.name)}" required></td>
+        <td><input name="address" value="${escapeHtml(location.address)}"></td>
+        <td><button type="button" data-save-location>Save</button> <button type="button" data-delete-location>Delete</button></td>
+      </tr>`).join("");
+    node.innerHTML = `
+      <form data-new-location>
+        <h2>Add location</h2>
+        <label>Name <input name="name" required></label>
+        <label>Address <input name="address"></label>
+        <button type="submit">Add location</button>
+      </form>
+      <h2>Existing locations</h2>
+      ${data.locations.length ? `<div class="admin-table-wrap"><table><thead><tr><th>Name</th><th>Address</th><th>Actions</th></tr></thead><tbody>${renderRows()}</tbody></table></div>` : "<p>No locations have been added yet.</p>"}`;
+
+    node.querySelector("[data-new-location]")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      try {
+        await api("/api/v1/admin/locations", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) });
+        await loadLocations(node);
+      } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+    });
+    node.querySelectorAll("[data-save-location]").forEach((button) => button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      try {
+        await api(`/api/v1/admin/locations/${row.dataset.locationId}`, { method: "PUT", body: JSON.stringify({ name: row.querySelector('[name="name"]').value, address: row.querySelector('[name="address"]').value }) });
+        window.showToast?.("Location saved.");
+      } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+    }));
+    node.querySelectorAll("[data-delete-location]").forEach((button) => button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      if (!window.confirm("Delete this location?")) return;
+      try {
+        await api(`/api/v1/admin/locations/${row.dataset.locationId}`, { method: "DELETE" });
+        await loadLocations(node);
+      } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+    }));
   }
 
   async function loadEventEdit(node) {
     const eventId = node.dataset.eventId ? Number(node.dataset.eventId) : null;
-    const [event, typeData] = await Promise.all([
+    const [event, typeData, locationData] = await Promise.all([
       eventId
         ? api(`/api/v1/admin/events/${eventId}`)
-        : Promise.resolve({ event_date: "", type_id: 1, event_name: "", event_description: "", performance_slots: 7 }),
+        : Promise.resolve({ event_date: "", type_id: 1, event_name: "", event_description: "", performance_slots: 7, starts_at: "", ends_at: "", timezone: "Australia/Sydney", location_id: null }),
       api("/api/v1/admin/event-types"),
+      api("/api/v1/admin/locations"),
     ]);
     node.innerHTML = `
       <form data-event-edit-form>
@@ -317,6 +374,14 @@
             ${typeData.event_types.map((type) => `<option value="${type.id}"${event.type_id === type.id ? " selected" : ""}>${escapeHtml(type.description)}</option>`).join("")}
           </select></label>
           <label class="admin-event-edit__compact">Performance slots <input name="performance_slots" type="number" min="1" step="1" required value="${escapeHtml(event.performance_slots)}"></label>
+        </div>
+        <div class="admin-event-edit__row">
+          <label>Starts at <input name="starts_at" type="datetime-local" value="${escapeHtml(event.starts_at ? event.starts_at.slice(0, 16) : "")}"></label>
+          <label>Ends at <input name="ends_at" type="datetime-local" value="${escapeHtml(event.ends_at ? event.ends_at.slice(0, 16) : "")}"></label>
+        </div>
+        <div class="admin-event-edit__row">
+          <label>Timezone <input name="timezone" value="${escapeHtml(event.timezone || "Australia/Sydney")}"></label>
+          <label>Location <select name="location_id"><option value="">No location</option>${locationData.locations.map((location) => `<option value="${location.id}"${String(event.location_id) === String(location.id) ? " selected" : ""}>${escapeHtml(location.name)}${location.address ? ` — ${escapeHtml(location.address)}` : ""}</option>`).join("")}</select></label>
         </div>
         <label class="admin-event-edit__description">Event description <textarea name="event_description" rows="6">${escapeHtml(event.event_description)}</textarea></label>
         <button type="submit">Save and close</button>
@@ -666,6 +731,7 @@
   const loaders = [
     ["[data-admin-dashboard]", loadDashboard],
     ["[data-admin-events]", loadEvents],
+    ["[data-admin-locations]", loadLocations],
     ["[data-admin-event-edit]", loadEventEdit],
     ["[data-admin-lineup]", loadLineup],
     ["[data-admin-standby]", loadStandby],

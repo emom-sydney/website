@@ -29,6 +29,7 @@ def test_route_contract_has_v1_and_no_legacy_paths(app):
     paths = {str(rule) for rule in app.url_map.iter_rules()}
     expected = {
         "/api/v1/health",
+        "/calendar.ics",
         "/api/v1/profiles/submissions/access-links",
         "/api/v1/profiles/submissions/context",
         "/api/v1/profiles/submissions",
