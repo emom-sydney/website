@@ -4,7 +4,7 @@ import json
 import os
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 from flask import jsonify, request
@@ -2872,9 +2872,11 @@ def get_upcoming_open_mic_events(cursor):
 def get_upcoming_events(cursor):
     cursor.execute(
         """
-        SELECT e.id, e.event_name, e.event_description, e.event_date, e.type_id, et.description
+        SELECT e.id, e.event_name, e.event_description, e.event_date, e.type_id, et.description,
+               l.name
         FROM events e
         JOIN event_types et ON et.id = e.type_id
+        LEFT JOIN locations l ON l.id = e.location_id
         WHERE e.event_date >= CURRENT_DATE
         ORDER BY e.event_date, e.id
         """
@@ -2887,6 +2889,8 @@ def get_upcoming_events(cursor):
             "event_date": row[3].isoformat(),
             "type_id": row[4],
             "type_description": row[5],
+            "location_name": row[6] or "",
+            "can_delete": row[3] > date.today(),
         }
         for row in cursor.fetchall()
     ]

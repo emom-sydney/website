@@ -50,6 +50,7 @@ Dashboard and domains:
 - `PUT /api/v1/admin/live/events/<event_id>/performers/<profile_id>/roll-call`
 - `PUT /api/v1/admin/live/events/<event_id>/performers/order`
 - `GET /api/v1/admin/events`
+- `DELETE /api/v1/admin/events/<event_id>` (future events only; admin only)
 - `GET|PUT /api/v1/admin/events/<event_id>/lineup`
 - `POST|DELETE /api/v1/admin/events/<event_id>/lineup/lock`
 - `POST /api/v1/admin/events/<event_id>/performer-requests/<request_id>/availability-reminders`

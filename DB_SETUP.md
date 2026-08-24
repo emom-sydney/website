@@ -103,7 +103,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   event_volunteer_role_claims,
   volunteer_general_role_claims,
   newsletter_subscribe_requests,
-  profile_qr_events
+  profile_qr_events,
+  locations
 TO emom_forms_writer;
 
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO emom_forms_writer;
@@ -134,6 +135,7 @@ Notes:
 - `GRANT ... ON ALL TABLES IN SCHEMA public` covers ordinary tables and views such as `galleries`.
 - `emom_site_reader` is intentionally broad read-only access because the static build and admin tooling may need to inspect multiple parts of the schema.
 - `emom_forms_writer` is the intended DB role for `backend`, including performer registration, moderation, reminders, lineup selection, newsletter, and contact workflows.
+- The event calendar migration grants `locations` access to both `emom_forms_writer` and `emom_test_forms_writer` when those roles exist. If the migration was already applied before those grants were present, apply `db/migrations/2026-08-24-event-calendar-details-grants.sql`.
 
 - Database grants do not carry across databases or similarly named roles. If the
   test backend uses `emom_test_forms_writer` against `emomtest`, apply the same

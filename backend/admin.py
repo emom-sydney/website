@@ -369,6 +369,11 @@ def register_admin_routes(app):
     def admin_events_page():
         return render_template("admin/events.html", staff=g.staff, active_tab="events")
 
+    @app.get("/admin/locations/")
+    @require_staff(admin=True, api=False)
+    def admin_locations_page():
+        return render_template("admin/locations.html", staff=g.staff, active_tab="events")
+
     @app.get("/admin/events/<int:event_id>/lineup/")
     @require_staff(admin=True, api=False)
     def admin_lineup_page(event_id):
@@ -436,11 +441,25 @@ def register_admin_api_routes(app):
                 cursor.execute("SELECT COUNT(*) FROM profile_submission_drafts WHERE status = 'pending'")
                 pending_profiles = cursor.fetchone()[0]
                 cursor.execute(
-                    "SELECT COUNT(*) FROM events WHERE event_date >= CURRENT_DATE AND type_id = %s",
-                    (workflow.OPEN_MIC_EVENT_TYPE_ID,),
+                    """
+                    SELECT et.id, et.description, COUNT(e.id)
+                    FROM event_types et
+                    LEFT JOIN events e
+                      ON e.type_id = et.id
+                     AND e.event_date >= CURRENT_DATE
+                    GROUP BY et.id, et.description
+                    ORDER BY et.id
+                    """
                 )
-                upcoming_events = cursor.fetchone()[0]
-        return api_data({"pending_profile_submissions": pending_profiles, "upcoming_events": upcoming_events})
+                event_counts = [
+                    {"type_id": row[0], "type_description": row[1], "count": row[2]}
+                    for row in cursor.fetchall()
+                ]
+        return api_data({
+            "pending_profile_submissions": pending_profiles,
+            "event_counts": event_counts,
+            "upcoming_events": sum(item["count"] for item in event_counts),
+        })
 
     @app.get("/api/v1/admin/events")
     @require_staff(moderator=True)
@@ -458,9 +477,11 @@ def register_admin_api_routes(app):
                 cursor.execute(
                     """
                     SELECT e.id, e.event_date, e.type_id, e.event_name, e.event_description, e.performance_slots,
+                           e.starts_at, e.ends_at, e.timezone, e.location_id, l.name, l.address,
                            et.description
                     FROM events e
                     JOIN event_types et ON et.id = e.type_id
+                    LEFT JOIN locations l ON l.id = e.location_id
                     WHERE e.id = %s
                     """,
                     (event_id,),
@@ -492,7 +513,13 @@ def register_admin_api_routes(app):
             "event_name": row[3],
             "event_description": row[4] or "",
             "performance_slots": row[5],
-            "type_description": row[6],
+            "starts_at": row[6].isoformat() if row[6] else None,
+            "ends_at": row[7].isoformat() if row[7] else None,
+            "timezone": row[8],
+            "location_id": row[9],
+            "location_name": row[10] or "",
+            "location_address": row[11] or "",
+            "type_description": row[12],
             "performers": performers,
         })
 
@@ -504,6 +531,80 @@ def register_admin_api_routes(app):
                 cursor.execute("SELECT id, description FROM event_types ORDER BY id")
                 types = [{"id": row[0], "description": row[1]} for row in cursor.fetchall()]
         return api_data({"event_types": types})
+
+    @app.get("/api/v1/admin/locations")
+    @require_staff(admin=True)
+    def admin_locations():
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, name, address FROM locations ORDER BY name, address, id")
+                locations = [
+                    {"id": row[0], "name": row[1], "address": row[2] or ""}
+                    for row in cursor.fetchall()
+                ]
+        return api_data({"locations": locations})
+
+    @app.post("/api/v1/admin/locations")
+    @require_staff(admin=True)
+    def create_admin_location():
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        name = str(payload.get("name") or "").strip()
+        address = str(payload.get("address") or "").strip() or None
+        if not name:
+            return api_error("invalid_location", "Location name is required.")
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                try:
+                    cursor.execute(
+                        "INSERT INTO locations (name, address) VALUES (%s, %s) RETURNING id",
+                        (name, address),
+                    )
+                    location_id = cursor.fetchone()[0]
+                except Exception as exc:
+                    if "locations_name_address_key" in str(exc):
+                        return api_error("duplicate_location", "That location already exists.", 409)
+                    raise
+        return api_data({"location_id": location_id, "message": "Location saved."}, 201)
+
+    @app.put("/api/v1/admin/locations/<int:location_id>")
+    @require_staff(admin=True)
+    def update_admin_location(location_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        name = str(payload.get("name") or "").strip()
+        address = str(payload.get("address") or "").strip() or None
+        if not name:
+            return api_error("invalid_location", "Location name is required.")
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE locations SET name = %s, address = %s WHERE id = %s RETURNING id",
+                    (name, address, location_id),
+                )
+                if not cursor.fetchone():
+                    return api_error("not_found", "Location not found.", 404)
+        return api_data({"message": "Location saved."})
+
+    @app.delete("/api/v1/admin/locations/<int:location_id>")
+    @require_staff(admin=True)
+    def delete_admin_location(location_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM events WHERE location_id = %s", (location_id,))
+                if cursor.fetchone()[0]:
+                    return api_error("location_in_use", "This location is still assigned to one or more events.", 409)
+                cursor.execute("DELETE FROM locations WHERE id = %s RETURNING id", (location_id,))
+                if not cursor.fetchone():
+                    return api_error("not_found", "Location not found.", 404)
+        return make_response("", 204)
 
     @app.get("/api/v1/admin/profiles/search")
     @require_staff(admin=True)
@@ -567,6 +668,27 @@ def register_admin_api_routes(app):
                     )
         return api_data({"message": "Performers saved."})
 
+    @app.delete("/api/v1/admin/events/<int:event_id>")
+    @require_staff(admin=True)
+    def delete_admin_event(event_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT event_date FROM events WHERE id = %s", (event_id,))
+                event = cursor.fetchone()
+                if not event:
+                    return api_error("not_found", "Event not found.", 404)
+                if event[0] <= datetime.now(timezone.utc).date():
+                    return api_error(
+                        "past_event_delete_forbidden",
+                        "Past events cannot be deleted from the admin interface.",
+                        409,
+                    )
+                cursor.execute("DELETE FROM events WHERE id = %s", (event_id,))
+        return make_response("", 204)
+
     @app.put("/api/v1/admin/events/<int:event_id>")
     @require_staff(admin=True)
     def update_admin_event(event_id):
@@ -577,10 +699,25 @@ def register_admin_api_routes(app):
         event_date = str(payload.get("event_date") or "").strip()
         event_name = str(payload.get("event_name") or "").strip()
         event_description = str(payload.get("event_description") or "").strip()
+        starts_at = str(payload.get("starts_at") or "").strip() or None
+        ends_at = str(payload.get("ends_at") or "").strip() or None
+        timezone_name = str(payload.get("timezone") or "Australia/Sydney").strip()
+        location_id = payload.get("location_id") or None
         performance_slots = payload.get("performance_slots")
         try:
             from datetime import date
             date.fromisoformat(event_date)
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            event_timezone = ZoneInfo(timezone_name)
+            if starts_at:
+                starts_at = datetime.fromisoformat(starts_at)
+                if starts_at.tzinfo is None:
+                    starts_at = starts_at.replace(tzinfo=event_timezone)
+            if ends_at:
+                ends_at = datetime.fromisoformat(ends_at)
+                if ends_at.tzinfo is None:
+                    ends_at = ends_at.replace(tzinfo=event_timezone)
             type_id = int(payload.get("type_id"))
             performance_slots = int(performance_slots)
             if type_id not in (1, 2) or performance_slots <= 0:
@@ -608,11 +745,13 @@ def register_admin_api_routes(app):
                     """
                     UPDATE events
                     SET event_date = %s, type_id = %s, event_name = %s,
-                        event_description = %s, performance_slots = %s
+                        event_description = %s, performance_slots = %s,
+                        starts_at = %s, ends_at = %s, timezone = %s, location_id = %s
                     WHERE id = %s
                     RETURNING id
                     """,
-                    (event_date, type_id, event_name, event_description, performance_slots, event_id),
+                    (event_date, type_id, event_name, event_description, performance_slots,
+                     starts_at, ends_at, timezone_name, location_id, event_id),
                 )
                 if not cursor.fetchone():
                     return api_error("not_found", "Event not found.", 404)
@@ -628,10 +767,25 @@ def register_admin_api_routes(app):
         event_date = str(payload.get("event_date") or "").strip()
         event_name = str(payload.get("event_name") or "").strip()
         event_description = str(payload.get("event_description") or "").strip()
+        starts_at = str(payload.get("starts_at") or "").strip() or None
+        ends_at = str(payload.get("ends_at") or "").strip() or None
+        timezone_name = str(payload.get("timezone") or "Australia/Sydney").strip()
+        location_id = payload.get("location_id") or None
         performance_slots = payload.get("performance_slots")
         try:
             from datetime import date
             date.fromisoformat(event_date)
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            event_timezone = ZoneInfo(timezone_name)
+            if starts_at:
+                starts_at = datetime.fromisoformat(starts_at)
+                if starts_at.tzinfo is None:
+                    starts_at = starts_at.replace(tzinfo=event_timezone)
+            if ends_at:
+                ends_at = datetime.fromisoformat(ends_at)
+                if ends_at.tzinfo is None:
+                    ends_at = ends_at.replace(tzinfo=event_timezone)
             type_id = int(payload.get("type_id"))
             performance_slots = int(performance_slots)
             if type_id not in (1, 2) or performance_slots <= 0:
@@ -644,11 +798,13 @@ def register_admin_api_routes(app):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO events (event_date, type_id, event_name, event_description, performance_slots)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO events (event_date, type_id, event_name, event_description, performance_slots,
+                                        starts_at, ends_at, timezone, location_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (event_date, type_id, event_name, event_description, performance_slots),
+                    (event_date, type_id, event_name, event_description, performance_slots,
+                     starts_at, ends_at, timezone_name, location_id),
                 )
                 event_id = cursor.fetchone()[0]
         return api_data({"event_id": event_id, "message": "Event saved."}, 201)
