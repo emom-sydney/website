@@ -1,4 +1,11 @@
-import { escapeHtml, renderContactLine, renderProfileIntro } from "../../lib/render/profilePage.js";
+import {
+  escapeHtml,
+  renderContactLine,
+  renderProfileIntro,
+  renderPublicBio,
+  renderSocialLinks,
+  renderTribuoLink,
+} from "../../lib/render/profilePage.js";
 
 function getArtistReferenceName(profile) {
   if (!profile.isNamePublic) return profile.stageName;
@@ -43,6 +50,7 @@ export default async function render(data) {
   html += await renderProfileIntro(profilePage, {
     missingImageThumbnailUrl: data.missingImageThumbnailUrl
   });
+  html += renderPublicBio(artist);
 
   // Performances
   if (performances.length) {
@@ -63,6 +71,9 @@ export default async function render(data) {
   } else {
     html += `<p>No performances recorded.</p>\n`;
   }
+
+  html += renderSocialLinks(socialLinks);
+  html += renderTribuoLink(artist, data.emom?.tribuoBaseUrl);
 
   if (artistPage.volunteerProfile) {
     const referenceName = getArtistReferenceName(artist);

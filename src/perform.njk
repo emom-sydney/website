@@ -25,7 +25,7 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
       <b>NB # 2:</b> We are having some issues with Apple email addresses (@icloud, @mac, @me) not receiving our emails and are working to rectify. Please use another account if possible, or <a href="/contact">contact us directly</a> thanks!
     </p>
     <form id="performer-registration-start-form">
-      <label for="performer-registration-email">Email address</label>
+      <label for="performer-registration-email">Email address <span class="form-required">*required</span></label>
       <input type="email" id="performer-registration-email" name="email" required>
       <button type="submit">Send registration link</button>
     </form>
@@ -46,13 +46,13 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
         <span>Show email on your profile page</span>
       </label>
 
-      <label for="performer-profile-type">Profile type</label>
+      <label for="performer-profile-type">Profile type <span class="form-required">*required</span></label>
       <select id="performer-profile-type" name="profile_type" required>
         <option value="person">Person</option>
         <option value="group">Group</option>
       </select>
 
-      <label for="performer-display-name">Display / stage name</label>
+      <label for="performer-display-name">Display / stage name <span class="form-required">*required</span></label>
       <input type="text" id="performer-display-name" name="display_name" required>
 
       <label for="performer-first-name">First name</label>
@@ -71,7 +71,7 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
         <span>Subscribe me to the alumni mailing list</span>
       </label>
 
-      <label for="performer-contact-phone">Contact phone number</label>
+      <label for="performer-contact-phone">Contact phone number <span class="form-required">*required</span></label>
       <input type="text" id="performer-contact-phone" name="contact_phone" required>
       <p class="performer-registration-note">Not displayed on your profile, only required in case we need to contact you urgently on the day of the event.</p>
 
@@ -88,7 +88,18 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
       </fieldset>
 
       <fieldset class="performer-registration-fieldset">
-        <legend>Nominate the dates you're available to play.</legend>
+        <legend><span class="performer-registration-new" aria-label="New">🆕</span> Tribuo</legend>
+        <label class="performer-registration-checkbox">
+          <input type="checkbox" id="performer-show-tribuo-link" name="show_tribuo_link">
+          <span>
+                <p>Choose this option to add a link to your profile page allowing your fans to send tips via our friends at <a href="https://gotribuo.io">Tribuo</a>.</p>
+                <p>Sydney.emom will collect any money sent and pass it on to you using PayID to your mobile number.</p>
+          </span>
+        </label>
+      </fieldset>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Nominate the dates you're available to play. <span class="form-required">*required</span></legend>
         <p id="performer-events-note" class="performer-registration-note"></p>
         <div id="performer-event-options"></div>
       </fieldset>

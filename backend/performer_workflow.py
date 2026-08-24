@@ -2,11 +2,13 @@ import hashlib
 import html
 import json
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from flask import jsonify, request
+from psycopg.errors import UniqueViolation
 
 from backend.db import connect
 from backend.keila_workflow import (
@@ -950,6 +952,7 @@ def normalize_profile_submission_payload(payload, email):
     contact_phone = normalize_text(payload.get("contact_phone"))
     artist_bio = normalize_text(payload.get("artist_bio"))
     additional_info = normalize_text(payload.get("additional_info"))
+    show_tribuo_link = normalize_boolean(payload.get("show_tribuo_link"), default=False)
     social_links = payload.get("social_links") or []
     requested_event_ids = payload.get("requested_event_ids") or []
 
@@ -1006,6 +1009,7 @@ def normalize_profile_submission_payload(payload, email):
         "is_email_public": normalize_boolean(payload.get("is_email_public"), default=False),
         "is_name_public": normalize_boolean(payload.get("is_name_public"), default=False),
         "subscribe_alumni": normalize_boolean(payload.get("subscribe_alumni"), default=False),
+        "show_tribuo_link": show_tribuo_link,
         "artist_bio": artist_bio,
         "is_artist_bio_public": True,
         "additional_info": additional_info,
@@ -1178,6 +1182,7 @@ def get_existing_profile_by_email(cursor, email):
           p.last_name,
           p.email,
           p.contact_phone,
+          p.tribuo_tag,
           p.is_email_public,
           p.is_name_public,
           p.is_profile_approved,
@@ -1222,15 +1227,16 @@ def get_existing_profile_by_email(cursor, email):
         "last_name": row[4],
         "email": row[5],
         "contact_phone": row[6],
-        "is_email_public": row[7],
-        "is_name_public": row[8],
-        "is_profile_approved": row[9],
-        "profile_visible_from": row[10],
-        "profile_expires_on": row[11],
-        "artist_bio": row[12],
-        "is_artist_bio_public": row[13],
+        "tribuo_tag": row[7],
+        "is_email_public": row[8],
+        "is_name_public": row[9],
+        "is_profile_approved": row[10],
+        "profile_visible_from": row[11],
+        "profile_expires_on": row[12],
+        "artist_bio": row[13],
+        "is_artist_bio_public": row[14],
         "additional_info": None,
-        "has_artist_role": row[14],
+        "has_artist_role": row[15],
         "social_links": [],
     }
 
@@ -1389,6 +1395,7 @@ def get_existing_profile_by_id(cursor, profile_id):
           p.last_name,
           p.email,
           p.contact_phone,
+          p.tribuo_tag,
           p.is_email_public,
           p.is_name_public,
           p.is_profile_approved,
@@ -1422,15 +1429,16 @@ def get_existing_profile_by_id(cursor, profile_id):
         "last_name": row[4],
         "email": row[5],
         "contact_phone": row[6],
-        "is_email_public": row[7],
-        "is_name_public": row[8],
-        "is_profile_approved": row[9],
-        "profile_visible_from": row[10],
-        "profile_expires_on": row[11],
-        "artist_bio": row[12],
-        "is_artist_bio_public": row[13],
+        "tribuo_tag": row[7],
+        "is_email_public": row[8],
+        "is_name_public": row[9],
+        "is_profile_approved": row[10],
+        "profile_visible_from": row[11],
+        "profile_expires_on": row[12],
+        "artist_bio": row[13],
+        "is_artist_bio_public": row[14],
         "additional_info": None,
-        "has_artist_role": row[14],
+        "has_artist_role": row[15],
         "social_links": [],
     }
 
@@ -1479,6 +1487,7 @@ def serialize_profile(profile):
         "last_name": profile["last_name"],
         "email": profile["email"],
         "contact_phone": profile["contact_phone"],
+        "show_tribuo_link": bool(profile.get("tribuo_tag")),
         "is_email_public": profile["is_email_public"],
         "is_name_public": profile["is_name_public"],
         "artist_bio": profile["artist_bio"],
@@ -1501,6 +1510,7 @@ def serialize_prefill_profile(draft):
         "last_name": draft["last_name"],
         "email": draft["email"],
         "contact_phone": draft["contact_phone"],
+        "show_tribuo_link": bool(draft.get("show_tribuo_link")),
         "is_email_public": draft["is_email_public"],
         "is_name_public": draft["is_name_public"],
         "artist_bio": draft["artist_bio"],
@@ -1660,9 +1670,10 @@ def insert_profile_submission_draft(*, cursor, profile, email, draft_payload):
           artist_bio,
           is_artist_bio_public,
           additional_info,
+          show_tribuo_link,
           submitted_by_email
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -1678,6 +1689,7 @@ def insert_profile_submission_draft(*, cursor, profile, email, draft_payload):
             draft_payload["artist_bio"],
             draft_payload["is_artist_bio_public"],
             draft_payload["additional_info"],
+            draft_payload["show_tribuo_link"],
             email,
         ),
     )
@@ -1860,7 +1872,7 @@ def create_profile_submission_access_link(*, cursor, app, email, ttl_hours):
     }
 
 
-def get_profile_submission_draft(cursor, draft_id):
+def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False):
     cursor.execute(
         """
         SELECT
@@ -1877,6 +1889,7 @@ def get_profile_submission_draft(cursor, draft_id):
           artist_bio,
           is_artist_bio_public,
           additional_info,
+          show_tribuo_link,
           status
         FROM profile_submission_drafts
         WHERE id = %s
@@ -1901,7 +1914,8 @@ def get_profile_submission_draft(cursor, draft_id):
         "artist_bio": row[10],
         "is_artist_bio_public": row[11],
         "additional_info": row[12],
-        "status": row[13],
+        "show_tribuo_link": row[13],
+        "status": row[14],
         "social_links": [],
         "requested_event_ids": [],
         "requested_events": [],
@@ -1943,10 +1957,113 @@ def get_profile_submission_draft(cursor, draft_id):
     ]
     draft["requested_events"] = requested_events
     draft["requested_event_ids"] = [item["event_id"] for item in requested_events]
+    draft["requested_date_summary"] = (
+        get_requested_date_summary(cursor, draft["requested_event_ids"])
+        if include_date_summary
+        else []
+    )
     return draft
 
 
+def get_requested_date_summary(cursor, event_ids):
+    if not event_ids:
+        return []
+
+    cursor.execute(
+        """
+        WITH requesters AS (
+          SELECT
+            rd.event_id,
+            e.event_date,
+            e.event_name,
+            COALESCE('profile:' || d.profile_id::text, 'email:' || lower(d.email)) AS identity_key,
+            NOT EXISTS (
+              SELECT 1
+              FROM performances perf
+              WHERE perf.profile_id = d.profile_id
+            ) AS is_new_face
+          FROM requested_dates rd
+          JOIN profile_submission_drafts d
+            ON d.id = rd.draft_id
+          JOIN events e
+            ON e.id = rd.event_id
+          WHERE rd.event_id = ANY(%s)
+            AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
+            AND d.status IN ('pending', 'approved')
+        )
+        SELECT
+          event_id,
+          event_date,
+          event_name,
+          COUNT(DISTINCT identity_key) FILTER (WHERE is_new_face) AS new_faces,
+          COUNT(DISTINCT identity_key) AS total_requested
+        FROM requesters
+        GROUP BY event_id, event_date, event_name
+        ORDER BY event_date, event_id
+        """,
+        (event_ids,),
+    )
+    return [
+        {
+            "event_id": row[0],
+            "event_date": row[1].isoformat(),
+            "event_name": row[2],
+            "new_faces": row[3],
+            "total_requested": row[4],
+        }
+        for row in cursor.fetchall()
+    ]
+
+
+def tribuo_tag_candidates(display_name):
+    words = re.findall(r"[A-Z0-9]+", normalize_text(display_name).upper())
+    if len(words) >= 2:
+        stem = f"{words[0][:3]}{words[1][:3]}"
+    else:
+        stem = words[0][:6] if words else "TRIBUO"
+
+    if len(stem) < 6:
+        stem = f"{stem[:5].ljust(5, '0')}0"
+    else:
+        stem = stem[:6]
+
+    yield stem
+    for counter in range(1, 36 * 36):
+        suffix = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[counter // 36]
+        suffix += "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[counter % 36]
+        yield f"{stem[:4]}{suffix}"
+
+
+def set_tribuo_tag(cursor, *, profile_id, display_name, enabled, current_tag=None):
+    if not enabled:
+        cursor.execute("UPDATE profiles SET tribuo_tag = NULL WHERE id = %s", (profile_id,))
+        return None
+
+    if current_tag:
+        return current_tag
+
+    for candidate in tribuo_tag_candidates(display_name):
+        cursor.execute("SAVEPOINT tribuo_tag_attempt")
+        try:
+            cursor.execute(
+                "UPDATE profiles SET tribuo_tag = %s WHERE id = %s",
+                (candidate, profile_id),
+            )
+            cursor.execute("RELEASE SAVEPOINT tribuo_tag_attempt")
+            return candidate
+        except UniqueViolation:
+            cursor.execute("ROLLBACK TO SAVEPOINT tribuo_tag_attempt")
+            cursor.execute("RELEASE SAVEPOINT tribuo_tag_attempt")
+
+    raise ValueError("Unable to allocate a unique Tribuo tag.")
+
+
 def apply_approved_draft(cursor, draft, approved_by_profile_id):
+    current_tribuo_tag = None
+    if draft["profile_id"] is not None:
+        cursor.execute("SELECT tribuo_tag FROM profiles WHERE id = %s", (draft["profile_id"],))
+        current_tribuo_tag = cursor.fetchone()[0]
+
     if draft["profile_id"] is None:
         cursor.execute(
             """
@@ -2019,6 +2136,13 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
     upsert_artist_role(cursor, profile_id, draft["artist_bio"], True)
     replace_profile_social_links(cursor, profile_id, draft["social_links"])
     update_profile_visibility_from_requests(cursor, profile_id, draft["requested_event_ids"])
+    set_tribuo_tag(
+        cursor,
+        profile_id=profile_id,
+        display_name=draft["display_name"],
+        enabled=draft["show_tribuo_link"],
+        current_tag=current_tribuo_tag,
+    )
     return profile_id
 
 
@@ -3008,7 +3132,9 @@ def get_lineup_selection_candidates(cursor, event_id):
             p.id AS profile_id,
             d.display_name,
             d.email,
-          d.contact_phone,
+            d.contact_phone,
+            NULLIF(BTRIM(d.artist_bio), '') AS artist_bio,
+            NULLIF(BTRIM(d.additional_info), '') AS additional_info,
           rd.status AS availability_status,
           (extract(epoch FROM rd.availability_email_sent_at) * 1000)::bigint
             AS availability_email_sent_at_epoch,
@@ -3064,6 +3190,8 @@ def get_lineup_selection_candidates(cursor, event_id):
           display_name,
           email,
           contact_phone,
+          artist_bio,
+          additional_info,
           availability_status,
           availability_email_sent_at_epoch,
           is_profile_approved,
@@ -3086,14 +3214,16 @@ def get_lineup_selection_candidates(cursor, event_id):
             "display_name": row[3],
             "email": row[4],
             "contact_phone": row[5],
-            "availability_status": row[6],
-            "availability_email_sent_at_epoch": row[7],
-            "is_profile_approved": row[8],
-            "social_links": row[9],
-            "request_count": row[10],
-            "played_count": row[11],
-            "selection_status": row[12] or None,
-            "slot_number": row[13],
+            "artist_bio": row[6],
+            "additional_info": row[7],
+            "availability_status": row[8],
+            "availability_email_sent_at_epoch": row[9],
+            "is_profile_approved": row[10],
+            "social_links": row[11],
+            "request_count": row[12],
+            "played_count": row[13],
+            "selection_status": row[14] or None,
+            "slot_number": row[15],
         }
         for row in cursor.fetchall()
     ]
@@ -3540,6 +3670,7 @@ def send_moderation_emails(
             f"Contact phone: {draft_payload['contact_phone']}\n"
             f"Email public: {'yes' if draft_payload['is_email_public'] else 'no'}\n"
             f"Name public: {'yes' if draft_payload['is_name_public'] else 'no'}\n"
+            f"Show Tribuo link: {'yes' if draft_payload.get('show_tribuo_link') else 'no'}\n"
             f"Bio:\n{draft_payload['artist_bio'] or '(none)'}\n\n"
             f"Additional info (not shown on profile):\n{draft_payload.get('additional_info') or '(none)'}\n\n"
             f"Requested event dates:\n{requested_events}\n"

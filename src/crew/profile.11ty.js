@@ -1,4 +1,9 @@
-import { renderContactLine, renderProfileIntro } from "../../lib/render/profilePage.js";
+import {
+  renderContactLine,
+  renderProfileIntro,
+  renderPublicBio,
+  renderSocialLinks,
+} from "../../lib/render/profilePage.js";
 
 function getCrewDisplayName(profile) {
   const publicName = profile.isNamePublic
@@ -47,6 +52,8 @@ export default async function render(data) {
   let html = await renderProfileIntro(volunteerPage, {
     missingImageThumbnailUrl: data.missingImageThumbnailUrl
   });
+  html += renderPublicBio(volunteerPage.profile);
+  html += renderSocialLinks(volunteerPage.socialLinks);
   if (volunteerPage.artistProfile) {
     const referenceName = getVolunteerReferenceName(volunteerPage.profile);
     const artistStageName = volunteerPage.artistProfile.stageName;

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   last_name text,
   email text,
   contact_phone text,
+  tribuo_tag text DEFAULT NULL,
   is_email_public boolean NOT NULL DEFAULT false,
   is_name_public boolean NOT NULL DEFAULT false,
   is_profile_approved boolean NOT NULL DEFAULT false,
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS profile_submission_drafts (
   artist_bio text,
   is_artist_bio_public boolean NOT NULL DEFAULT false,
   additional_info text,
+  show_tribuo_link boolean NOT NULL DEFAULT false,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'denied', 'superseded')),
   submitted_at timestamptz NOT NULL DEFAULT now(),
   submitted_by_email text NOT NULL,
@@ -314,6 +316,9 @@ CREATE INDEX IF NOT EXISTS idx_profile_submission_drafts_profile_status
   ON profile_submission_drafts(profile_id, status);
 CREATE INDEX IF NOT EXISTS idx_profile_submission_drafts_email_status
   ON profile_submission_drafts(email, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_tribuo_tag_unique
+  ON profiles(tribuo_tag)
+  WHERE tribuo_tag IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_profile_submission_social_profiles_draft_id
   ON profile_submission_social_profiles(draft_id);
 CREATE INDEX IF NOT EXISTS idx_requested_dates_event_status
@@ -351,7 +356,8 @@ VALUES
   ('availability_confirmation_lead_days', '10'::jsonb),
   ('lineup_selection_lead_days', '7'::jsonb),
   ('action_token_ttl_hours', '24'::jsonb),
-  ('qr_tracking_retention_days', '90'::jsonb)
+  ('qr_tracking_retention_days', '90'::jsonb),
+  ('tribuo_base_url', '"https://example.com"'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 INSERT INTO volunteer_roles (role_key, display_name, description, role_scope, default_capacity, sort_order)
