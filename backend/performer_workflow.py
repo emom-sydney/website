@@ -1872,7 +1872,7 @@ def create_profile_submission_access_link(*, cursor, app, email, ttl_hours):
     }
 
 
-def get_profile_submission_draft(cursor, draft_id):
+def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False):
     cursor.execute(
         """
         SELECT
@@ -1957,7 +1957,62 @@ def get_profile_submission_draft(cursor, draft_id):
     ]
     draft["requested_events"] = requested_events
     draft["requested_event_ids"] = [item["event_id"] for item in requested_events]
+    draft["requested_date_summary"] = (
+        get_requested_date_summary(cursor, draft["requested_event_ids"])
+        if include_date_summary
+        else []
+    )
     return draft
+
+
+def get_requested_date_summary(cursor, event_ids):
+    if not event_ids:
+        return []
+
+    cursor.execute(
+        """
+        WITH requesters AS (
+          SELECT
+            rd.event_id,
+            e.event_date,
+            e.event_name,
+            COALESCE('profile:' || d.profile_id::text, 'email:' || lower(d.email)) AS identity_key,
+            NOT EXISTS (
+              SELECT 1
+              FROM performances perf
+              WHERE perf.profile_id = d.profile_id
+            ) AS is_new_face
+          FROM requested_dates rd
+          JOIN profile_submission_drafts d
+            ON d.id = rd.draft_id
+          JOIN events e
+            ON e.id = rd.event_id
+          WHERE rd.event_id = ANY(%s)
+            AND rd.status IN ('requested', 'availability_confirmed', 'availability_cancelled')
+            AND d.status IN ('pending', 'approved')
+        )
+        SELECT
+          event_id,
+          event_date,
+          event_name,
+          COUNT(DISTINCT identity_key) FILTER (WHERE is_new_face) AS new_faces,
+          COUNT(DISTINCT identity_key) AS total_requested
+        FROM requesters
+        GROUP BY event_id, event_date, event_name
+        ORDER BY event_date, event_id
+        """,
+        (event_ids,),
+    )
+    return [
+        {
+            "event_id": row[0],
+            "event_date": row[1].isoformat(),
+            "event_name": row[2],
+            "new_faces": row[3],
+            "total_requested": row[4],
+        }
+        for row in cursor.fetchall()
+    ]
 
 
 def tribuo_tag_candidates(display_name):
@@ -3077,7 +3132,9 @@ def get_lineup_selection_candidates(cursor, event_id):
             p.id AS profile_id,
             d.display_name,
             d.email,
-          d.contact_phone,
+            d.contact_phone,
+            NULLIF(BTRIM(d.artist_bio), '') AS artist_bio,
+            NULLIF(BTRIM(d.additional_info), '') AS additional_info,
           rd.status AS availability_status,
           (extract(epoch FROM rd.availability_email_sent_at) * 1000)::bigint
             AS availability_email_sent_at_epoch,
@@ -3133,6 +3190,8 @@ def get_lineup_selection_candidates(cursor, event_id):
           display_name,
           email,
           contact_phone,
+          artist_bio,
+          additional_info,
           availability_status,
           availability_email_sent_at_epoch,
           is_profile_approved,
@@ -3155,14 +3214,16 @@ def get_lineup_selection_candidates(cursor, event_id):
             "display_name": row[3],
             "email": row[4],
             "contact_phone": row[5],
-            "availability_status": row[6],
-            "availability_email_sent_at_epoch": row[7],
-            "is_profile_approved": row[8],
-            "social_links": row[9],
-            "request_count": row[10],
-            "played_count": row[11],
-            "selection_status": row[12] or None,
-            "slot_number": row[13],
+            "artist_bio": row[6],
+            "additional_info": row[7],
+            "availability_status": row[8],
+            "availability_email_sent_at_epoch": row[9],
+            "is_profile_approved": row[10],
+            "social_links": row[11],
+            "request_count": row[12],
+            "played_count": row[13],
+            "selection_status": row[14] or None,
+            "slot_number": row[15],
         }
         for row in cursor.fetchall()
     ]

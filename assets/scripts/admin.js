@@ -124,6 +124,80 @@
     }).join("")}</ul>`;
   }
 
+  function renderInfoLinks(item) {
+    const links = [];
+    if (String(item.artist_bio || "").trim()) {
+      links.push(`<li><a href="#" class="admin-info-trigger" data-info-title="Bio" data-info-content="${escapeHtml(item.artist_bio)}">Bio</a></li>`);
+    }
+    if (String(item.additional_info || "").trim()) {
+      links.push(`<li><a href="#" class="admin-info-trigger" data-info-title="More" data-info-content="${escapeHtml(item.additional_info)}">More</a></li>`);
+    }
+    return links.length ? `<ul class="admin-social-links">${links.join("")}</ul>` : "";
+  }
+
+  let infoTooltip = null;
+  let infoTooltipHideTimer = null;
+  let infoTooltipTrigger = null;
+
+  function getInfoTooltip() {
+    if (infoTooltip) return infoTooltip;
+    infoTooltip = document.createElement("div");
+    infoTooltip.className = "admin-info-tooltip";
+    infoTooltip.setAttribute("role", "tooltip");
+    document.body.append(infoTooltip);
+    infoTooltip.addEventListener("mouseenter", () => clearTimeout(infoTooltipHideTimer));
+    infoTooltip.addEventListener("mouseleave", hideInfoTooltip);
+    return infoTooltip;
+  }
+
+  function positionInfoTooltip(trigger) {
+    const tooltip = getInfoTooltip();
+    const rect = trigger.getBoundingClientRect();
+    const gap = 8;
+    const maxLeft = window.innerWidth - tooltip.offsetWidth - gap;
+    const left = Math.min(Math.max(gap, rect.left), Math.max(gap, maxLeft));
+    const top = Math.min(rect.bottom + gap, window.innerHeight - tooltip.offsetHeight - gap);
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${Math.max(gap, top)}px`;
+  }
+
+  function showInfoTooltip(trigger) {
+    clearTimeout(infoTooltipHideTimer);
+    const tooltip = getInfoTooltip();
+    infoTooltipTrigger = trigger;
+    tooltip.innerHTML = `<strong>${escapeHtml(trigger.dataset.infoTitle || "Info")}</strong><div>${escapeHtml(trigger.dataset.infoContent || "")}</div>`;
+    tooltip.classList.add("is-visible");
+    positionInfoTooltip(trigger);
+  }
+
+  function hideInfoTooltip() {
+    clearTimeout(infoTooltipHideTimer);
+    infoTooltipHideTimer = window.setTimeout(() => {
+      infoTooltip?.classList.remove("is-visible");
+      infoTooltipTrigger = null;
+    }, 120);
+  }
+
+  function setupInfoTooltips(node) {
+    node.querySelectorAll(".admin-info-trigger").forEach((trigger) => {
+      trigger.addEventListener("mouseenter", () => {
+        clearTimeout(infoTooltipHideTimer);
+        infoTooltipHideTimer = window.setTimeout(() => showInfoTooltip(trigger), 350);
+      });
+      trigger.addEventListener("mouseleave", hideInfoTooltip);
+      trigger.addEventListener("focus", () => showInfoTooltip(trigger));
+      trigger.addEventListener("blur", hideInfoTooltip);
+      trigger.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (infoTooltipTrigger === trigger && infoTooltip?.classList.contains("is-visible")) {
+          hideInfoTooltip();
+        } else {
+          showInfoTooltip(trigger);
+        }
+      });
+    });
+  }
+
   function setupSortableTable(table) {
     const headers = Array.from(table.querySelectorAll("thead th"));
     const body = table.tBodies[0];
@@ -321,10 +395,11 @@
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
         <div class="admin-table-wrap"><table data-sortable-table>
-          <thead><tr><th>Performer</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Played" data-sort-keys="requestCount,playedCount">Req / Played</th><th>Availability</th><th>Status</th><th data-sortable="false">Reminder</th></tr></thead>
+          <thead><tr><th>Performer</th><th data-sortable="false">Info</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Played" data-sort-keys="requestCount,playedCount">Req / Played</th><th>Availability</th><th>Status</th><th data-sortable="false">Reminder</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
             <tr>
-              <td>${escapeHtml(item.display_name)}<br><small>${escapeHtml(item.email)}</small></td>
+              <td>${escapeHtml(item.display_name)}<br><small><a class="admin-email-link" href="mailto:${escapeHtml(item.email)}">${escapeHtml(item.email)}</a></small></td>
+              <td>${renderInfoLinks(item)}</td>
               <td>${renderSocialLinks(item.social_links)}</td>
               <td data-request-count="${escapeHtml(item.request_count)}" data-played-count="${escapeHtml(item.played_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.played_count)}</td>
               <td>${escapeHtml(item.availability_status)}</td>
@@ -349,6 +424,7 @@
       </form>`;
 
     setupSortableTable(node.querySelector("[data-sortable-table]"));
+    setupInfoTooltips(node);
 
     node.querySelectorAll("[data-reminder-id]").forEach((button) => {
       button.addEventListener("click", async () => {
@@ -539,6 +615,19 @@
         <dt>Artist bio</dt><dd>${escapeHtml(item.artist_bio)}</dd>
         <dt>Additional info</dt><dd>${escapeHtml(item.additional_info)}</dd>
       </dl>
+      ${item.requested_date_summary?.length ? `
+        <h3>Requested dates</h3>
+        <div class="admin-table-wrap">
+          <table>
+            <thead><tr><th>Requested date</th><th>New Faces</th><th>Total requested</th></tr></thead>
+            <tbody>${item.requested_date_summary.map((summary) => `
+              <tr>
+                <td>${escapeHtml(summary.event_date)}${summary.event_name ? ` — ${escapeHtml(summary.event_name)}` : ""}</td>
+                <td>${escapeHtml(summary.new_faces)}</td>
+                <td>${escapeHtml(summary.total_requested)}</td>
+              </tr>`).join("")}</tbody>
+          </table>
+        </div>` : ""}
       <form data-decision-form>
         <label>Decision
           <select name="decision"><option value="approved">Approve</option><option value="denied">Deny</option></select>

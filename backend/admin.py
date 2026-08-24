@@ -999,7 +999,11 @@ def register_admin_api_routes(app):
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    draft = workflow.get_profile_submission_draft(cursor, draft_id)
+                    draft = workflow.get_profile_submission_draft(
+                        cursor,
+                        draft_id,
+                        include_date_summary=True,
+                    )
             return api_data({"submission": draft})
         except ValueError as exc:
             return api_error("submission_not_found", str(exc), 404)

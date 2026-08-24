@@ -514,6 +514,13 @@ form button:hover {
   color: #555;
 }
 
+.form-required {
+  color: #c00;
+  font-size: 0.8em;
+  font-weight: normal;
+  white-space: nowrap;
+}
+
 .performer-registration-checkbox {
   display: flex;
   align-items: center;

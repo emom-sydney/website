@@ -153,6 +153,45 @@
   padding-left: 1.1rem;
 }
 
+.admin-email-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-email-link:hover,
+.admin-email-link:focus-visible {
+  text-decoration: underline;
+}
+
+.admin-info-tooltip {
+  position: fixed;
+  z-index: 1000;
+  display: none;
+  width: min(24rem, calc(100vw - 1.5rem));
+  max-height: min(20rem, calc(100vh - 1.5rem));
+  overflow: auto;
+  padding: .75rem 1rem;
+  color: #f4f4f4;
+  background: #222;
+  border: 1px solid #777;
+  border-radius: .4rem;
+  box-shadow: 0 .3rem 1rem rgba(0, 0, 0, .35);
+  line-height: 1.4;
+}
+
+.admin-info-tooltip.is-visible {
+  display: block;
+}
+
+.admin-info-tooltip strong {
+  display: block;
+  margin-bottom: .35rem;
+}
+
+.admin-info-tooltip div {
+  white-space: pre-wrap;
+}
+
 .admin-choice {
   display: block;
   padding: .5rem;
