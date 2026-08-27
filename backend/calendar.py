@@ -84,7 +84,7 @@ def build_calendar():
             f"UID:event-{event_id}@sydney.emom.me",
             f"DTSTAMP:{stamp}",
             f"SUMMARY:{_escape_text(name)}",
-            f"DESCRIPTION:{_escape_text(event_type + (': ' if description else '') + (description or '') + ' More information: ' + _event_url(event))}",
+            f"DESCRIPTION:{_escape_text(event_type + (': ' if description else '') + (description or ''))}",
             f"URL:{_event_url(event)}",
         ])
         if starts_at:
