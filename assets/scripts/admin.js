@@ -669,6 +669,8 @@
     const draftId = Number(node.dataset.draftId);
     const data = await api(`/api/v1/admin/profiles/submissions/${draftId}`);
     const item = data.submission;
+    const approvalMessage = "Your performer profile has been approved, and your requested performance dates have been noted.";
+    const denialMessage = "Your performer profile submission was not approved at this stage.";
     node.innerHTML = `
       <h2>${escapeHtml(item.display_name)}</h2>
       <dl class="admin-details">
@@ -679,50 +681,53 @@
         <dt>Show Tribuo link</dt><dd>${item.show_tribuo_link ? "Yes" : "No"}</dd>
         <dt>Artist bio</dt><dd>${escapeHtml(item.artist_bio)}</dd>
         <dt>Additional info</dt><dd>${escapeHtml(item.additional_info)}</dd>
+        <dt>Social media</dt><dd>${renderSocialLinks(item.social_links)}</dd>
       </dl>
+      ${item.previous_performances?.length ? `<p><strong>Previously performed at:</strong> ${item.previous_performances.map(escapeHtml).join(", ")}</p>` : ""}
       ${item.requested_date_summary?.length ? `
         <h3>Requested dates</h3>
         <div class="admin-table-wrap">
           <table>
-            <thead><tr><th>Requested date</th><th>New Faces</th><th>Total requested</th></tr></thead>
+            <thead><tr><th>Include</th><th>Requested date</th><th>New Faces</th><th>Total requested</th></tr></thead>
             <tbody>${item.requested_date_summary.map((summary) => `
               <tr>
+                <td><input type="checkbox" name="requested_date_ids" value="${item.requested_events.find((event) => event.event_id === summary.event_id)?.requested_date_id || ""}" checked form="decision-form"></td>
                 <td>${escapeHtml(summary.event_date)}${summary.event_name ? ` — ${escapeHtml(summary.event_name)}` : ""}</td>
                 <td>${escapeHtml(summary.new_faces)}</td>
                 <td>${escapeHtml(summary.total_requested)}</td>
               </tr>`).join("")}</tbody>
           </table>
         </div>` : ""}
-      <form data-decision-form>
+      <form id="decision-form" data-decision-form>
         <label>Decision
           <select name="decision"><option value="approved">Approve</option><option value="denied">Deny</option></select>
         </label>
-        <label>Denial reason <textarea name="reason"></textarea></label>
+        <label>Include message <textarea name="message">${escapeHtml(approvalMessage)}</textarea></label>
         <label><input type="checkbox" name="include_edit_link" checked> Include a fresh edit link when denied</label>
         <button type="submit">Record decision</button>
-        <p role="status" data-decision-status></p>
       </form>`;
+    const decisionSelect = node.querySelector("select[name=decision]");
+    const messageField = node.querySelector("textarea[name=message]");
+    decisionSelect.addEventListener("change", () => {
+      messageField.value = decisionSelect.value === "approved" ? approvalMessage : denialMessage;
+    });
     node.querySelector("[data-decision-form]")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const formElement = event.currentTarget;
       const form = new FormData(formElement);
-      const statusNode = node.querySelector("[data-decision-status]");
-      statusNode.textContent = "Saving decision…";
       try {
         const result = await api(`/api/v1/admin/profiles/submissions/${draftId}/decisions`, {
           method: "POST",
           body: JSON.stringify({
             decision: form.get("decision"),
-            reason: form.get("reason"),
+            message: form.get("message"),
+            requested_date_ids: form.getAll("requested_date_ids").map(Number),
             include_edit_link: form.get("include_edit_link") === "on",
           }),
         });
-        statusNode.textContent = `Submission ${result.decision}.`;
-        formElement.querySelectorAll("button, input, select, textarea").forEach((field) => {
-          field.disabled = true;
-        });
+        window.showToast?.(`Submission ${result.decision}.`, { kind: "success" });
+        window.location.assign("/admin/profiles");
       } catch (error) {
-        statusNode.textContent = "";
         window.showToast?.(error.message, { kind: "error" });
       }
     });

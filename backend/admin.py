@@ -1172,11 +1172,11 @@ def register_admin_api_routes(app):
             return csrf_error
         payload = request.get_json(silent=True) or {}
         decision = payload.get("decision")
-        reason = str(payload.get("reason") or "").strip() or None
+        reason = str(payload.get("message") or payload.get("reason") or "").strip() or None
         if decision not in {"approved", "denied"}:
             return api_error("invalid_decision", "Decision must be approved or denied.")
-        if decision == "denied" and not reason:
-            return api_error("reason_required", "A denial reason is required.")
+        if not reason:
+            return api_error("message_required", "An include message is required.")
         try:
             edit_link = None
             with connect() as connection:
@@ -1184,6 +1184,19 @@ def register_admin_api_routes(app):
                     draft = workflow.get_profile_submission_draft(cursor, draft_id)
                     if draft["status"] != workflow.WORKFLOW_STATUS_PENDING:
                         raise ValueError("This submission has already been reviewed.")
+                    requested_date_ids = payload.get("requested_date_ids", draft.get("requested_date_ids", []))
+                    if not isinstance(requested_date_ids, list) or any(not isinstance(value, int) for value in requested_date_ids):
+                        raise ValueError("Requested dates are invalid.")
+                    requested_date_ids = set(requested_date_ids)
+                    all_requested_date_ids = {item["requested_date_id"] for item in draft["requested_events"]}
+                    if not requested_date_ids.issubset(all_requested_date_ids):
+                        raise ValueError("Requested dates are invalid.")
+                    cursor.execute(
+                        "UPDATE requested_dates SET status = 'withdrawn' WHERE draft_id = %s AND id <> ALL(%s)",
+                        (draft_id, list(requested_date_ids)),
+                    )
+                    draft["requested_events"] = [item for item in draft["requested_events"] if item["requested_date_id"] in requested_date_ids]
+                    draft["requested_event_ids"] = [item["event_id"] for item in draft["requested_events"]]
                     if decision == "approved":
                         profile_id = workflow.apply_approved_draft(cursor, draft, g.staff["profile_id"])
                         workflow.attach_profile_to_draft(cursor, draft_id=draft_id, profile_id=profile_id)
@@ -1214,6 +1227,7 @@ def register_admin_api_routes(app):
                         app,
                         draft["email"],
                         requested_events=draft["requested_events"],
+                        message=reason,
                         availability_confirmation_lead_days=settings["availability_confirmation_lead_days"],
                         lineup_selection_lead_days=settings["lineup_selection_lead_days"],
                     )

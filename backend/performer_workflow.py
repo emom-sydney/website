@@ -1943,7 +1943,7 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
 
     cursor.execute(
         """
-        SELECT rd.event_id, e.event_date, e.event_name
+        SELECT rd.id, rd.event_id, e.event_date, e.event_name
         FROM requested_dates rd
         JOIN events e ON e.id = rd.event_id
         WHERE rd.draft_id = %s
@@ -1952,11 +1952,25 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
         (draft_id,),
     )
     requested_events = [
-        {"event_id": row[0], "event_date": row[1].isoformat(), "event_name": row[2]}
+        {"requested_date_id": row[0], "event_id": row[1], "event_date": row[2].isoformat(), "event_name": row[3]}
         for row in cursor.fetchall()
     ]
     draft["requested_events"] = requested_events
     draft["requested_event_ids"] = [item["event_id"] for item in requested_events]
+    draft["previous_performances"] = []
+    if draft["profile_id"] is not None:
+        cursor.execute(
+            """
+            SELECT e.event_name, MIN(e.event_date) AS first_event_date
+            FROM performances perf
+            JOIN events e ON e.id = perf.event_id
+            WHERE perf.profile_id = %s
+            GROUP BY e.event_name
+            ORDER BY first_event_date, e.event_name
+            """,
+            (draft["profile_id"],),
+        )
+        draft["previous_performances"] = [row[0] for row in cursor.fetchall()]
     draft["requested_date_summary"] = (
         get_requested_date_summary(cursor, draft["requested_event_ids"])
         if include_date_summary
@@ -3848,12 +3862,12 @@ def format_upcoming_event_status_summary(rows, *, event_date, event_name):
     return "\n".join(lines)
 
 
-def send_profile_approved_email(app, email, *, requested_events, availability_confirmation_lead_days, lineup_selection_lead_days):
+def send_profile_approved_email(app, email, *, requested_events, message=None, availability_confirmation_lead_days, lineup_selection_lead_days):
     requested_dates_text = format_requested_events_for_email(
         requested_events, empty_text="- no requested dates recorded"
     )
     body = (
-        "Your performer profile has been approved, and your requested performance dates have been noted.\n\n"
+        f"{message or 'Your performer profile has been approved, and your requested performance dates have been noted.'}\n\n"
         f"Requested dates:\n{requested_dates_text}\n\n"
         f"We will be in touch to confirm your availibility roughly {availability_confirmation_lead_days} days before the event.\n\n"
         f"After all performers have confirmed (or declined) we decide on the lineup and send out invitations to perform, roughly {lineup_selection_lead_days} days before the event.\n"
@@ -3864,7 +3878,7 @@ def send_profile_approved_email(app, email, *, requested_events, availability_co
 def send_profile_denied_email(app, email, reason, *, edit_link=None):
     body = (
         "Your performer profile submission was not approved at this stage.\n\n"
-        f"Reason:\n{reason}\n"
+        f"{reason}\n"
     )
     if edit_link:
         body += (
