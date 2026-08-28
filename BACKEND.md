@@ -14,8 +14,18 @@ email actions, Keila integration, and scheduled workflow jobs live in
 - `backend/keila_workflow.py` owns newsletter and Keila behavior.
 - `backend/contact_us_workflow.py` owns contact-message delivery.
 - `backend/profile_qr.py` owns public artist-profile QR downloads and scan tracking.
+- `backend/calendar.py` owns the public iCalendar feed at `/calendar.ics`.
 - `backend/jobs/` contains standalone scheduled commands.
 - `backend/templates/admin/` contains the server-rendered staff shell.
+
+The admin lineup page is served at `/admin/events/<event_id>/lineup/` and is
+client-rendered by `assets/scripts/admin.js`. Its unified status control stages
+lineup changes until Save lineup is submitted. The save operation validates
+selected slots, records direct admin availability overrides, and keeps
+`event_performer_selections` separate from actual `performances` records.
+Action emails are sent through the per-request notification endpoints only
+after an administrator reviews or edits the message in the confirmation
+dialog.
 
 Reusable site read behavior remains under `lib/`; Eleventy adapters remain
 thin under `src/_data/`.
@@ -61,6 +71,11 @@ session-bound CSRF token.
 Staff eligibility is checked on every request. Administrators receive all
 capabilities; moderators receive profile-moderation and standby-promotion
 capabilities. Staff must retain a person profile and volunteer role.
+
+Profile moderation decisions can include an edited approval or denial message
+and a subset of requested dates. Social links and previous performance titles
+are shown on the moderation page. Unselected dates are withdrawn, while the
+remaining dates are included in the approval workflow.
 
 Event deletion is available to administrators only for future events through
 the admin interface. Past events are treated as historical records and cannot

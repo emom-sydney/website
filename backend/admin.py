@@ -831,6 +831,8 @@ def register_admin_api_routes(app):
         try:
             parsed_statuses = {int(key): str(value) for key, value in statuses.items()}
             allowed_statuses = {
+                workflow.LINEUP_STATUS_REQUESTED,
+                workflow.LINEUP_STATUS_AVAILABILITY_CONFIRMED,
                 workflow.LINEUP_STATUS_SELECTED,
                 workflow.LINEUP_STATUS_STANDBY,
                 workflow.LINEUP_STATUS_RESERVE,
@@ -913,6 +915,8 @@ def register_admin_api_routes(app):
         try:
             parsed_statuses = {int(key): str(value) for key, value in statuses.items()}
             if any(value not in {
+                workflow.LINEUP_STATUS_REQUESTED,
+                workflow.LINEUP_STATUS_AVAILABILITY_CONFIRMED,
                 workflow.LINEUP_STATUS_SELECTED,
                 workflow.LINEUP_STATUS_STANDBY,
                 workflow.LINEUP_STATUS_RESERVE,
@@ -927,6 +931,7 @@ def register_admin_api_routes(app):
             {"display_name": item["display_name"], "email": item["email"]}
             for item in candidates
             if parsed_statuses.get(item["requested_date_id"]) == workflow.LINEUP_STATUS_SELECTED
+            and workflow.is_lineup_selection_candidate_eligible(item)
             and item.get("selection_status") != workflow.LINEUP_STATUS_SELECTED
         ]
         unselected_emails = [
@@ -978,10 +983,12 @@ def register_admin_api_routes(app):
         if csrf_error:
             return csrf_error
         try:
+            payload = request.get_json(silent=True) or {}
+            message = workflow.normalize_text(payload.get("message"))
             with connect() as connection:
                 with connection.cursor() as cursor:
                     sent = workflow.send_availability_confirmation_for_requested_date(
-                        app, cursor, requested_date_id=requested_date_id, event_id=event_id
+                        app, cursor, requested_date_id=requested_date_id, event_id=event_id, message=message
                     )
             return api_data(
                 {
@@ -1005,6 +1012,7 @@ def register_admin_api_routes(app):
         try:
             payload = request.get_json(silent=True) or {}
             status = payload.get("status")
+            message = workflow.normalize_text(payload.get("message"))
             with connect() as connection:
                 with connection.cursor() as cursor:
                     event = workflow.get_event_selection_context(cursor, event_id)
@@ -1015,7 +1023,12 @@ def register_admin_api_routes(app):
                     )
                     if not candidate:
                         raise ValueError("That performer request is not available for this event.")
-                    sent = workflow.send_lineup_status_notification(event, candidate, status=status)
+                    sent = workflow.send_lineup_status_notification(
+                        event,
+                        candidate,
+                        status=status,
+                        message=message,
+                    )
             return api_data({"message": f"Lineup status sent to {sent['display_name']}."}, 201)
         except ValueError as exc:
             return api_error("lineup_status_notification_failed", str(exc))

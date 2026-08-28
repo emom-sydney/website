@@ -398,8 +398,10 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
                     25,
                     "Static In The Matrix",
                     "static@yceran.org",
+                    "Static",
                     None,
                     "requested",
+                    None,
                     None,
                     True,
                     [
@@ -414,6 +416,7 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
                     2,
                     "",
                     None,
+                    1,
                 )
             ]
 
@@ -438,8 +441,10 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
             "profile_id": 25,
             "display_name": "Static In The Matrix",
             "email": "static@yceran.org",
+            "first_name": "Static",
             "contact_phone": None,
             "availability_status": "requested",
+            "requested_at_epoch": None,
             "availability_email_sent_at_epoch": None,
             "is_profile_approved": True,
             "social_links": [
@@ -454,5 +459,6 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
             "played_count": 2,
             "selection_status": None,
             "slot_number": None,
+            "queue_position": 1,
         }
     ]
