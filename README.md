@@ -65,10 +65,14 @@ It currently handles:
 
 - Regular contact form
 - Newsletter & Alumni list subscribe workflow
+- Public event calendar feed at `/calendar.ics`
 - [performer registration workflow](PERFORMER_WORKFLOW_FLOW.md)
   - moderator approve/deny actions
   - availability confirm/cancel actions
-  - final lineup selection for an event
+  - final lineup selection for an event with unified requested/confirmed/
+    selected/standby/reserve statuses
+  - admin availability overrides, oldest-first standby queue numbering, and
+    editable action-email confirmation dialogs
   - standby promotion after cancellations
 
 Supporting scripts:

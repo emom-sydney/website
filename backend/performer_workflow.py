@@ -29,6 +29,8 @@ WORKFLOW_STATUS_DENIED = "denied"
 LINEUP_STATUS_SELECTED = "selected"
 LINEUP_STATUS_STANDBY = "standby"
 LINEUP_STATUS_RESERVE = "reserve"
+LINEUP_STATUS_REQUESTED = "requested"
+LINEUP_STATUS_AVAILABILITY_CONFIRMED = "availability_confirmed"
 LINEUP_SELECTION_ALLOWED_STATUSES = {
     LINEUP_STATUS_SELECTED,
     LINEUP_STATUS_STANDBY,
@@ -937,8 +939,12 @@ def parse_lineup_selection_statuses(form, candidates):
         if not is_lineup_selection_candidate_eligible(item):
             continue
         requested_date_id = item["requested_date_id"]
-        raw_value = normalize_text(form.get(f"status_{requested_date_id}")) or LINEUP_STATUS_STANDBY
-        if raw_value not in LINEUP_SELECTION_ALLOWED_STATUSES:
+        raw_value = normalize_text(form.get(f"status_{requested_date_id}")) or LINEUP_STATUS_REQUESTED
+        if raw_value not in {
+            LINEUP_STATUS_REQUESTED,
+            LINEUP_STATUS_AVAILABILITY_CONFIRMED,
+            *LINEUP_SELECTION_ALLOWED_STATUSES,
+        }:
             raise ValueError("One or more performer statuses are invalid.")
         parsed[requested_date_id] = raw_value
     return parsed
@@ -1753,6 +1759,7 @@ def get_requested_date_with_context(cursor, requested_date_id):
           e.event_date,
           d.id,
           d.email,
+          d.first_name,
           d.display_name,
           d.profile_id,
           COALESCE(p.is_profile_approved, false) AS is_profile_approved
@@ -1779,9 +1786,10 @@ def get_requested_date_with_context(cursor, requested_date_id):
         "event_date": row[4].isoformat(),
         "draft_id": row[5],
         "email": row[6],
-        "display_name": row[7],
-        "profile_id": row[8],
-        "is_profile_approved": row[9],
+        "first_name": row[7],
+        "display_name": row[8],
+        "profile_id": row[9],
+        "is_profile_approved": row[10],
     }
 
 
@@ -1943,7 +1951,7 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
 
     cursor.execute(
         """
-        SELECT rd.event_id, e.event_date, e.event_name
+        SELECT rd.id, rd.event_id, e.event_date, e.event_name
         FROM requested_dates rd
         JOIN events e ON e.id = rd.event_id
         WHERE rd.draft_id = %s
@@ -1952,11 +1960,25 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
         (draft_id,),
     )
     requested_events = [
-        {"event_id": row[0], "event_date": row[1].isoformat(), "event_name": row[2]}
+        {"requested_date_id": row[0], "event_id": row[1], "event_date": row[2].isoformat(), "event_name": row[3]}
         for row in cursor.fetchall()
     ]
     draft["requested_events"] = requested_events
     draft["requested_event_ids"] = [item["event_id"] for item in requested_events]
+    draft["previous_performances"] = []
+    if draft["profile_id"] is not None:
+        cursor.execute(
+            """
+            SELECT e.event_name, MIN(e.event_date) AS first_event_date
+            FROM performances perf
+            JOIN events e ON e.id = perf.event_id
+            WHERE perf.profile_id = %s
+            GROUP BY e.event_name
+            ORDER BY first_event_date, e.event_name
+            """,
+            (draft["profile_id"],),
+        )
+        draft["previous_performances"] = [row[0] for row in cursor.fetchall()]
     draft["requested_date_summary"] = (
         get_requested_date_summary(cursor, draft["requested_event_ids"])
         if include_date_summary
@@ -2454,7 +2476,7 @@ def get_unapproved_event_reminders(cursor, target_date):
     return list(reminders_by_event.values())
 
 
-def send_availability_confirmation_for_requested_date(app, cursor, *, requested_date_id, event_id):
+def send_availability_confirmation_for_requested_date(app, cursor, *, requested_date_id, event_id, message=None):
     requested_date = get_requested_date_with_context(cursor, requested_date_id)
     if requested_date["event_id"] != event_id:
         raise ValueError("That performer request is not for this event.")
@@ -2474,12 +2496,14 @@ def send_availability_confirmation_for_requested_date(app, cursor, *, requested_
 
     send_availability_email(
         email=requested_date["email"],
+        first_name=requested_date.get("first_name"),
         display_name=requested_date["display_name"],
         event_name=requested_date["event_name"],
         event_date=requested_date["event_date"],
         confirm_url=availability_links["confirm_url"],
         cancel_url=availability_links["cancel_url"],
         expires_at=availability_links["expires_at"],
+        message=message,
     )
     cursor.execute(
         """
@@ -3136,10 +3160,12 @@ def get_lineup_selection_candidates(cursor, event_id):
             p.id AS profile_id,
             d.display_name,
             d.email,
+            d.first_name,
             d.contact_phone,
             NULLIF(BTRIM(d.artist_bio), '') AS artist_bio,
             NULLIF(BTRIM(d.additional_info), '') AS additional_info,
           rd.status AS availability_status,
+          (extract(epoch FROM rd.requested_at) * 1000)::bigint AS requested_at_epoch,
           (extract(epoch FROM rd.availability_email_sent_at) * 1000)::bigint
             AS availability_email_sent_at_epoch,
           COALESCE(p.is_profile_approved, false) AS is_profile_approved,
@@ -3165,6 +3191,10 @@ def get_lineup_selection_candidates(cursor, event_id):
           COALESCE(pc.played_count, 0) AS played_count,
           COALESCE(sel.status, '') AS selection_status,
             sel.slot_number,
+            ROW_NUMBER() OVER (
+              PARTITION BY rd.event_id
+              ORDER BY rd.requested_at, rd.id
+            ) AS queue_position,
             ROW_NUMBER() OVER (
               PARTITION BY
                 rd.event_id,
@@ -3193,17 +3223,20 @@ def get_lineup_selection_candidates(cursor, event_id):
           profile_id,
           display_name,
           email,
+          first_name,
           contact_phone,
           artist_bio,
           additional_info,
           availability_status,
+          requested_at_epoch,
           availability_email_sent_at_epoch,
           is_profile_approved,
           social_links,
           COALESCE(request_count, 0),
           COALESCE(played_count, 0),
           selection_status,
-          slot_number
+          slot_number,
+          queue_position
         FROM ranked_candidates
         WHERE candidate_rank = 1
         ORDER BY display_name, requested_date_id
@@ -3217,17 +3250,20 @@ def get_lineup_selection_candidates(cursor, event_id):
             "profile_id": row[2],
             "display_name": row[3],
             "email": row[4],
-            "contact_phone": row[5],
-            "artist_bio": row[6],
-            "additional_info": row[7],
-            "availability_status": row[8],
-            "availability_email_sent_at_epoch": row[9],
-            "is_profile_approved": row[10],
-            "social_links": row[11],
-            "request_count": row[12],
-            "played_count": row[13],
-            "selection_status": row[14] or None,
-            "slot_number": row[15],
+            "first_name": row[5],
+            "contact_phone": row[6],
+            "artist_bio": row[7],
+            "additional_info": row[8],
+            "availability_status": row[9],
+            "requested_at_epoch": row[10],
+            "availability_email_sent_at_epoch": row[11],
+            "is_profile_approved": row[12],
+            "social_links": row[13],
+            "request_count": row[14],
+            "played_count": row[15],
+            "selection_status": row[16] or None,
+            "slot_number": row[17],
+            "queue_position": row[18],
         }
         for row in cursor.fetchall()
     ]
@@ -3250,9 +3286,9 @@ def remove_cancelled_lineup_candidate(cursor, *, event_id, requested_date_id):
 
 def is_lineup_selection_candidate_eligible(candidate):
     return (
-        candidate.get("availability_status") == "availability_confirmed"
-        and bool(candidate.get("is_profile_approved"))
+        bool(candidate.get("is_profile_approved"))
         and candidate.get("profile_id") is not None
+        and candidate.get("availability_status") != "availability_cancelled"
     )
 
 
@@ -3275,7 +3311,29 @@ def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, can
     for item in candidates:
         if not is_lineup_selection_candidate_eligible(item):
             continue
-        status = candidate_statuses.get(item["requested_date_id"], LINEUP_STATUS_STANDBY)
+        status = candidate_statuses.get(item["requested_date_id"], LINEUP_STATUS_REQUESTED)
+        if status not in {
+            LINEUP_STATUS_REQUESTED,
+            LINEUP_STATUS_AVAILABILITY_CONFIRMED,
+            *LINEUP_SELECTION_ALLOWED_STATUSES,
+        }:
+            raise ValueError("One or more lineup statuses are invalid.")
+
+        if status in {LINEUP_STATUS_REQUESTED, LINEUP_STATUS_AVAILABILITY_CONFIRMED}:
+            cursor.execute(
+                "DELETE FROM event_performer_selections WHERE event_id = %s AND profile_id = %s",
+                (event_id, item["profile_id"]),
+            )
+            cursor.execute(
+                "UPDATE requested_dates SET status = %s, availability_responded_at = CASE WHEN %s = 'requested' THEN NULL ELSE COALESCE(availability_responded_at, now()) END, selected_at = NULL, selected_by_profile_id = NULL WHERE id = %s",
+                (status, status, item["requested_date_id"]),
+            )
+            continue
+
+        cursor.execute(
+            "UPDATE requested_dates SET status = 'availability_confirmed', availability_responded_at = COALESCE(availability_responded_at, now()), selected_at = NULL, selected_by_profile_id = NULL WHERE id = %s",
+            (item["requested_date_id"],),
+        )
         if status == LINEUP_STATUS_SELECTED:
             slot_number = selected_requested_date_ids.index(item["requested_date_id"]) + 1
             selected_profile_ids.append(item["profile_id"])
@@ -3848,12 +3906,12 @@ def format_upcoming_event_status_summary(rows, *, event_date, event_name):
     return "\n".join(lines)
 
 
-def send_profile_approved_email(app, email, *, requested_events, availability_confirmation_lead_days, lineup_selection_lead_days):
+def send_profile_approved_email(app, email, *, requested_events, message=None, availability_confirmation_lead_days, lineup_selection_lead_days):
     requested_dates_text = format_requested_events_for_email(
         requested_events, empty_text="- no requested dates recorded"
     )
     body = (
-        "Your performer profile has been approved, and your requested performance dates have been noted.\n\n"
+        f"{message or 'Your performer profile has been approved, and your requested performance dates have been noted.'}\n\n"
         f"Requested dates:\n{requested_dates_text}\n\n"
         f"We will be in touch to confirm your availibility roughly {availability_confirmation_lead_days} days before the event.\n\n"
         f"After all performers have confirmed (or declined) we decide on the lineup and send out invitations to perform, roughly {lineup_selection_lead_days} days before the event.\n"
@@ -3864,7 +3922,7 @@ def send_profile_approved_email(app, email, *, requested_events, availability_co
 def send_profile_denied_email(app, email, reason, *, edit_link=None):
     body = (
         "Your performer profile submission was not approved at this stage.\n\n"
-        f"Reason:\n{reason}\n"
+        f"{reason}\n"
     )
     if edit_link:
         body += (
@@ -3875,10 +3933,10 @@ def send_profile_denied_email(app, email, reason, *, edit_link=None):
     send_mail(email, "sydney.emom | performer profile update", body)
 
 
-def send_availability_email(*, email, display_name, event_name, event_date, confirm_url, cancel_url, expires_at):
+def send_availability_email(*, email, first_name=None, display_name, event_name, event_date, confirm_url, cancel_url, expires_at, message=None):
+    greeting = f"Hi {first_name or display_name or 'performer'},\n\n"
     body = (
-        f"Hello {display_name or 'performer'},\n\n"
-        f"You previously registered interest in playing at {event_name} on {event_date}.\n"
+        f"{message or greeting + f'You previously registered interest in playing at {event_name} on {event_date}.'}\n"
         "Please use one of the links below to confirm or cancel your availability.\n\n"
         "NB: This is NOT an invitation to play, we're just confirming that you're still available before we choose a lineup for the night. We'll be in touch within the next few days to let you know if you're on.\n\n"
         f"Confirm availability: {confirm_url}\n"
@@ -3935,11 +3993,13 @@ def send_selected_performer_email(event, candidate):
     faq_url = "https://sydney.emom.me/perform/faq"
     contact_email = "admin@sydney.emom.me"
     text_body = (
+        f"Hi {candidate.get('first_name') or candidate.get('display_name') or 'performer'},\n\n"
         f"Yay! Your appearance at {event['event_name']} on {event['event_date']} has been confirmed.\n"
         f"Please see our FAQ for everything you need to know: {faq_url}\n"
         f"And feel free to email us with any further questions: {contact_email}\n"
     )
     html_body = (
+        f"<p>Hi {html.escape(candidate.get('first_name') or candidate.get('display_name') or 'performer')},</p>"
         f"<p>Yay! Your appearance at {html.escape(event['event_name'])} on {html.escape(event['event_date'])} has been confirmed.</p>"
         f"<p>Please see our <a href=\"{html.escape(faq_url, quote=True)}\">FAQ</a> for everything you need to know, "
         f"and feel free to <a href=\"mailto:{html.escape(contact_email, quote=True)}\">email us</a> "
@@ -3953,15 +4013,33 @@ def send_selected_performer_email(event, candidate):
     )
 
 
-def send_lineup_status_notification(event, candidate, *, status=None):
+def send_lineup_status_notification(event, candidate, *, status=None, message=None):
     status = status or candidate.get("selection_status")
     if status not in LINEUP_SELECTION_ALLOWED_STATUSES:
         raise ValueError("This performer does not have a lineup status to notify.")
-    status_label = format_selection_status_label(status)
-    text_body = (
-        f"Your current lineup status for {event['event_name']} on {event['event_date']} is: {status_label}.\n\n"
-        "Please contact us if you have any questions.\n"
-    )
+    if not is_lineup_selection_candidate_eligible(candidate):
+        raise ValueError("This performer is not eligible for lineup notification.")
+    if status == LINEUP_STATUS_SELECTED:
+        text_body = (
+            f"Hi {candidate.get('first_name') or candidate.get('display_name') or 'performer'},\n\n"
+            f"Yay! Your appearance at {event['event_name']} on {event['event_date']} has been confirmed.\n"
+            "Please see our FAQ for everything you need to know: https://sydney.emom.me/perform/faq\n"
+            "And feel free to email us with any further questions: admin@sydney.emom.me\n"
+        )
+    elif status == LINEUP_STATUS_STANDBY:
+        text_body = (
+            f"Hi {candidate.get('first_name') or candidate.get('display_name') or 'performer'},\n\n"
+            f"You have not been selected to perform at {event['event_name']} on {event['event_date']}, "
+            f"but you are on standby. You are number {candidate.get('queue_position')} in the queue in case someone drops out.\n"
+        )
+    else:
+        text_body = (
+            f"Hi {candidate.get('first_name') or candidate.get('display_name') or 'performer'},\n\n"
+            f"You have not been selected to perform at {event['event_name']} on {event['event_date']} "
+            "because you have played recently, but we may still call on you if we need to make up numbers.\n"
+        )
+    if message:
+        text_body = message
     send_mail(
         candidate["email"],
         f"sydney.emom | lineup status for {event['event_name']}",

@@ -831,6 +831,8 @@ def register_admin_api_routes(app):
         try:
             parsed_statuses = {int(key): str(value) for key, value in statuses.items()}
             allowed_statuses = {
+                workflow.LINEUP_STATUS_REQUESTED,
+                workflow.LINEUP_STATUS_AVAILABILITY_CONFIRMED,
                 workflow.LINEUP_STATUS_SELECTED,
                 workflow.LINEUP_STATUS_STANDBY,
                 workflow.LINEUP_STATUS_RESERVE,
@@ -913,6 +915,8 @@ def register_admin_api_routes(app):
         try:
             parsed_statuses = {int(key): str(value) for key, value in statuses.items()}
             if any(value not in {
+                workflow.LINEUP_STATUS_REQUESTED,
+                workflow.LINEUP_STATUS_AVAILABILITY_CONFIRMED,
                 workflow.LINEUP_STATUS_SELECTED,
                 workflow.LINEUP_STATUS_STANDBY,
                 workflow.LINEUP_STATUS_RESERVE,
@@ -927,6 +931,7 @@ def register_admin_api_routes(app):
             {"display_name": item["display_name"], "email": item["email"]}
             for item in candidates
             if parsed_statuses.get(item["requested_date_id"]) == workflow.LINEUP_STATUS_SELECTED
+            and workflow.is_lineup_selection_candidate_eligible(item)
             and item.get("selection_status") != workflow.LINEUP_STATUS_SELECTED
         ]
         unselected_emails = [
@@ -978,10 +983,12 @@ def register_admin_api_routes(app):
         if csrf_error:
             return csrf_error
         try:
+            payload = request.get_json(silent=True) or {}
+            message = workflow.normalize_text(payload.get("message"))
             with connect() as connection:
                 with connection.cursor() as cursor:
                     sent = workflow.send_availability_confirmation_for_requested_date(
-                        app, cursor, requested_date_id=requested_date_id, event_id=event_id
+                        app, cursor, requested_date_id=requested_date_id, event_id=event_id, message=message
                     )
             return api_data(
                 {
@@ -1005,6 +1012,7 @@ def register_admin_api_routes(app):
         try:
             payload = request.get_json(silent=True) or {}
             status = payload.get("status")
+            message = workflow.normalize_text(payload.get("message"))
             with connect() as connection:
                 with connection.cursor() as cursor:
                     event = workflow.get_event_selection_context(cursor, event_id)
@@ -1015,7 +1023,12 @@ def register_admin_api_routes(app):
                     )
                     if not candidate:
                         raise ValueError("That performer request is not available for this event.")
-                    sent = workflow.send_lineup_status_notification(event, candidate, status=status)
+                    sent = workflow.send_lineup_status_notification(
+                        event,
+                        candidate,
+                        status=status,
+                        message=message,
+                    )
             return api_data({"message": f"Lineup status sent to {sent['display_name']}."}, 201)
         except ValueError as exc:
             return api_error("lineup_status_notification_failed", str(exc))
@@ -1172,11 +1185,11 @@ def register_admin_api_routes(app):
             return csrf_error
         payload = request.get_json(silent=True) or {}
         decision = payload.get("decision")
-        reason = str(payload.get("reason") or "").strip() or None
+        reason = str(payload.get("message") or payload.get("reason") or "").strip() or None
         if decision not in {"approved", "denied"}:
             return api_error("invalid_decision", "Decision must be approved or denied.")
-        if decision == "denied" and not reason:
-            return api_error("reason_required", "A denial reason is required.")
+        if not reason:
+            return api_error("message_required", "An include message is required.")
         try:
             edit_link = None
             with connect() as connection:
@@ -1184,6 +1197,19 @@ def register_admin_api_routes(app):
                     draft = workflow.get_profile_submission_draft(cursor, draft_id)
                     if draft["status"] != workflow.WORKFLOW_STATUS_PENDING:
                         raise ValueError("This submission has already been reviewed.")
+                    requested_date_ids = payload.get("requested_date_ids", draft.get("requested_date_ids", []))
+                    if not isinstance(requested_date_ids, list) or any(not isinstance(value, int) for value in requested_date_ids):
+                        raise ValueError("Requested dates are invalid.")
+                    requested_date_ids = set(requested_date_ids)
+                    all_requested_date_ids = {item["requested_date_id"] for item in draft["requested_events"]}
+                    if not requested_date_ids.issubset(all_requested_date_ids):
+                        raise ValueError("Requested dates are invalid.")
+                    cursor.execute(
+                        "UPDATE requested_dates SET status = 'withdrawn' WHERE draft_id = %s AND id <> ALL(%s)",
+                        (draft_id, list(requested_date_ids)),
+                    )
+                    draft["requested_events"] = [item for item in draft["requested_events"] if item["requested_date_id"] in requested_date_ids]
+                    draft["requested_event_ids"] = [item["event_id"] for item in draft["requested_events"]]
                     if decision == "approved":
                         profile_id = workflow.apply_approved_draft(cursor, draft, g.staff["profile_id"])
                         workflow.attach_profile_to_draft(cursor, draft_id=draft_id, profile_id=profile_id)
@@ -1214,6 +1240,7 @@ def register_admin_api_routes(app):
                         app,
                         draft["email"],
                         requested_events=draft["requested_events"],
+                        message=reason,
                         availability_confirmation_lead_days=settings["availability_confirmation_lead_days"],
                         lineup_selection_lead_days=settings["lineup_selection_lead_days"],
                     )

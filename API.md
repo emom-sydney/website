@@ -6,6 +6,9 @@ email-action pages deliberately live outside the API namespace.
 ## Public API
 
 - `GET /api/v1/health`
+- `GET /calendar.ics`
+  - publishes all events as an iCalendar feed, including optional start/end
+    times and location details
 - `GET /api/v1/live/now-playing`
 - `POST /api/v1/profiles/submissions/access-links`
 - `GET /api/v1/profiles/submissions/context`
@@ -51,6 +54,10 @@ Dashboard and domains:
 - `PUT /api/v1/admin/live/events/<event_id>/performers/order`
 - `GET /api/v1/admin/events`
 - `DELETE /api/v1/admin/events/<event_id>` (future events only; admin only)
+- `GET /api/v1/admin/locations`
+- `POST /api/v1/admin/locations`
+- `PUT /api/v1/admin/locations/<location_id>`
+- `DELETE /api/v1/admin/locations/<location_id>`
 - `GET|PUT /api/v1/admin/events/<event_id>/lineup`
 - `POST|DELETE /api/v1/admin/events/<event_id>/lineup/lock`
 - `POST /api/v1/admin/events/<event_id>/performer-requests/<request_id>/availability-reminders`
@@ -61,6 +68,32 @@ Dashboard and domains:
 - `GET /api/v1/admin/profiles/submissions?status=pending`
 - `GET /api/v1/admin/profiles/submissions/<draft_id>`
 - `POST /api/v1/admin/profiles/submissions/<draft_id>/decisions`
+
+Lineup selection details:
+
+- `GET .../lineup` returns each current performer request with its request time,
+  availability-email time, current lineup status, and queue position.
+- `PUT .../lineup` accepts `requested`, `availability_confirmed`, `selected`,
+  `standby`, and `reserve` statuses. `requested` removes any lineup-selection
+  row; any other status records the request as availability-confirmed. Selected
+  status remains subject to the event's performance-slot limit.
+- The admin UI allows selected, standby, and reserve assignments even when the
+  performer has not used the emailed availability link. This records the
+  administrator's direct confirmation in `requested_dates`.
+- `POST .../performer-requests/<request_id>/availability-reminders` accepts an
+  optional JSON `message` and records `availability_email_sent_at`.
+- `POST .../performer-requests/<request_id>/lineup-status-notifications` accepts
+  `status` and an optional edited `message`. Standby messages include the
+  request's first-in-time queue position for that event.
+
+Profile moderation details:
+
+- `GET /api/v1/admin/profiles/submissions/<draft_id>` includes submitted social
+  links, requested-date IDs, and previous performance event titles.
+- The decision endpoint accepts `message`, `requested_date_ids`, and
+  `include_edit_link`. Unchecked requested dates are withdrawn before an
+  approval email is sent, and the edited message is used for approval or
+  denial notification.
 
 Staff APIs use the secure session established by `/admin/login/verify/`.
 Every state-changing request must also send the `emom_staff_csrf` cookie value

@@ -97,6 +97,60 @@
     return `${day}/${month} ${hours}:${minutes} (${elapsedHours} hours ago)`;
   }
 
+  function lineupStatusLabel(status) {
+    return {
+      requested: "Requested",
+      availability_confirmed: "Availability confirmed",
+      selected: "Selected",
+      standby: "Standby",
+      reserve: "Reserve",
+    }[status] || status;
+  }
+
+  function lineupEffectiveStatus(item) {
+    return item.selection_status || item.availability_status || "requested";
+  }
+
+  function lineupMessage(status, item, event) {
+    const greeting = `Hi ${item.first_name || item.display_name},\n\n`;
+    if (status === "requested") {
+      return `${greeting}You previously registered interest in playing at ${event.event_name} on ${event.event_date}.`;
+    }
+    if (status === "selected") {
+      return `${greeting}Yay! Your appearance at ${event.event_name} on ${event.event_date} has been confirmed.\nPlease see our FAQ for everything you need to know: https://sydney.emom.me/perform/faq\nAnd feel free to email us with any further questions: admin@sydney.emom.me`;
+    }
+    if (status === "standby") {
+      return `${greeting}You have not been selected to perform at ${event.event_name} on ${event.event_date}, but you are on standby. You are number ${item.queue_position} in the queue in case someone drops out.`;
+    }
+    return `${greeting}You have not been selected to perform at ${event.event_name} on ${event.event_date} because you have played recently, but we may still call on you if we need to make up numbers.`;
+  }
+
+  function editAndConfirmEmail(message, title = "Confirm email") {
+    return new Promise((resolve) => {
+      const dialog = document.createElement("dialog");
+      dialog.className = "admin-email-dialog";
+      dialog.innerHTML = `<form method="dialog">
+        <h2>${escapeHtml(title)}</h2>
+        <label>Message <textarea data-email-message rows="8"></textarea></label>
+        <div><button type="button" data-email-cancel>Cancel</button><button type="submit" data-email-confirm>Send email</button></div>
+      </form>`;
+      document.body.appendChild(dialog);
+      dialog.querySelector("[data-email-message]").value = message;
+      const finish = (value) => {
+        dialog.close();
+        dialog.remove();
+        resolve(value);
+      };
+      dialog.querySelector("[data-email-cancel]").addEventListener("click", () => finish(null));
+      dialog.querySelector("form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        finish(dialog.querySelector("[data-email-message]").value.trim());
+      });
+      dialog.addEventListener("cancel", () => finish(null), { once: true });
+      dialog.showModal();
+    });
+  }
+
   function socialLinkUrl(link) {
     const profileName = String(link.profile_name || "").trim();
     const urlFormat = String(link.url_format || "").trim();
@@ -460,28 +514,24 @@
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
         <div class="admin-table-wrap"><table data-sortable-table>
-          <thead><tr><th>Performer</th><th data-sortable="false">Info</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Played" data-sort-keys="requestCount,playedCount">Req / Played</th><th>Availability</th><th>Status</th><th data-sortable="false">Reminder</th></tr></thead>
+          <thead><tr><th>Performer</th><th data-sortable="false">Info</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Played" data-sort-keys="requestCount,playedCount">Req / Played</th><th>Status</th><th data-sortable="false">Action</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
             <tr>
               <td>${escapeHtml(item.display_name)}<br><small><a class="admin-email-link" href="mailto:${escapeHtml(item.email)}">${escapeHtml(item.email)}</a></small></td>
               <td>${renderInfoLinks(item)}</td>
               <td>${renderSocialLinks(item.social_links)}</td>
               <td data-request-count="${escapeHtml(item.request_count)}" data-played-count="${escapeHtml(item.played_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.played_count)}</td>
-              <td>${escapeHtml(item.availability_status)}</td>
-              <td>
+              <td data-status-cell>
                 ${item.availability_status === "availability_cancelled"
-                  ? ""
-                  : item.availability_status === "availability_confirmed" && item.is_profile_approved
-                  ? `<select name="status_${item.requested_date_id}">
-                      ${["standby", "selected", "reserve"].map((value) =>
-                        `<option value="${value}"${item.selection_status === value ? " selected" : ""}>${value}</option>`
-                      ).join("")}
-                    </select>`
-                  : item.availability_email_sent_at_epoch
-                  ? `<small>Availability confirmation sent ${escapeHtml(formatAvailabilityEmailSent(item.availability_email_sent_at_epoch))}</small>`
-                  : `<small>${lineupEligibilityMessage(item)}</small>`}
+                  ? "<small>Cancelled</small>"
+                  : `<select name="status_${item.requested_date_id}"${item.is_profile_approved ? "" : " disabled"}>
+                      ${["requested", "availability_confirmed", "selected", "standby", "reserve"].map((value) => {
+                        const current = lineupEffectiveStatus(item);
+                        return `<option value="${value}"${current === value ? " selected" : ""}>${lineupStatusLabel(value)}</option>`;
+                      }).join("")}
+                    </select>${item.is_profile_approved ? "" : "<small>Awaiting profile approval</small>"}`}
               </td>
-              <td><button type="button" data-reminder-id="${item.requested_date_id}" data-reminder-kind="${item.availability_status === "availability_cancelled" ? "remove" : item.availability_status === "availability_confirmed" && item.is_profile_approved ? "lineup-status" : "availability"}">${item.availability_status === "availability_cancelled" ? "Remove" : "Send"}</button></td>
+              <td data-action-cell></td>
             </tr>`).join("")}</tbody>
         </table></div>
         <button type="submit">Save lineup</button>
@@ -491,14 +541,38 @@
     setupSortableTable(node.querySelector("[data-sortable-table]"));
     setupInfoTooltips(node);
 
-    node.querySelectorAll("[data-reminder-id]").forEach((button) => {
-      button.addEventListener("click", async () => {
+    function updateAction(row, item) {
+      const actionCell = row.querySelector("[data-action-cell]");
+      if (item.availability_status === "availability_cancelled") {
+        actionCell.innerHTML = `<button type="button" data-action="remove">Remove</button>`;
+        return;
+      }
+      const select = row.querySelector("select");
+      const status = select?.value || lineupEffectiveStatus(item);
+      if (!item.is_profile_approved || status === "availability_confirmed") {
+        actionCell.innerHTML = status === "availability_confirmed" ? "<small>N/A</small>" : "";
+        return;
+      }
+      const awaiting = status === "requested" && item.availability_email_sent_at_epoch;
+      const label = status === "requested"
+        ? `${awaiting ? "Resend" : "Send"} confirmation email${awaiting ? ` <small>(${escapeHtml(formatAvailabilityEmailSent(item.availability_email_sent_at_epoch))})</small>` : ""}`
+        : `Send ${status} message`;
+      actionCell.innerHTML = `<button type="button" data-action="send">${label}</button>`;
+    }
+
+    node.querySelectorAll("tbody tr").forEach((row, index) => {
+      const item = data.candidates[index];
+      updateAction(row, item);
+      row.querySelector("select")?.addEventListener("change", () => updateAction(row, item));
+      row.querySelector("[data-action-cell]")?.addEventListener("click", async (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
         button.disabled = true;
         try {
-          if (button.dataset.reminderKind === "remove") {
+          if (button.dataset.action === "remove") {
             try {
               const result = await api(
-                `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}`,
+                `/api/v1/admin/events/${eventId}/performer-requests/${item.requested_date_id}`,
                 { method: "DELETE" }
               );
               button.closest("tr")?.remove();
@@ -512,21 +586,24 @@
             }
             return;
           }
-          const path = button.dataset.reminderKind === "lineup-status"
-            ? `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/lineup-status-notifications`
-            : `/api/v1/admin/events/${eventId}/performer-requests/${button.dataset.reminderId}/availability-reminders`;
-          const body = button.dataset.reminderKind === "lineup-status"
-            ? { status: button.closest("tr")?.querySelector("select")?.value }
-            : undefined;
+          const status = row.querySelector("select")?.value;
+          const message = await editAndConfirmEmail(
+            lineupMessage(status, item, data.event),
+            `${lineupStatusLabel(status)} message for ${item.display_name}`,
+          );
+          if (message === null) return;
+          const isAvailability = status === "requested";
+          const path = isAvailability
+            ? `/api/v1/admin/events/${eventId}/performer-requests/${item.requested_date_id}/availability-reminders`
+            : `/api/v1/admin/events/${eventId}/performer-requests/${item.requested_date_id}/lineup-status-notifications`;
+          const body = isAvailability ? { message } : { status, message };
           const result = await api(path, {
             method: "POST",
-            ...(body ? { body: JSON.stringify(body) } : {}),
+            body: JSON.stringify(body),
           });
-          if (button.dataset.reminderKind === "availability" && result.availability_email_sent_at_epoch) {
-            const statusCell = button.closest("tr")?.children[3];
-            if (statusCell) {
-              statusCell.innerHTML = `<small>Availability confirmation sent ${escapeHtml(formatAvailabilityEmailSent(result.availability_email_sent_at_epoch))}</small>`;
-            }
+          if (isAvailability && result.availability_email_sent_at_epoch) {
+            item.availability_email_sent_at_epoch = result.availability_email_sent_at_epoch;
+            updateAction(row, item);
           }
           window.showToast?.(result.message, { kind: "success" });
         } catch (error) {
@@ -592,7 +669,7 @@
               window.showToast?.(`Confirmation sent to ${email}.`, { kind: "success" });
             });
             window.showToast?.(message, { kind: "success" });
-            confirmation.replaceWith(form);
+            window.location.assign("/admin/events/");
           } catch (error) {
             window.showToast?.(error.message, { kind: "error" });
             confirmButton.disabled = false;
@@ -669,6 +746,8 @@
     const draftId = Number(node.dataset.draftId);
     const data = await api(`/api/v1/admin/profiles/submissions/${draftId}`);
     const item = data.submission;
+    const approvalMessage = "Your performer profile has been approved, and your requested performance dates have been noted.";
+    const denialMessage = "Your performer profile submission was not approved at this stage.";
     node.innerHTML = `
       <h2>${escapeHtml(item.display_name)}</h2>
       <dl class="admin-details">
@@ -679,50 +758,53 @@
         <dt>Show Tribuo link</dt><dd>${item.show_tribuo_link ? "Yes" : "No"}</dd>
         <dt>Artist bio</dt><dd>${escapeHtml(item.artist_bio)}</dd>
         <dt>Additional info</dt><dd>${escapeHtml(item.additional_info)}</dd>
+        <dt>Social media</dt><dd>${renderSocialLinks(item.social_links)}</dd>
       </dl>
+      ${item.previous_performances?.length ? `<p><strong>Previously performed at:</strong> ${item.previous_performances.map(escapeHtml).join(", ")}</p>` : ""}
       ${item.requested_date_summary?.length ? `
         <h3>Requested dates</h3>
         <div class="admin-table-wrap">
           <table>
-            <thead><tr><th>Requested date</th><th>New Faces</th><th>Total requested</th></tr></thead>
+            <thead><tr><th>Include</th><th>Requested date</th><th>New Faces</th><th>Total requested</th></tr></thead>
             <tbody>${item.requested_date_summary.map((summary) => `
               <tr>
+                <td><input type="checkbox" name="requested_date_ids" value="${item.requested_events.find((event) => event.event_id === summary.event_id)?.requested_date_id || ""}" checked form="decision-form"></td>
                 <td>${escapeHtml(summary.event_date)}${summary.event_name ? ` — ${escapeHtml(summary.event_name)}` : ""}</td>
                 <td>${escapeHtml(summary.new_faces)}</td>
                 <td>${escapeHtml(summary.total_requested)}</td>
               </tr>`).join("")}</tbody>
           </table>
         </div>` : ""}
-      <form data-decision-form>
+      <form id="decision-form" data-decision-form>
         <label>Decision
           <select name="decision"><option value="approved">Approve</option><option value="denied">Deny</option></select>
         </label>
-        <label>Denial reason <textarea name="reason"></textarea></label>
+        <label>Include message <textarea name="message">${escapeHtml(approvalMessage)}</textarea></label>
         <label><input type="checkbox" name="include_edit_link" checked> Include a fresh edit link when denied</label>
         <button type="submit">Record decision</button>
-        <p role="status" data-decision-status></p>
       </form>`;
+    const decisionSelect = node.querySelector("select[name=decision]");
+    const messageField = node.querySelector("textarea[name=message]");
+    decisionSelect.addEventListener("change", () => {
+      messageField.value = decisionSelect.value === "approved" ? approvalMessage : denialMessage;
+    });
     node.querySelector("[data-decision-form]")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const formElement = event.currentTarget;
       const form = new FormData(formElement);
-      const statusNode = node.querySelector("[data-decision-status]");
-      statusNode.textContent = "Saving decision…";
       try {
         const result = await api(`/api/v1/admin/profiles/submissions/${draftId}/decisions`, {
           method: "POST",
           body: JSON.stringify({
             decision: form.get("decision"),
-            reason: form.get("reason"),
+            message: form.get("message"),
+            requested_date_ids: form.getAll("requested_date_ids").map(Number),
             include_edit_link: form.get("include_edit_link") === "on",
           }),
         });
-        statusNode.textContent = `Submission ${result.decision}.`;
-        formElement.querySelectorAll("button, input, select, textarea").forEach((field) => {
-          field.disabled = true;
-        });
+        window.showToast?.(`Submission ${result.decision}.`, { kind: "success" });
+        window.location.assign("/admin/profiles");
       } catch (error) {
-        statusNode.textContent = "";
         window.showToast?.(error.message, { kind: "error" });
       }
     });
