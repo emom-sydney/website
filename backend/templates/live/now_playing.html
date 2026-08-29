@@ -62,6 +62,10 @@
             gap: 24px
         }
 
+        .panel-header[hidden] {
+            display: none
+        }
+
         .heading {
             min-width: 0
         }
@@ -280,6 +284,7 @@
         var currentName = document.querySelector('#current-name');
         var current = document.querySelector('#current');
         var bannerScreen = document.querySelector('#banner-screen');
+        var panelHeader = document.querySelector('.panel-header');
         var bannerLogo = document.querySelector('#banner-logo');
         var bannerText = document.querySelector('#banner-text');
         var bannerQr = document.querySelector('#banner-qr');
@@ -332,6 +337,7 @@
             bannerScreen.hidden = screen !== 'banner';
             current.hidden = screen !== 'performer';
             jukeboxScreen.hidden = screen !== 'jukebox';
+            panelHeader.hidden = screen === 'banner';
         }
 
         function updateBanner(config) {
@@ -364,12 +370,8 @@
 
         function showIdle(now) {
             if (!inactiveSince) inactiveSince = now;
-            if (bannerScreen.hidden) {
-                currentName.textContent = emptyLabel;
-                currentName.className = 'current-name empty';
-                setScreen('performer');
-            }
-            if (now - inactiveSince >= bannerConfig.display_delay_secs * 1000) showBanner(now);
+            if (bannerScreen.hidden) showBanner(now);
+            else setScreen('banner');
         }
 
         function isPlaying(payload) {
