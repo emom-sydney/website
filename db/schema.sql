@@ -357,6 +357,13 @@ VALUES
   ('lineup_selection_lead_days', '7'::jsonb),
   ('action_token_ttl_hours', '24'::jsonb),
   ('qr_tracking_retention_days', '90'::jsonb),
+  ('now_playing_banner_text', '"Welcome to EMOM Sydney/Eora"'::jsonb),
+  ('now_playing_banner_logo_url', '"/assets/img/site_logo.png"'::jsonb),
+  ('global_site_logo_url', '"/assets/img/site_logo.png"'::jsonb),
+  ('now_playing_banner_display_time_secs', '30'::jsonb),
+  ('now_playing_banner_display_interval_secs', '300'::jsonb),
+  ('now_playing_banner_display_delay_secs', '60'::jsonb),
+  ('now_playing_jukebox_url', 'null'::jsonb),
   ('tribuo_base_url', '"https://example.com"'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 

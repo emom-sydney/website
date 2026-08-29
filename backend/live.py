@@ -1,4 +1,6 @@
 import json
+import base64
+import os
 
 from flask import Response, g, jsonify, render_template, request
 
@@ -8,6 +10,87 @@ import backend.performer_workflow as workflow
 
 
 SETTING_KEY = "live_now_playing"
+DEFAULT_BANNER_TEXT = "Welcome to EMOM Sydney/Eora"
+DEFAULT_BANNER_DISPLAY_TIME_SECS = 30
+DEFAULT_BANNER_DISPLAY_INTERVAL_SECS = 300
+DEFAULT_BANNER_DISPLAY_DELAY_SECS = 60
+
+
+def _read_json_setting(value, default=None):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return value
+    return value if value is not None else default
+
+
+def _positive_integer(value, default):
+    value = _read_json_setting(value)
+    if isinstance(value, bool):
+        return default
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _optional_url(value):
+    value = _read_json_setting(value, "")
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def _website_qr_data_url():
+    """Return a self-contained QR image for the public website URL."""
+    from backend.profile_qr import make_qr_svg
+
+    site_url = (os.getenv("PUBLIC_SITE_BASE_URL") or "https://sydney.emom.me").strip().rstrip("/")
+    encoded = base64.b64encode(make_qr_svg(site_url)).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def _banner_settings(cursor):
+    keys = (
+        "now_playing_banner_text",
+        "now_playing_banner_logo_url",
+        "global_site_logo_url",
+        "now_playing_banner_display_time_secs",
+        "now_playing_banner_display_interval_secs",
+        "now_playing_banner_display_delay_secs",
+        "now_playing_jukebox_url",
+    )
+    cursor.execute(
+        "SELECT key, value_json FROM app_settings WHERE key = ANY(%s)",
+        (list(keys),),
+    )
+    values = {row[0]: row[1] for row in cursor.fetchall()}
+    banner_logo_url = _optional_url(values.get("now_playing_banner_logo_url"))
+    if not banner_logo_url:
+        banner_logo_url = _optional_url(values.get("global_site_logo_url"))
+    banner_text = _read_json_setting(values.get("now_playing_banner_text"), DEFAULT_BANNER_TEXT)
+    if not isinstance(banner_text, str):
+        banner_text = DEFAULT_BANNER_TEXT
+    return {
+        "text": banner_text,
+        "logo_url": banner_logo_url or None,
+        "qr_url": _website_qr_data_url(),
+        "display_time_secs": _positive_integer(
+            values.get("now_playing_banner_display_time_secs"),
+            DEFAULT_BANNER_DISPLAY_TIME_SECS,
+        ),
+        "display_interval_secs": _positive_integer(
+            values.get("now_playing_banner_display_interval_secs"),
+            DEFAULT_BANNER_DISPLAY_INTERVAL_SECS,
+        ),
+        "display_delay_secs": _positive_integer(
+            values.get("now_playing_banner_display_delay_secs"),
+            DEFAULT_BANNER_DISPLAY_DELAY_SECS,
+        ),
+        "jukebox_url": _optional_url(values.get("now_playing_jukebox_url")) or None,
+    }
 
 
 def _state(cursor):
@@ -80,6 +163,7 @@ def _now_playing_context(cursor):
         "event": event,
         "performers": performers,
         "artist_qr_url": qr_url,
+        "banner": _banner_settings(cursor),
     }
 
 

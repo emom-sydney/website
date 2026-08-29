@@ -8,6 +8,7 @@ from datetime import timedelta
 import pytest
 
 import backend.admin as admin
+import backend.live as live
 import backend.performer_workflow as workflow
 import backend.profile_qr as profile_qr
 from backend.app import create_app
@@ -267,6 +268,62 @@ def test_purge_qr_events_uses_retention_setting(monkeypatch):
     assert profile_qr.purge_expired_qr_events() == {"retention_days": 45, "deleted_count": 4}
     assert connection.cursor_instance.calls[1][1] == (45,)
     assert "DELETE FROM profile_qr_events" in connection.cursor_instance.calls[1][0]
+
+
+class BannerSettingsCursor:
+    def __init__(self, values):
+        self.values = values
+        self.params = None
+
+    def execute(self, _query, params):
+        self.params = params
+
+    def fetchall(self):
+        return list(self.values.items())
+
+
+def test_banner_settings_use_specific_logo_before_global_logo(monkeypatch):
+    monkeypatch.setattr(live, "_website_qr_data_url", lambda: "data:image/svg+xml;base64,qr")
+    settings = BannerSettingsCursor({
+        "now_playing_banner_logo_url": "https://example.test/banner.svg",
+        "global_site_logo_url": "/assets/img/site_logo.png",
+    })
+
+    result = live._banner_settings(settings)
+
+    assert result["logo_url"] == "https://example.test/banner.svg"
+    assert result["qr_url"] == "data:image/svg+xml;base64,qr"
+
+
+def test_banner_settings_fall_back_to_global_logo_and_defaults(monkeypatch):
+    monkeypatch.setattr(live, "_website_qr_data_url", lambda: "qr")
+    settings = BannerSettingsCursor({
+        "now_playing_banner_logo_url": " ",
+        "global_site_logo_url": "/assets/img/site_logo.png",
+        "now_playing_banner_display_time_secs": "invalid",
+        "now_playing_banner_display_interval_secs": -1,
+        "now_playing_banner_display_delay": True,
+    })
+
+    result = live._banner_settings(settings)
+
+    assert result["logo_url"] == "/assets/img/site_logo.png"
+    assert result["display_time_secs"] == 30
+    assert result["display_interval_secs"] == 300
+    assert result["display_delay_secs"] == 60
+
+
+def test_banner_settings_accept_fully_qualified_and_relative_urls(monkeypatch):
+    monkeypatch.setattr(live, "_website_qr_data_url", lambda: "qr")
+    settings = BannerSettingsCursor({
+        "now_playing_banner_logo_url": "/custom/banner.svg",
+        "now_playing_jukebox_url": "http://jukebox.local:8080/status",
+    })
+
+    result = live._banner_settings(settings)
+
+    assert result["logo_url"] == "/custom/banner.svg"
+    assert result["jukebox_url"] == "http://jukebox.local:8080/status"
 
 
 def test_admin_browser_page_redirects_to_login(client):
