@@ -1,5 +1,3 @@
-import hashlib
-import html
 import json
 import os
 import re
@@ -10,13 +8,14 @@ from urllib.parse import quote
 from flask import jsonify, request
 from psycopg.errors import UniqueViolation
 
-from backend.db import connect
+from backend.lib.db import connect
 from backend.keila_workflow import (
     is_contact_active_in_keila_project,
     subscribe_contact_in_keila_project,
     unsubscribe_contact_from_keila_project,
 )
 from backend.mailer import send_mail
+from backend.lib.common import now_utc, hash_token, normalize_text, normalize_email
 
 ACTION_TYPE_REGISTRATION_LINK = "profile_submission_access"
 ACTION_TYPE_STAFF_LOGIN = "staff_login"
@@ -898,20 +897,6 @@ def resolve_lineup_selection_event_context(cursor, *, token_row, requested_event
     return selected_event_id, available_events
 
 
-def normalize_text(value):
-    if value is None:
-        return None
-
-    text = str(value).strip()
-    return text or None
-
-
-def normalize_email(value):
-    email = normalize_text(value)
-    if not email or "@" not in email or "." not in email:
-        return None
-    return email.lower()
-
 
 def normalize_boolean(value, *, default=False):
     if value is None:
@@ -1050,10 +1035,6 @@ def get_alumni_subscription_state(app, email):
         return False
 
 
-def now_utc():
-    return datetime.now(timezone.utc)
-
-
 def format_link_expiry_local(expires_at):
     if not expires_at:
         return ""
@@ -1087,9 +1068,6 @@ def get_workflow_settings(cursor):
         settings[key] = int(value)
     return settings
 
-
-def hash_token(raw_token):
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
 def generate_token_pair():

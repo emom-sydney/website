@@ -40,7 +40,7 @@ Postgres connections come through a local SSH tunnel. You can use the npm `pg` p
 Write-side form and workflow actions go through:
 
 - `backend/app.py`
-- `backend/db.py`
+- `backend/lib/db.py`
 - `backend/performer_workflow.py`
 
 ## Current Schema
@@ -229,7 +229,7 @@ and tokenized email workflows.
 Primary files:
 
 - `backend/app.py`
-- `backend/db.py`
+- `backend/lib/db.py`
 - `backend/performer_workflow.py`
 - `backend/keila_workflow.py`
 - `backend/contact_us_workflow.py`

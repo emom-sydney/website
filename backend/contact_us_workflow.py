@@ -2,9 +2,8 @@ import re
 
 from flask import jsonify, request
 
-from backend.mailer import get_from_address, send_mail
-
-EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+from backend.lib.common import normalize_text, normalize_email
+from backend.mailer import send_mail
 
 
 def register_contact_us_workflow_routes(app):
@@ -46,24 +45,6 @@ def get_json_payload():
         raise ValueError("Invalid JSON payload.")
 
     return payload
-
-
-def normalize_text(value):
-    if value is None:
-        return None
-
-    text = str(value).strip()
-    return text or None
-
-
-def normalize_email(value):
-    email = normalize_text(value)
-    if not email:
-        return None
-    email = email.lower()
-    if not EMAIL_PATTERN.match(email):
-        return None
-    return email
 
 
 def get_contact_to_address():
