@@ -529,7 +529,12 @@ def register_performer_workflow_routes(app):
                         item["requested_date_id"]
                         for item in candidates
                         if candidate_statuses.get(item["requested_date_id"]) == LINEUP_STATUS_SELECTED
-                        if item.get("selection_status") != LINEUP_STATUS_SELECTED
+                        if not lineup_status_notification_sent(
+                            cursor,
+                            event_id=event_id,
+                            candidate=item,
+                            status=LINEUP_STATUS_SELECTED,
+                        )
                     ]
                     save_lineup_selection(
                         cursor,
@@ -549,6 +554,7 @@ def register_performer_workflow_routes(app):
                     event,
                     candidates,
                     newly_selected_requested_date_ids,
+                    token_row["profile_id"],
                 )
 
             return_to_admin_url = (
@@ -2219,14 +2225,39 @@ def update_profile_visibility_from_requests(cursor, profile_id, requested_event_
         (first_requested_event_date, first_requested_event_date, profile_id),
     )
 
-def record_moderation_action(cursor, *, draft_id, moderator_profile_id, action, reason):
+def record_moderation_action(
+    cursor,
+    *,
+    draft_id,
+    moderator_profile_id,
+    action,
+    reason,
+    event_id=None,
+    requested_date_id=None,
+    notification_sent=False,
+):
     moderation_action = "approved" if action == WORKFLOW_STATUS_APPROVED else "denied"
+    if action in LINEUP_SELECTION_ALLOWED_STATUSES:
+        moderation_action = action
+        if event_id is None or requested_date_id is None:
+            raise ValueError("Lineup moderation actions require event and request context.")
     cursor.execute(
         """
-        INSERT INTO moderation_actions (draft_id, moderator_profile_id, action, reason)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO moderation_actions
+          (draft_id, moderator_profile_id, action, reason, event_id, requested_date_id, notification_sent_at)
+        VALUES (%s, %s, %s, %s, %s, %s, CASE WHEN %s THEN now() ELSE NULL END)
+        ON CONFLICT (draft_id, event_id, requested_date_id, action)
+        WHERE action IN ('selected', 'standby', 'reserve')
+        DO UPDATE SET
+          moderator_profile_id = EXCLUDED.moderator_profile_id,
+          reason = EXCLUDED.reason,
+          notification_sent_at = CASE
+            WHEN EXCLUDED.notification_sent_at IS NOT NULL THEN EXCLUDED.notification_sent_at
+            ELSE moderation_actions.notification_sent_at
+          END,
+          acted_at = now()
         """,
-        (draft_id, moderator_profile_id, moderation_action, reason),
+        (draft_id, moderator_profile_id, moderation_action, reason, event_id, requested_date_id, notification_sent),
     )
 
 
@@ -3292,6 +3323,22 @@ def is_lineup_selection_candidate_eligible(candidate):
     )
 
 
+def lineup_status_notification_sent(cursor, *, event_id, candidate, status):
+    cursor.execute(
+        """
+        SELECT notification_sent_at IS NOT NULL
+        FROM moderation_actions
+        WHERE draft_id = %s
+          AND event_id = %s
+          AND requested_date_id = %s
+          AND action = %s
+        """,
+        (candidate["draft_id"], event_id, candidate["requested_date_id"], status),
+    )
+    row = cursor.fetchone()
+    return bool(row and row[0])
+
+
 def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, candidate_statuses, performance_slots):
     candidate_by_requested_date_id = {item["requested_date_id"]: item for item in candidates}
     invalid_ids = [item for item in candidate_statuses if item not in candidate_by_requested_date_id]
@@ -3368,6 +3415,15 @@ def save_lineup_selection(cursor, *, event_id, admin_profile_id, candidates, can
                 status,
                 admin_profile_id,
             ),
+        )
+        record_moderation_action(
+            cursor,
+            draft_id=item["draft_id"],
+            moderator_profile_id=admin_profile_id,
+            action=status,
+            reason="Lineup status assigned",
+            event_id=event_id,
+            requested_date_id=item["requested_date_id"],
         )
         if status == LINEUP_STATUS_SELECTED:
             cursor.execute(
@@ -3501,6 +3557,7 @@ def get_backup_candidates(cursor, event_id):
         SELECT
           rd.id,
           p.id,
+          d.id,
           d.display_name,
           d.email,
           d.contact_phone,
@@ -3522,10 +3579,11 @@ def get_backup_candidates(cursor, event_id):
         {
             "requested_date_id": row[0],
             "profile_id": row[1],
-            "display_name": row[2],
-            "email": row[3],
-            "contact_phone": row[4],
-            "selection_status": row[5],
+            "draft_id": row[2],
+            "display_name": row[3],
+            "email": row[4],
+            "contact_phone": row[5],
+            "selection_status": row[6],
         }
         for row in cursor.fetchall()
     ]
@@ -3570,6 +3628,15 @@ def promote_backup_selection(cursor, *, event_id, requested_date_id, admin_profi
         WHERE id = %s
         """,
         (admin_profile_id, requested_date_id),
+    )
+    record_moderation_action(
+        cursor,
+        draft_id=backup["draft_id"],
+        moderator_profile_id=admin_profile_id,
+        action=LINEUP_STATUS_SELECTED,
+        reason="Standby/reserve performer promoted",
+        event_id=event_id,
+        requested_date_id=requested_date_id,
     )
 
     return {
@@ -3982,11 +4049,23 @@ def send_lineup_selection_access_email(*, admin_email, selection_url, expires_at
     send_mail(admin_email, "sydney.emom | admin lineup selection link", body)
 
 
-def send_selected_performer_emails(event, candidates, selected_requested_date_ids):
+def send_selected_performer_emails(event, candidates, selected_requested_date_ids, moderator_profile_id):
     selected_set = set(selected_requested_date_ids)
     for item in candidates:
         if item["requested_date_id"] in selected_set:
             send_selected_performer_email(event, item)
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    record_moderation_action(
+                        cursor,
+                        draft_id=item["draft_id"],
+                        moderator_profile_id=moderator_profile_id,
+                        action=LINEUP_STATUS_SELECTED,
+                        reason="Automatic lineup notification",
+                        event_id=event["event_id"],
+                        requested_date_id=item["requested_date_id"],
+                        notification_sent=True,
+                    )
 
 
 def send_selected_performer_email(event, candidate):

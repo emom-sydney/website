@@ -859,7 +859,12 @@ def register_admin_api_routes(app):
                         item["requested_date_id"]
                         for item in candidates
                         if parsed_statuses.get(item["requested_date_id"]) == workflow.LINEUP_STATUS_SELECTED
-                        and item.get("selection_status") != workflow.LINEUP_STATUS_SELECTED
+                        and not workflow.lineup_status_notification_sent(
+                            cursor,
+                            event_id=event_id,
+                            candidate=item,
+                            status=workflow.LINEUP_STATUS_SELECTED,
+                        )
                     ]
                     workflow.save_lineup_selection(
                         cursor,
@@ -887,6 +892,18 @@ def register_admin_api_routes(app):
                             continue
                         try:
                             workflow.send_selected_performer_email(event, candidate)
+                            with connect() as notification_connection:
+                                with notification_connection.cursor() as notification_cursor:
+                                    workflow.record_moderation_action(
+                                        notification_cursor,
+                                        draft_id=candidate["draft_id"],
+                                        moderator_profile_id=g.staff["profile_id"],
+                                        action=workflow.LINEUP_STATUS_SELECTED,
+                                        reason="Automatic lineup notification",
+                                        event_id=event_id,
+                                        requested_date_id=candidate["requested_date_id"],
+                                        notification_sent=True,
+                                    )
                         except Exception:
                             app.logger.exception("Selected performer notification failed")
                             yield json.dumps({"type": "error", "email": candidate["email"]}) + "\n"
@@ -900,7 +917,7 @@ def register_admin_api_routes(app):
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
                 )
 
-            workflow.send_selected_performer_emails(event, candidates, newly_selected)
+            workflow.send_selected_performer_emails(event, candidates, newly_selected, g.staff["profile_id"])
             return api_data({"message": "Lineup saved."})
         except (TypeError, ValueError) as exc:
             return api_error("invalid_lineup", str(exc))
@@ -930,13 +947,15 @@ def register_admin_api_routes(app):
         with connect() as connection:
             with connection.cursor() as cursor:
                 candidates = workflow.get_lineup_selection_candidates(cursor, event_id)
-        recipients = [
-            {"display_name": item["display_name"], "email": item["email"]}
-            for item in candidates
-            if parsed_statuses.get(item["requested_date_id"]) == workflow.LINEUP_STATUS_SELECTED
-            and workflow.is_lineup_selection_candidate_eligible(item)
-            and item.get("selection_status") != workflow.LINEUP_STATUS_SELECTED
-        ]
+                recipients = [
+                    {"display_name": item["display_name"], "email": item["email"]}
+                    for item in candidates
+                    if parsed_statuses.get(item["requested_date_id"]) == workflow.LINEUP_STATUS_SELECTED
+                    and workflow.is_lineup_selection_candidate_eligible(item)
+                    and not workflow.lineup_status_notification_sent(
+                        cursor, event_id=event_id, candidate=item, status=workflow.LINEUP_STATUS_SELECTED
+                    )
+                ]
         unselected_emails = [
             item["email"]
             for item in candidates
@@ -1031,6 +1050,16 @@ def register_admin_api_routes(app):
                         candidate,
                         status=status,
                         message=message,
+                    )
+                    workflow.record_moderation_action(
+                        cursor,
+                        draft_id=candidate["draft_id"],
+                        moderator_profile_id=g.staff["profile_id"],
+                        action=status,
+                        reason="Manual lineup status notification",
+                        event_id=event_id,
+                        requested_date_id=requested_date_id,
+                        notification_sent=True,
                     )
             return api_data({"message": f"Lineup status sent to {sent['display_name']}."}, 201)
         except ValueError as exc:
