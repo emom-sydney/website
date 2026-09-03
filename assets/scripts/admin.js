@@ -284,8 +284,10 @@
       const rows = Array.from(body.rows);
       rows.sort((left, right) => {
         const sortKey = button.dataset.sortKey;
-        const leftText = sortKey ? left.cells[columnIndex]?.dataset[sortKey] || "" : left.cells[columnIndex]?.textContent.trim() || "";
-        const rightText = sortKey ? right.cells[columnIndex]?.dataset[sortKey] || "" : right.cells[columnIndex]?.textContent.trim() || "";
+        const leftCell = left.cells[columnIndex];
+        const rightCell = right.cells[columnIndex];
+        const leftText = sortKey ? leftCell?.dataset[sortKey] || "" : leftCell?.dataset.sortValue || leftCell?.textContent.trim() || "";
+        const rightText = sortKey ? rightCell?.dataset[sortKey] || "" : rightCell?.dataset.sortValue || rightCell?.textContent.trim() || "";
         const result = leftText.localeCompare(rightText, undefined, { numeric: true, sensitivity: "base" });
         return descending ? -result : result;
       });
@@ -521,7 +523,7 @@
               <td>${renderInfoLinks(item)}</td>
               <td>${renderSocialLinks(item.social_links)}</td>
               <td data-request-count="${escapeHtml(item.request_count)}" data-played-count="${escapeHtml(item.played_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.played_count)}</td>
-              <td data-status-cell>
+              <td data-status-cell data-sort-value="${escapeHtml(item.availability_status === "availability_cancelled" ? "cancelled" : lineupEffectiveStatus(item))}">
                 ${item.availability_status === "availability_cancelled"
                   ? "<small>Cancelled</small>"
                   : `<select name="status_${item.requested_date_id}"${item.is_profile_approved ? "" : " disabled"}>
