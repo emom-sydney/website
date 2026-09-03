@@ -874,6 +874,9 @@ def register_admin_api_routes(app):
                         event_id=event_id,
                         profile_id=g.staff["profile_id"],
                     )
+            if payload.get("notify", True) is False:
+                return api_data({"message": "Lineup saved without notifying performers."})
+
             if payload.get("progress") is True:
                 selected_request_ids = set(newly_selected)
 

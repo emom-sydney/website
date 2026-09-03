@@ -114,7 +114,7 @@
   function lineupMessage(status, item, event) {
     const greeting = `Hi ${item.first_name || item.display_name},\n\n`;
     if (status === "requested") {
-      return `${greeting}You previously registered interest in playing at ${event.event_name} on ${event.event_date}.`;
+      return `${greeting}This is an automated message. You previously registered interest in playing at ${event.event_name} on ${event.event_date}, and we're just checking in that you're still available before we make a final lineup selection later this week. Thanks!`;
     }
     if (status === "selected") {
       return `${greeting}Yay! Your appearance at ${event.event_name} on ${event.event_date} has been confirmed.\nPlease see our FAQ for everything you need to know: https://sydney.emom.me/perform/faq\nAnd feel free to email us with any further questions: admin@sydney.emom.me`;
@@ -534,7 +534,7 @@
               <td data-action-cell></td>
             </tr>`).join("")}</tbody>
         </table></div>
-        <button type="submit">Save lineup</button>
+        <button type="submit">Continue</button>
         <p role="status" data-lineup-status></p>
       </form>`;
 
@@ -652,13 +652,31 @@
           <p>The following performers will be notified:</p>
           ${preview.recipients.length ? `<ul>${preview.recipients.map((item) => `<li>${escapeHtml(item.display_name)} — ${escapeHtml(item.email)}</li>`).join("")}</ul>` : "<p>No new selection notifications will be sent.</p>"}
           <p><strong>Not selected:</strong> ${preview.unselected_emails.length ? escapeHtml(preview.unselected_emails.join(", ")) : "None"}</p>
-          <button type="button" data-confirm-lineup>Continue</button>
-          <button type="button" data-cancel-lineup>Cancel</button>
+          <button type="button" data-confirm-lineup>Save</button>
+          <button type="button" data-save-lineup-without-notifying>Save but don't notify</button>
+          <button type="button" data-cancel-lineup>Go back</button>
           <button type="button" data-exit-lineup>Exit without saving</button>`;
         form.replaceWith(confirmation);
         confirmation.querySelector("[data-cancel-lineup]").addEventListener("click", () => confirmation.replaceWith(form));
         confirmation.querySelector("[data-exit-lineup]").addEventListener("click", () => {
           window.location.assign("/admin/events/");
+        });
+        confirmation.querySelector("[data-save-lineup-without-notifying]").addEventListener("click", async () => {
+          const saveButton = confirmation.querySelector("[data-save-lineup-without-notifying]");
+          saveButton.disabled = true;
+          saveButton.textContent = "Saving lineup…";
+          try {
+            const result = await api(`/api/v1/admin/events/${eventId}/lineup`, {
+              method: "PUT",
+              body: JSON.stringify({ statuses, notify: false }),
+            });
+            window.showToast?.(result.message, { kind: "success" });
+            window.location.assign("/admin/events/");
+          } catch (error) {
+            window.showToast?.(error.message, { kind: "error" });
+            saveButton.disabled = false;
+            saveButton.textContent = "Save but don't notify";
+          }
         });
         confirmation.querySelector("[data-confirm-lineup]").addEventListener("click", async () => {
           const confirmButton = confirmation.querySelector("[data-confirm-lineup]");
