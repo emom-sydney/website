@@ -565,7 +565,10 @@
     node.querySelectorAll("tbody tr").forEach((row, index) => {
       const item = data.candidates[index];
       updateAction(row, item);
-      row.querySelector("select")?.addEventListener("change", () => updateAction(row, item));
+      row.querySelector("select")?.addEventListener("change", (event) => {
+        row.querySelector("[data-status-cell]").dataset.sortValue = event.currentTarget.value;
+        updateAction(row, item);
+      });
       row.querySelector("[data-action-cell]")?.addEventListener("click", async (event) => {
         const button = event.target.closest("button");
         if (!button) return;
