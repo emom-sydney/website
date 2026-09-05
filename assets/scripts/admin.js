@@ -510,9 +510,16 @@
     }
     await api(`/api/v1/admin/events/${eventId}/lineup/lock`, { method: "POST" });
     const data = await api(`/api/v1/admin/events/${eventId}/lineup`);
+    const newFaceCount = data.candidates.filter((item) => Number(item.played_count) === 0).length;
+    const frequentNewFaceCount = data.candidates.filter(
+      (item) => Number(item.played_count) === 0 && Number(item.request_count) >= 3,
+    ).length;
+    const frequentNewFaceNote = frequentNewFaceCount > 0
+      ? ` ${frequentNewFaceCount} of those have requested to play more than twice already.`
+      : "";
     node.innerHTML = `
       <h2>${escapeHtml(data.event.event_name)} — ${escapeHtml(data.event.event_date)}</h2>
-      <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date.</p>
+      <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date, ${newFaceCount} of whom haven't played before.${frequentNewFaceNote}</p>
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
         <div class="admin-table-wrap"><table data-sortable-table>
@@ -565,7 +572,10 @@
     node.querySelectorAll("tbody tr").forEach((row, index) => {
       const item = data.candidates[index];
       updateAction(row, item);
-      row.querySelector("select")?.addEventListener("change", () => updateAction(row, item));
+      row.querySelector("select")?.addEventListener("change", (event) => {
+        row.querySelector("[data-status-cell]").dataset.sortValue = event.currentTarget.value;
+        updateAction(row, item);
+      });
       row.querySelector("[data-action-cell]")?.addEventListener("click", async (event) => {
         const button = event.target.closest("button");
         if (!button) return;
