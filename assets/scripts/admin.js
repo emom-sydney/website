@@ -114,7 +114,7 @@
   function lineupMessage(status, item, event) {
     const greeting = `Hi ${item.first_name || item.display_name},\n\n`;
     if (status === "requested") {
-      return `${greeting}You previously registered interest in playing at ${event.event_name} on ${event.event_date}.`;
+      return `${greeting}This is an automated message. You previously registered interest in playing at ${event.event_name} on ${event.event_date}, and we're just checking in that you're still available before we make a final lineup selection later this week. Thanks!`;
     }
     if (status === "selected") {
       return `${greeting}Yay! Your appearance at ${event.event_name} on ${event.event_date} has been confirmed.\nPlease see our FAQ for everything you need to know: https://sydney.emom.me/perform/faq\nAnd feel free to email us with any further questions: admin@sydney.emom.me`;
@@ -284,8 +284,10 @@
       const rows = Array.from(body.rows);
       rows.sort((left, right) => {
         const sortKey = button.dataset.sortKey;
-        const leftText = sortKey ? left.cells[columnIndex]?.dataset[sortKey] || "" : left.cells[columnIndex]?.textContent.trim() || "";
-        const rightText = sortKey ? right.cells[columnIndex]?.dataset[sortKey] || "" : right.cells[columnIndex]?.textContent.trim() || "";
+        const leftCell = left.cells[columnIndex];
+        const rightCell = right.cells[columnIndex];
+        const leftText = sortKey ? leftCell?.dataset[sortKey] || "" : leftCell?.dataset.sortValue || leftCell?.textContent.trim() || "";
+        const rightText = sortKey ? rightCell?.dataset[sortKey] || "" : rightCell?.dataset.sortValue || rightCell?.textContent.trim() || "";
         const result = leftText.localeCompare(rightText, undefined, { numeric: true, sensitivity: "base" });
         return descending ? -result : result;
       });
@@ -508,9 +510,16 @@
     }
     await api(`/api/v1/admin/events/${eventId}/lineup/lock`, { method: "POST" });
     const data = await api(`/api/v1/admin/events/${eventId}/lineup`);
+    const newFaceCount = data.candidates.filter((item) => Number(item.played_count) === 0).length;
+    const frequentNewFaceCount = data.candidates.filter(
+      (item) => Number(item.played_count) === 0 && Number(item.request_count) >= 3,
+    ).length;
+    const frequentNewFaceNote = frequentNewFaceCount > 0
+      ? ` ${frequentNewFaceCount} of those have requested to play more than twice already.`
+      : "";
     node.innerHTML = `
       <h2>${escapeHtml(data.event.event_name)} — ${escapeHtml(data.event.event_date)}</h2>
-      <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date.</p>
+      <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date, ${newFaceCount} of whom haven't played before.${frequentNewFaceNote}</p>
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
         <div class="admin-table-wrap"><table data-sortable-table>
@@ -521,7 +530,7 @@
               <td>${renderInfoLinks(item)}</td>
               <td>${renderSocialLinks(item.social_links)}</td>
               <td data-request-count="${escapeHtml(item.request_count)}" data-played-count="${escapeHtml(item.played_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.played_count)}</td>
-              <td data-status-cell>
+              <td data-status-cell data-sort-value="${escapeHtml(item.availability_status === "availability_cancelled" ? "cancelled" : lineupEffectiveStatus(item))}">
                 ${item.availability_status === "availability_cancelled"
                   ? "<small>Cancelled</small>"
                   : `<select name="status_${item.requested_date_id}"${item.is_profile_approved ? "" : " disabled"}>
@@ -534,7 +543,7 @@
               <td data-action-cell></td>
             </tr>`).join("")}</tbody>
         </table></div>
-        <button type="submit">Save lineup</button>
+        <button type="submit">Continue</button>
         <p role="status" data-lineup-status></p>
       </form>`;
 
@@ -563,7 +572,10 @@
     node.querySelectorAll("tbody tr").forEach((row, index) => {
       const item = data.candidates[index];
       updateAction(row, item);
-      row.querySelector("select")?.addEventListener("change", () => updateAction(row, item));
+      row.querySelector("select")?.addEventListener("change", (event) => {
+        row.querySelector("[data-status-cell]").dataset.sortValue = event.currentTarget.value;
+        updateAction(row, item);
+      });
       row.querySelector("[data-action-cell]")?.addEventListener("click", async (event) => {
         const button = event.target.closest("button");
         if (!button) return;
@@ -652,13 +664,31 @@
           <p>The following performers will be notified:</p>
           ${preview.recipients.length ? `<ul>${preview.recipients.map((item) => `<li>${escapeHtml(item.display_name)} — ${escapeHtml(item.email)}</li>`).join("")}</ul>` : "<p>No new selection notifications will be sent.</p>"}
           <p><strong>Not selected:</strong> ${preview.unselected_emails.length ? escapeHtml(preview.unselected_emails.join(", ")) : "None"}</p>
-          <button type="button" data-confirm-lineup>Continue</button>
-          <button type="button" data-cancel-lineup>Cancel</button>
+          <button type="button" data-confirm-lineup>Save</button>
+          <button type="button" data-save-lineup-without-notifying>Save but don't notify</button>
+          <button type="button" data-cancel-lineup>Go back</button>
           <button type="button" data-exit-lineup>Exit without saving</button>`;
         form.replaceWith(confirmation);
         confirmation.querySelector("[data-cancel-lineup]").addEventListener("click", () => confirmation.replaceWith(form));
         confirmation.querySelector("[data-exit-lineup]").addEventListener("click", () => {
           window.location.assign("/admin/events/");
+        });
+        confirmation.querySelector("[data-save-lineup-without-notifying]").addEventListener("click", async () => {
+          const saveButton = confirmation.querySelector("[data-save-lineup-without-notifying]");
+          saveButton.disabled = true;
+          saveButton.textContent = "Saving lineup…";
+          try {
+            const result = await api(`/api/v1/admin/events/${eventId}/lineup`, {
+              method: "PUT",
+              body: JSON.stringify({ statuses, notify: false }),
+            });
+            window.showToast?.(result.message, { kind: "success" });
+            window.location.assign("/admin/events/");
+          } catch (error) {
+            window.showToast?.(error.message, { kind: "error" });
+            saveButton.disabled = false;
+            saveButton.textContent = "Save but don't notify";
+          }
         });
         confirmation.querySelector("[data-confirm-lineup]").addEventListener("click", async () => {
           const confirmButton = confirmation.querySelector("[data-confirm-lineup]");

@@ -155,10 +155,17 @@ CREATE TABLE IF NOT EXISTS moderation_actions (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   draft_id bigint NOT NULL REFERENCES profile_submission_drafts(id) ON DELETE CASCADE,
   moderator_profile_id integer NOT NULL REFERENCES profiles(id),
-  action text NOT NULL CHECK (action IN ('approved', 'denied')),
+  action text NOT NULL CHECK (action IN ('approved', 'denied', 'selected', 'standby', 'reserve')),
   reason text,
+  event_id integer REFERENCES events(id) ON DELETE CASCADE,
+  requested_date_id bigint REFERENCES requested_dates(id) ON DELETE CASCADE,
+  notification_sent_at timestamptz,
   acted_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_moderation_actions_lineup_status
+  ON moderation_actions (draft_id, event_id, requested_date_id, action)
+  WHERE action IN ('selected', 'standby', 'reserve');
 
 CREATE TABLE IF NOT EXISTS event_performer_selections (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
