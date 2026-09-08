@@ -104,6 +104,8 @@
       selected: "Selected",
       standby: "Standby",
       reserve: "Reserve",
+      cancelled: "Cancelled",
+      declined: "Declined",
     }[status] || status;
   }
 
@@ -534,7 +536,7 @@
                 ${item.availability_status === "availability_cancelled"
                   ? "<small>Cancelled</small>"
                   : `<select name="status_${item.requested_date_id}"${item.is_profile_approved ? "" : " disabled"}>
-                      ${["requested", "availability_confirmed", "selected", "standby", "reserve"].map((value) => {
+                      ${["requested", "availability_confirmed", "selected", "standby", "reserve", "cancelled", "declined"].map((value) => {
                         const current = lineupEffectiveStatus(item);
                         return `<option value="${value}"${current === value ? " selected" : ""}>${lineupStatusLabel(value)}</option>`;
                       }).join("")}
@@ -558,6 +560,10 @@
       }
       const select = row.querySelector("select");
       const status = select?.value || lineupEffectiveStatus(item);
+      if (status === "cancelled" || status === "declined") {
+        actionCell.innerHTML = '<button type="button" data-action="remove">Remove from lineup</button>';
+        return;
+      }
       if (!item.is_profile_approved || status === "availability_confirmed") {
         actionCell.innerHTML = status === "availability_confirmed" ? "<small>N/A</small>" : "";
         return;

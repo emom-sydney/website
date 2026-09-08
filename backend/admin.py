@@ -836,6 +836,8 @@ def register_admin_api_routes(app):
                 workflow.LINEUP_STATUS_SELECTED,
                 workflow.LINEUP_STATUS_STANDBY,
                 workflow.LINEUP_STATUS_RESERVE,
+                workflow.LINEUP_STATUS_CANCELLED,
+                workflow.LINEUP_STATUS_DECLINED,
             }
             if any(value not in allowed_statuses for value in parsed_statuses.values()):
                 raise ValueError("One or more lineup statuses are invalid.")
@@ -940,6 +942,8 @@ def register_admin_api_routes(app):
                 workflow.LINEUP_STATUS_SELECTED,
                 workflow.LINEUP_STATUS_STANDBY,
                 workflow.LINEUP_STATUS_RESERVE,
+                workflow.LINEUP_STATUS_CANCELLED,
+                workflow.LINEUP_STATUS_DECLINED,
             } for value in parsed_statuses.values()):
                 raise ValueError("One or more lineup statuses are invalid.")
         except (TypeError, ValueError) as exc:
@@ -1069,17 +1073,17 @@ def register_admin_api_routes(app):
         "/api/v1/admin/events/<int:event_id>/performer-requests/<int:requested_date_id>"
     )
     @require_staff(admin=True)
-    def remove_cancelled_performer_request(event_id, requested_date_id):
+    def remove_lineup_performer(event_id, requested_date_id):
         csrf_error = require_csrf()
         if csrf_error:
             return csrf_error
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    workflow.remove_cancelled_lineup_candidate(
+                    workflow.remove_lineup_candidate(
                         cursor, event_id=event_id, requested_date_id=requested_date_id
                     )
-            return api_data({"message": "Cancelled performer removed from the lineup list."})
+            return api_data({"message": "Performer removed from the lineup."})
         except ValueError as exc:
             return api_error("performer_request_removal_failed", str(exc))
 

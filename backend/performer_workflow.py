@@ -29,12 +29,16 @@ WORKFLOW_STATUS_DENIED = "denied"
 LINEUP_STATUS_SELECTED = "selected"
 LINEUP_STATUS_STANDBY = "standby"
 LINEUP_STATUS_RESERVE = "reserve"
+LINEUP_STATUS_CANCELLED = "cancelled"
+LINEUP_STATUS_DECLINED = "declined"
 LINEUP_STATUS_REQUESTED = "requested"
 LINEUP_STATUS_AVAILABILITY_CONFIRMED = "availability_confirmed"
 LINEUP_SELECTION_ALLOWED_STATUSES = {
     LINEUP_STATUS_SELECTED,
     LINEUP_STATUS_STANDBY,
     LINEUP_STATUS_RESERVE,
+    LINEUP_STATUS_CANCELLED,
+    LINEUP_STATUS_DECLINED,
 }
 OPEN_MIC_EVENT_TYPE_ID = 1
 DEFAULT_LINEUP_SELECTION_LOCK_MINUTES = 30
@@ -3300,7 +3304,22 @@ def get_lineup_selection_candidates(cursor, event_id):
     ]
 
 
-def remove_cancelled_lineup_candidate(cursor, *, event_id, requested_date_id):
+def remove_lineup_candidate(cursor, *, event_id, requested_date_id):
+    cursor.execute(
+        """
+        DELETE FROM event_performer_selections
+        WHERE requested_date_id = %s
+          AND event_id = %s
+          AND status IN ('cancelled', 'declined')
+        RETURNING id
+        """,
+        (requested_date_id, event_id),
+    )
+    if cursor.fetchone():
+        return
+
+    # Availability-cancelled requests have never been added to the lineup
+    # selections table, but retain the existing remove-from-list behavior.
     cursor.execute(
         """
         DELETE FROM requested_dates
@@ -3312,7 +3331,7 @@ def remove_cancelled_lineup_candidate(cursor, *, event_id, requested_date_id):
         (requested_date_id, event_id),
     )
     if not cursor.fetchone():
-        raise ValueError("Only cancelled performer requests can be removed from the lineup list.")
+        raise ValueError("Only cancelled or declined lineup performers can be removed from the lineup.")
 
 
 def is_lineup_selection_candidate_eligible(candidate):
