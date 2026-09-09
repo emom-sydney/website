@@ -7,7 +7,9 @@
 - [ ] Gallery lightbox is fixed to top of page instead of scrolling with content
 
 - [x] User reported error "Unexpected token '<', "<html><h"...is not valid JSON" when "send registration link" is clicked at start of performer registration workflow. [It was an http/https mismatch]
- 
+
+- [ ] Intermittent failure of performer registration link (returns user to email input form)
+
 ### Enhancements
 
 - [ ] Templates for email notifications (styled html with multipart text/plain alternatives)

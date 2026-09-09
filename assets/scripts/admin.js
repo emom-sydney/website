@@ -104,6 +104,8 @@
       selected: "Selected",
       standby: "Standby",
       reserve: "Reserve",
+      cancelled: "Cancelled",
+      declined: "Declined",
     }[status] || status;
   }
 
@@ -114,7 +116,7 @@
   function lineupMessage(status, item, event) {
     const greeting = `Hi ${item.first_name || item.display_name},\n\n`;
     if (status === "requested") {
-      return `${greeting}You previously registered interest in playing at ${event.event_name} on ${event.event_date}.`;
+      return `${greeting}This is an automated message. You previously registered interest in playing at ${event.event_name} on ${event.event_date}, and we're just checking in that you're still available before we make a final lineup selection later this week. Thanks!`;
     }
     if (status === "selected") {
       return `${greeting}Yay! Your appearance at ${event.event_name} on ${event.event_date} has been confirmed.\nPlease see our FAQ for everything you need to know: https://sydney.emom.me/perform/faq\nAnd feel free to email us with any further questions: admin@sydney.emom.me`;
@@ -284,8 +286,10 @@
       const rows = Array.from(body.rows);
       rows.sort((left, right) => {
         const sortKey = button.dataset.sortKey;
-        const leftText = sortKey ? left.cells[columnIndex]?.dataset[sortKey] || "" : left.cells[columnIndex]?.textContent.trim() || "";
-        const rightText = sortKey ? right.cells[columnIndex]?.dataset[sortKey] || "" : right.cells[columnIndex]?.textContent.trim() || "";
+        const leftCell = left.cells[columnIndex];
+        const rightCell = right.cells[columnIndex];
+        const leftText = sortKey ? leftCell?.dataset[sortKey] || "" : leftCell?.dataset.sortValue || leftCell?.textContent.trim() || "";
+        const rightText = sortKey ? rightCell?.dataset[sortKey] || "" : rightCell?.dataset.sortValue || rightCell?.textContent.trim() || "";
         const result = leftText.localeCompare(rightText, undefined, { numeric: true, sensitivity: "base" });
         return descending ? -result : result;
       });
@@ -461,13 +465,21 @@
     if (eventDetails.type_id === 2) {
       let performers = eventDetails.performers || [];
       node.innerHTML = `<h2>${escapeHtml(eventDetails.event_name)} — performers</h2>
-        <label>Find performer <input data-performer-search autocomplete="off"></label>
-        <div data-performer-suggestions></div>
+        <p><button type="button" class="admin-add-performer-button" data-show-performer-search>Find performer</button></p>
+        <div data-performer-search-panel hidden>
+          <label>Performer name <input data-performer-search autocomplete="off"></label>
+          <div data-performer-suggestions></div>
+        </div>
         <table><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Mobile</th><th>Actions</th></tr></thead>
         <tbody data-performer-list></tbody></table>
         <button type="button" data-save-performers>Save lineup</button>`;
       const listNode = node.querySelector("[data-performer-list]");
       const suggestionsNode = node.querySelector("[data-performer-suggestions]");
+      const searchPanel = node.querySelector("[data-performer-search-panel]");
+      node.querySelector("[data-show-performer-search]").addEventListener("click", () => {
+        searchPanel.hidden = !searchPanel.hidden;
+        if (!searchPanel.hidden) node.querySelector("[data-performer-search]").focus();
+      });
       const render = () => { listNode.innerHTML = performers.map((item, index) => `<tr>
         <td>${index + 1}</td><td>${escapeHtml(item.display_name)}</td>
         <td>${item.email ? `<a href="mailto:${escapeHtml(item.email)}">${escapeHtml(item.email)}</a>` : ""}</td>
@@ -508,11 +520,23 @@
     }
     await api(`/api/v1/admin/events/${eventId}/lineup/lock`, { method: "POST" });
     const data = await api(`/api/v1/admin/events/${eventId}/lineup`);
+    const newFaceCount = data.candidates.filter((item) => Number(item.played_count) === 0).length;
+    const frequentNewFaceCount = data.candidates.filter(
+      (item) => Number(item.played_count) === 0 && Number(item.request_count) >= 3,
+    ).length;
+    const frequentNewFaceNote = frequentNewFaceCount > 0
+      ? ` ${frequentNewFaceCount} of those have requested to play more than twice already.`
+      : "";
     node.innerHTML = `
       <h2>${escapeHtml(data.event.event_name)} — ${escapeHtml(data.event.event_date)}</h2>
-      <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date.</p>
+      <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date, ${newFaceCount} of whom haven't played before.${frequentNewFaceNote}</p>
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
+        <p><button type="button" class="admin-add-performer-button" data-add-lineup-performer>Add performer</button></p>
+        <div data-add-lineup-panel hidden>
+          <label>Performer name <input type="search" data-lineup-performer-search autocomplete="off" minlength="2"></label>
+          <div data-lineup-performer-suggestions></div>
+        </div>
         <div class="admin-table-wrap"><table data-sortable-table>
           <thead><tr><th>Performer</th><th data-sortable="false">Info</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Played" data-sort-keys="requestCount,playedCount">Req / Played</th><th>Status</th><th data-sortable="false">Action</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
@@ -521,11 +545,11 @@
               <td>${renderInfoLinks(item)}</td>
               <td>${renderSocialLinks(item.social_links)}</td>
               <td data-request-count="${escapeHtml(item.request_count)}" data-played-count="${escapeHtml(item.played_count)}">${escapeHtml(item.request_count)} / ${escapeHtml(item.played_count)}</td>
-              <td data-status-cell>
+              <td data-status-cell data-sort-value="${escapeHtml(item.availability_status === "availability_cancelled" ? "cancelled" : lineupEffectiveStatus(item))}">
                 ${item.availability_status === "availability_cancelled"
                   ? "<small>Cancelled</small>"
                   : `<select name="status_${item.requested_date_id}"${item.is_profile_approved ? "" : " disabled"}>
-                      ${["requested", "availability_confirmed", "selected", "standby", "reserve"].map((value) => {
+                      ${["requested", "availability_confirmed", "selected", "standby", "reserve", "cancelled", "declined"].map((value) => {
                         const current = lineupEffectiveStatus(item);
                         return `<option value="${value}"${current === value ? " selected" : ""}>${lineupStatusLabel(value)}</option>`;
                       }).join("")}
@@ -534,12 +558,49 @@
               <td data-action-cell></td>
             </tr>`).join("")}</tbody>
         </table></div>
-        <button type="submit">Save lineup</button>
+        <button type="submit">Continue</button>
         <p role="status" data-lineup-status></p>
       </form>`;
 
     setupSortableTable(node.querySelector("[data-sortable-table]"));
     setupInfoTooltips(node);
+
+    const addPanel = node.querySelector("[data-add-lineup-panel]");
+    const addSearch = node.querySelector("[data-lineup-performer-search]");
+    const addSuggestions = node.querySelector("[data-lineup-performer-suggestions]");
+    let addSearchTimer;
+    node.querySelector("[data-add-lineup-performer]").addEventListener("click", () => {
+      addPanel.hidden = !addPanel.hidden;
+      if (!addPanel.hidden) addSearch.focus();
+    });
+    addSearch.addEventListener("input", () => {
+      clearTimeout(addSearchTimer);
+      const query = addSearch.value.trim();
+      addSuggestions.innerHTML = "";
+      if (query.length < 2) return;
+      addSearchTimer = setTimeout(async () => {
+        try {
+          const result = await api(`/api/v1/admin/profiles/search?q=${encodeURIComponent(query)}`);
+          addSuggestions.innerHTML = result.profiles.map((item, index) =>
+            `<button type="button" data-add-suggestion="${index}">${escapeHtml(item.display_name)}${item.email ? ` — ${escapeHtml(item.email)}` : ""}</button>`
+          ).join("");
+          addSuggestions.querySelectorAll("[data-add-suggestion]").forEach((button) => button.addEventListener("click", async () => {
+            const item = result.profiles[Number(button.dataset.addSuggestion)];
+            button.disabled = true;
+            try {
+              await api(`/api/v1/admin/events/${eventId}/lineup/performers`, {
+                method: "POST",
+                body: JSON.stringify({ profile_id: item.profile_id }),
+              });
+              await loadLineup(node);
+            } catch (error) {
+              window.showToast?.(error.message, { kind: "error" });
+              button.disabled = false;
+            }
+          }));
+        } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+      }, 250);
+    });
 
     function updateAction(row, item) {
       const actionCell = row.querySelector("[data-action-cell]");
@@ -549,6 +610,10 @@
       }
       const select = row.querySelector("select");
       const status = select?.value || lineupEffectiveStatus(item);
+      if (status === "cancelled" || status === "declined") {
+        actionCell.innerHTML = '<button type="button" data-action="remove">Remove from lineup</button>';
+        return;
+      }
       if (!item.is_profile_approved || status === "availability_confirmed") {
         actionCell.innerHTML = status === "availability_confirmed" ? "<small>N/A</small>" : "";
         return;
@@ -563,7 +628,10 @@
     node.querySelectorAll("tbody tr").forEach((row, index) => {
       const item = data.candidates[index];
       updateAction(row, item);
-      row.querySelector("select")?.addEventListener("change", () => updateAction(row, item));
+      row.querySelector("select")?.addEventListener("change", (event) => {
+        row.querySelector("[data-status-cell]").dataset.sortValue = event.currentTarget.value;
+        updateAction(row, item);
+      });
       row.querySelector("[data-action-cell]")?.addEventListener("click", async (event) => {
         const button = event.target.closest("button");
         if (!button) return;
@@ -652,13 +720,31 @@
           <p>The following performers will be notified:</p>
           ${preview.recipients.length ? `<ul>${preview.recipients.map((item) => `<li>${escapeHtml(item.display_name)} — ${escapeHtml(item.email)}</li>`).join("")}</ul>` : "<p>No new selection notifications will be sent.</p>"}
           <p><strong>Not selected:</strong> ${preview.unselected_emails.length ? escapeHtml(preview.unselected_emails.join(", ")) : "None"}</p>
-          <button type="button" data-confirm-lineup>Continue</button>
-          <button type="button" data-cancel-lineup>Cancel</button>
+          <button type="button" data-confirm-lineup>Save</button>
+          <button type="button" data-save-lineup-without-notifying>Save but don't notify</button>
+          <button type="button" data-cancel-lineup>Go back</button>
           <button type="button" data-exit-lineup>Exit without saving</button>`;
         form.replaceWith(confirmation);
         confirmation.querySelector("[data-cancel-lineup]").addEventListener("click", () => confirmation.replaceWith(form));
         confirmation.querySelector("[data-exit-lineup]").addEventListener("click", () => {
           window.location.assign("/admin/events/");
+        });
+        confirmation.querySelector("[data-save-lineup-without-notifying]").addEventListener("click", async () => {
+          const saveButton = confirmation.querySelector("[data-save-lineup-without-notifying]");
+          saveButton.disabled = true;
+          saveButton.textContent = "Saving lineup…";
+          try {
+            const result = await api(`/api/v1/admin/events/${eventId}/lineup`, {
+              method: "PUT",
+              body: JSON.stringify({ statuses, notify: false }),
+            });
+            window.showToast?.(result.message, { kind: "success" });
+            window.location.assign("/admin/events/");
+          } catch (error) {
+            window.showToast?.(error.message, { kind: "error" });
+            saveButton.disabled = false;
+            saveButton.textContent = "Save but don't notify";
+          }
         });
         confirmation.querySelector("[data-confirm-lineup]").addEventListener("click", async () => {
           const confirmButton = confirmation.querySelector("[data-confirm-lineup]");
