@@ -32,6 +32,24 @@
             background: #000
         }
 
+        .background-media {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: .65;
+            z-index: 0
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .35);
+            z-index: 1
+        }
+
         .shell {
             min-height: 100vh;
             width: 100%;
@@ -39,7 +57,9 @@
             display: grid;
             place-items: center;
             padding: 24px;
-            overflow: hidden
+            overflow: hidden;
+            position: relative;
+            z-index: 2
         }
 
         .panel {
@@ -258,6 +278,7 @@
 </head>
 
 <body>
+    <div id="background-media" aria-hidden="true"></div>
     <main class="shell">
         <section class="panel">
             <header class="panel-header">
@@ -304,6 +325,9 @@
         var jukeboxStartedAt = null;
         var lastBannerAt = null;
         var bannerUntil = 0;
+        var backgroundUrls = {{ background_urls|tojson }};
+        var lastBackgroundProfileId = null;
+        var backgroundStorageKey = 'emom-now-playing-background-cycle';
 
         function fitArtistName() {
             var availableWidth = currentName.clientWidth;
@@ -331,6 +355,47 @@
 
         function clearChildren(node) {
             while (node.firstChild) node.removeChild(node.firstChild);
+        }
+
+        function applyBackground(profileId) {
+            if (!profileId || !backgroundUrls.length || profileId === lastBackgroundProfileId) return;
+            lastBackgroundProfileId = profileId;
+            var signature = JSON.stringify(backgroundUrls);
+            var stored;
+            try { stored = JSON.parse(localStorage.getItem(backgroundStorageKey) || 'null'); } catch (error) { stored = null; }
+            if (!stored || stored.signature !== signature) stored = {signature: signature, remaining: backgroundUrls.slice(), current: {}};
+            if (stored.current.profileId === profileId && stored.current.url) {
+                renderBackground(stored.current.url);
+                return;
+            }
+            if (!stored.remaining.length) stored.remaining = backgroundUrls.slice();
+            var index = Math.floor(Math.random() * stored.remaining.length);
+            var url = stored.remaining.splice(index, 1)[0];
+            stored.current = {profileId: profileId, url: url};
+            try { localStorage.setItem(backgroundStorageKey, JSON.stringify(stored)); } catch (error) {}
+            renderBackground(url);
+        }
+
+        function renderBackground(url) {
+            var container = document.querySelector('#background-media');
+            clearChildren(container);
+            if (/\.mp4(?:[?#].*)?$/i.test(url)) {
+                var video = document.createElement('video');
+                video.className = 'background-media';
+                video.src = url;
+                video.autoplay = true;
+                video.muted = true;
+                video.loop = true;
+                video.playsInline = true;
+                container.appendChild(video);
+                video.play().catch(function () {});
+            } else {
+                var image = document.createElement('img');
+                image.className = 'background-media';
+                image.src = url;
+                image.alt = '';
+                container.appendChild(image);
+            }
         }
 
         function setScreen(screen) {
@@ -429,6 +494,7 @@
                 }
                 if (!payload || !payload.data || !payload.data.now_playing) return;
                 var state = payload.data.now_playing;
+                applyBackground(state.profile_id);
                 updateBanner(payload.data.banner);
                 fitArtistName();
                 eventDate.textContent = payload.data.event

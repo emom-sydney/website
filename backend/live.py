@@ -10,6 +10,7 @@ import backend.performer_workflow as workflow
 
 
 SETTING_KEY = "live_now_playing"
+BACKGROUND_SETTING_KEY = "nowplaying_bg_images"
 DEFAULT_BANNER_TEXT = "Welcome to EMOM Sydney/Eora"
 DEFAULT_BANNER_DISPLAY_TIME_SECS = 30
 DEFAULT_BANNER_DISPLAY_INTERVAL_SECS = 300
@@ -41,6 +42,18 @@ def _optional_url(value):
     if not isinstance(value, str):
         return ""
     return value.strip()
+
+
+def _background_urls(cursor):
+    cursor.execute("SELECT value_json FROM app_settings WHERE key = %s", (BACKGROUND_SETTING_KEY,))
+    row = cursor.fetchone()
+    value = _read_json_setting(row[0], []) if row else []
+    if not isinstance(value, list):
+        return []
+    return [
+        url.strip() for url in value
+        if isinstance(url, str) and url.strip().startswith(("http://", "https://"))
+    ]
 
 
 def _website_qr_data_url():
@@ -164,6 +177,7 @@ def _now_playing_context(cursor):
         "performers": performers,
         "artist_qr_url": qr_url,
         "banner": _banner_settings(cursor),
+        "background_urls": _background_urls(cursor),
     }
 
 

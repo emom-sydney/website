@@ -372,6 +372,7 @@ VALUES
   ('now_playing_banner_display_time_secs', '30'::jsonb),
   ('now_playing_banner_display_interval_secs', '300'::jsonb),
   ('now_playing_banner_display_delay_secs', '60'::jsonb),
+  ('nowplaying_bg_images', '["https://media.emom.me/assets/nowplaying/bg/image.jpg", "https://media.emom.me/assets/nowplaying/bg/image.mp4"]'::jsonb),
   ('now_playing_jukebox_url', 'null'::jsonb),
   ('tribuo_base_url', '"https://example.com"'::jsonb)
 ON CONFLICT (key) DO NOTHING;
