@@ -20,6 +20,8 @@ from backend.mailer import send_mail
 
 ACTION_TYPE_REGISTRATION_LINK = "profile_submission_access"
 ACTION_TYPE_STAFF_LOGIN = "staff_login"
+ACTION_TYPE_MODERATION_APPROVE = "profile_moderation_approve"
+ACTION_TYPE_MODERATION_DENY = "profile_moderation_deny"
 ACTION_TYPE_AVAILABILITY_CONFIRM = "availability_confirm"
 ACTION_TYPE_AVAILABILITY_CANCEL = "availability_cancel"
 
@@ -29,12 +31,16 @@ WORKFLOW_STATUS_DENIED = "denied"
 LINEUP_STATUS_SELECTED = "selected"
 LINEUP_STATUS_STANDBY = "standby"
 LINEUP_STATUS_RESERVE = "reserve"
+LINEUP_STATUS_CANCELLED = "cancelled"
+LINEUP_STATUS_DECLINED = "declined"
 LINEUP_STATUS_REQUESTED = "requested"
 LINEUP_STATUS_AVAILABILITY_CONFIRMED = "availability_confirmed"
 LINEUP_SELECTION_ALLOWED_STATUSES = {
     LINEUP_STATUS_SELECTED,
     LINEUP_STATUS_STANDBY,
     LINEUP_STATUS_RESERVE,
+    LINEUP_STATUS_CANCELLED,
+    LINEUP_STATUS_DECLINED,
 }
 OPEN_MIC_EVENT_TYPE_ID = 1
 DEFAULT_LINEUP_SELECTION_LOCK_MINUTES = 30
@@ -257,6 +263,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Performer registration submission failed")
             return error_response("Unable to submit performer registration right now.", 500)
 
+    @app.get("/api/v1/profiles/submissions/moderation/approve")
     def approve_profile_submission():
         raw_token = normalize_text(request.args.get("token"))
         if not raw_token:
@@ -265,7 +272,7 @@ def register_performer_workflow_routes(app):
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_APPROVE)
                     draft = get_profile_submission_draft(cursor, token_row["draft_id"])
                     if draft["status"] != WORKFLOW_STATUS_PENDING:
                         raise ValueError("This submission has already been reviewed.")
@@ -313,6 +320,7 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Profile approval failed")
             return html_error_page("Unable to approve this submission right now.", 500)
 
+    @app.route("/api/v1/profiles/submissions/moderation/deny", methods=["GET", "POST"])
     def deny_profile_submission():
         if request.method == "GET":
             raw_token = normalize_text(request.args.get("token"))
@@ -321,7 +329,7 @@ def register_performer_workflow_routes(app):
             try:
                 with connect() as connection:
                     with connection.cursor() as cursor:
-                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_DENY)
                         draft = get_profile_submission_draft(cursor, token_row["draft_id"])
                         if draft["status"] != WORKFLOW_STATUS_PENDING:
                             raise ValueError("This submission has already been reviewed.")
@@ -345,7 +353,7 @@ def register_performer_workflow_routes(app):
             edit_link = None
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
+                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_MODERATION_DENY)
                     draft = get_profile_submission_draft(cursor, token_row["draft_id"])
                     if draft["status"] != WORKFLOW_STATUS_PENDING:
                         raise ValueError("This submission has already been reviewed.")
@@ -1179,7 +1187,7 @@ def invalidate_moderation_tokens_for_draft(cursor, draft_id):
           AND action_type IN (%s, %s)
           AND used_at IS NULL
         """,
-        (draft_id, ACTION_TYPE_STAFF_LOGIN, ACTION_TYPE_STAFF_LOGIN),
+        (draft_id, ACTION_TYPE_MODERATION_APPROVE, ACTION_TYPE_MODERATION_DENY),
     )
 
 
@@ -1850,20 +1858,34 @@ def get_moderator_emails(cursor):
 
 
 def create_moderation_links(*, cursor, app, draft_id, moderator_emails, ttl_hours):
-    del app, ttl_hours
     from backend.admin import build_staff_login_url, create_staff_login_token
 
     links = []
     for moderator in moderator_emails:
-        next_path = f"/admin/profiles/submissions/{draft_id}/"
-        raw_token, expires_at, _ = create_staff_login_token(
-            cursor, moderator, next_path=next_path, draft_id=draft_id
+        next_path = "/admin/profiles"
+        staff_token, staff_expires_at, _ = create_staff_login_token(cursor, moderator, next_path=next_path, draft_id=draft_id)
+        approve_token, approve_hash = generate_token_pair()
+        deny_token, deny_hash = generate_token_pair()
+        approve_expires_at = now_utc() + timedelta(hours=ttl_hours)
+        deny_expires_at = now_utc() + timedelta(hours=ttl_hours)
+        cursor.execute(
+            """
+            INSERT INTO action_tokens (token_hash, action_type, email, profile_id, draft_id, expires_at)
+            VALUES (%s, %s, %s, %s, %s, %s), (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                approve_hash, ACTION_TYPE_MODERATION_APPROVE, moderator["email"], moderator["profile_id"], draft_id, approve_expires_at,
+                deny_hash, ACTION_TYPE_MODERATION_DENY, moderator["email"], moderator["profile_id"], draft_id, deny_expires_at,
+            ),
         )
         links.append(
             {
                 "email": moderator["email"],
-                "review_url": build_staff_login_url(raw_token, next_path),
-                "expires_at": expires_at,
+                "approve_url": build_absolute_url(app, f"/api/v1/profiles/submissions/moderation/approve?token={approve_token}"),
+                "deny_url": build_absolute_url(app, f"/api/v1/profiles/submissions/moderation/deny?token={deny_token}"),
+                "staff_url": build_staff_login_url(staff_token, next_path),
+                "expires_at": approve_expires_at,
+                "staff_expires_at": staff_expires_at,
             }
         )
     return links
@@ -2247,7 +2269,7 @@ def record_moderation_action(
           (draft_id, moderator_profile_id, action, reason, event_id, requested_date_id, notification_sent_at)
         VALUES (%s, %s, %s, %s, %s, %s, CASE WHEN %s THEN now() ELSE NULL END)
         ON CONFLICT (draft_id, event_id, requested_date_id, action)
-        WHERE action IN ('selected', 'standby', 'reserve')
+        WHERE action IN ('selected', 'standby', 'reserve', 'cancelled', 'declined')
         DO UPDATE SET
           moderator_profile_id = EXCLUDED.moderator_profile_id,
           reason = EXCLUDED.reason,
@@ -2716,11 +2738,11 @@ def send_due_moderation_reminders(app):
                         """
                         SELECT MAX(created_at)
                         FROM action_tokens
-                        WHERE action_type = 'staff_login'
+                        WHERE action_type IN (%s, %s, %s)
                           AND draft_id = %s
                           AND profile_id = %s
                         """,
-                        (draft["id"], moderator["profile_id"]),
+                        (ACTION_TYPE_STAFF_LOGIN, ACTION_TYPE_MODERATION_APPROVE, ACTION_TYPE_MODERATION_DENY, draft["id"], moderator["profile_id"]),
                     )
                     last_sent_at = cursor.fetchone()[0]
                     if last_sent_at and last_sent_at > now_utc() - timedelta(hours=ttl_hours):
@@ -2740,7 +2762,9 @@ def send_due_moderation_reminders(app):
                         f"sydney.emom | moderation reminder #{draft['id']}",
                         (
                             f"{draft['display_name']} ({draft['email']}) is still awaiting moderation.\n\n"
-                            f"Review submission: {links[0]['review_url']}\n\n"
+                            f"Approve: {links[0]['approve_url']}\n"
+                            f"Deny (opens a form for the reason): {links[0]['deny_url']}\n"
+                            f"Open staff area: {links[0]['staff_url']}\n\n"
                             f"This link expires at {format_link_expiry_local(links[0]['expires_at'])}.\n"
                         ),
                     )
@@ -2825,7 +2849,7 @@ def get_expired_moderation_token_reminder_targets(cursor):
         JOIN profile_roles pr
           ON pr.profile_id = p.id
          AND pr.role = 'volunteer'
-        WHERE at.action_type IN (%s, %s)
+        WHERE at.action_type IN (%s, %s, %s)
           AND at.used_at IS NULL
           AND at.expires_at <= now()
           AND d.status = %s
@@ -2836,7 +2860,7 @@ def get_expired_moderation_token_reminder_targets(cursor):
             FROM action_tokens active
             WHERE active.draft_id = at.draft_id
               AND active.profile_id = at.profile_id
-              AND active.action_type IN (%s, %s)
+              AND active.action_type IN (%s, %s, %s)
               AND active.used_at IS NULL
               AND active.expires_at > now()
           )
@@ -2845,10 +2869,12 @@ def get_expired_moderation_token_reminder_targets(cursor):
         """,
         (
             ACTION_TYPE_STAFF_LOGIN,
-            ACTION_TYPE_STAFF_LOGIN,
+            ACTION_TYPE_MODERATION_APPROVE,
+            ACTION_TYPE_MODERATION_DENY,
             WORKFLOW_STATUS_PENDING,
             ACTION_TYPE_STAFF_LOGIN,
-            ACTION_TYPE_STAFF_LOGIN,
+            ACTION_TYPE_MODERATION_APPROVE,
+            ACTION_TYPE_MODERATION_DENY,
         ),
     )
     return [
@@ -2864,7 +2890,7 @@ def mark_expired_moderation_tokens_replaced(cursor, *, draft_id, moderator_profi
         SET used_at = now()
         WHERE draft_id = %s
           AND profile_id = %s
-          AND action_type IN (%s, %s)
+          AND action_type IN (%s, %s, %s)
           AND used_at IS NULL
           AND expires_at <= now()
         """,
@@ -2872,7 +2898,8 @@ def mark_expired_moderation_tokens_replaced(cursor, *, draft_id, moderator_profi
             draft_id,
             moderator_profile_id,
             ACTION_TYPE_STAFF_LOGIN,
-            ACTION_TYPE_STAFF_LOGIN,
+            ACTION_TYPE_MODERATION_APPROVE,
+            ACTION_TYPE_MODERATION_DENY,
         ),
     )
 
@@ -3300,19 +3327,36 @@ def get_lineup_selection_candidates(cursor, event_id):
     ]
 
 
-def remove_cancelled_lineup_candidate(cursor, *, event_id, requested_date_id):
+def remove_lineup_candidate(cursor, *, event_id, requested_date_id, profile_id=None):
+    cursor.execute(
+        """
+        DELETE FROM event_performer_selections
+        WHERE event_id = %s
+          AND (
+            requested_date_id = %s
+            OR (%s IS NOT NULL AND profile_id = %s)
+          )
+        RETURNING id
+        """,
+        (event_id, requested_date_id, profile_id, profile_id),
+    )
+    if cursor.fetchone():
+        return
+
+    # Some older/manual lineup records do not have a matching selection row.
+    # Remove the event request as the fallback so the admin action remains
+    # effective for those records too.
     cursor.execute(
         """
         DELETE FROM requested_dates
         WHERE id = %s
           AND event_id = %s
-          AND status = 'availability_cancelled'
         RETURNING id
         """,
         (requested_date_id, event_id),
     )
     if not cursor.fetchone():
-        raise ValueError("Only cancelled performer requests can be removed from the lineup list.")
+        raise ValueError("That performer request was not found for this event.")
 
 
 def is_lineup_selection_candidate_eligible(candidate):
@@ -3804,7 +3848,9 @@ def send_moderation_emails(
             f"Additional info (not shown on profile):\n{draft_payload.get('additional_info') or '(none)'}\n\n"
             f"Requested event dates:\n{requested_events}\n"
             f"Social links:\n{social_lines}\n\n"
-            f"Review in the staff area: {item['review_url']}\n"
+            f"Approve: {item['approve_url']}\n"
+            f"Deny (opens a form for the reason): {item['deny_url']}\n"
+            f"Open staff area: {item['staff_url']}\n"
             f"\nCurrent status:\n{current_status_summary}\n"
         )
         send_mail(item["email"], f"sydney.emom | performer profile moderation request #{draft_id}", body)
@@ -4109,13 +4155,13 @@ def send_lineup_status_notification(event, candidate, *, status=None, message=No
         text_body = (
             f"Hi {candidate.get('first_name') or candidate.get('display_name') or 'performer'},\n\n"
             f"You have not been selected to perform at {event['event_name']} on {event['event_date']}, "
-            f"but you are on standby. You are number {candidate.get('queue_position')} in the queue in case someone drops out.\n"
+            f"but you are on standby. You are number {candidate.get('queue_position')} in the queue in the event that someone drops out.\n"
         )
     else:
         text_body = (
             f"Hi {candidate.get('first_name') or candidate.get('display_name') or 'performer'},\n\n"
             f"You have not been selected to perform at {event['event_name']} on {event['event_date']} "
-            "because you have played recently, but we may still call on you if we need to make up numbers.\n"
+            "because you have played recently (<3) but we may still call on you if we need to make up numbers.\n"
         )
     if message:
         text_body = message
@@ -4237,6 +4283,8 @@ def render_lineup_selection_form(
                     f"{render_admin_status_option(LINEUP_STATUS_SELECTED, item.get('selection_status'))}"
                     f"{render_admin_status_option(LINEUP_STATUS_STANDBY, item.get('selection_status'))}"
                     f"{render_admin_status_option(LINEUP_STATUS_RESERVE, item.get('selection_status'))}"
+                    f"{render_admin_status_option(LINEUP_STATUS_CANCELLED, item.get('selection_status'))}"
+                    f"{render_admin_status_option(LINEUP_STATUS_DECLINED, item.get('selection_status'))}"
                     "</select>"
                 )
                 if is_lineup_selection_candidate_eligible(item)
@@ -4316,6 +4364,7 @@ def render_lineup_selection_form(
     extra_scripts = (
         "<script>"
         "(function () {"
+        "function escapeHtml(value) { return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\\\"', '&quot;').replaceAll(\"'\", '&#39;'); }"
         "const selects = Array.prototype.slice.call(document.querySelectorAll('[data-lineup-status]'));"
         "const countNode = document.getElementById('selected-count');"
         f"const token = {to_js_literal(raw_token)};"
