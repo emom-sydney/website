@@ -2269,7 +2269,7 @@ def record_moderation_action(
           (draft_id, moderator_profile_id, action, reason, event_id, requested_date_id, notification_sent_at)
         VALUES (%s, %s, %s, %s, %s, %s, CASE WHEN %s THEN now() ELSE NULL END)
         ON CONFLICT (draft_id, event_id, requested_date_id, action)
-        WHERE action IN ('selected', 'standby', 'reserve')
+        WHERE action IN ('selected', 'standby', 'reserve', 'cancelled', 'declined')
         DO UPDATE SET
           moderator_profile_id = EXCLUDED.moderator_profile_id,
           reason = EXCLUDED.reason,
