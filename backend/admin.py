@@ -630,6 +630,57 @@ def register_admin_api_routes(app):
                 ]
         return api_data({"profiles": profiles})
 
+    @app.post("/api/v1/admin/events/<int:event_id>/lineup/performers")
+    @require_staff(admin=True)
+    def add_admin_lineup_performer(event_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        try:
+            profile_id = int(payload.get("profile_id"))
+        except (TypeError, ValueError):
+            return api_error("invalid_performer", "A valid performer is required.")
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT type_id FROM events WHERE id = %s", (event_id,))
+                event = cursor.fetchone()
+                if not event:
+                    return api_error("not_found", "Event not found.", 404)
+                if event[0] != 1:
+                    return api_error("invalid_event", "Lineup additions are only available for Open Mic events.")
+                cursor.execute(
+                    """
+                    SELECT p.display_name, d.id
+                    FROM profiles p
+                    JOIN profile_roles pr ON pr.profile_id = p.id AND pr.role = 'artist'
+                    JOIN LATERAL (
+                      SELECT id FROM profile_submission_drafts
+                      WHERE profile_id = p.id AND status IN ('pending', 'approved')
+                      ORDER BY submitted_at DESC, id DESC LIMIT 1
+                    ) d ON true
+                    WHERE p.id = %s AND p.is_profile_approved
+                    """,
+                    (profile_id,),
+                )
+                performer = cursor.fetchone()
+                if not performer:
+                    return api_error("invalid_performer", "That performer cannot be added to the lineup.")
+                cursor.execute(
+                    """
+                    INSERT INTO requested_dates (draft_id, event_id, status, availability_responded_at)
+                    VALUES (%s, %s, 'availability_confirmed', now())
+                    ON CONFLICT (draft_id, event_id) DO UPDATE
+                      SET status = CASE WHEN requested_dates.status = 'availability_cancelled'
+                                        THEN 'availability_confirmed' ELSE requested_dates.status END,
+                          availability_responded_at = COALESCE(requested_dates.availability_responded_at, now())
+                    RETURNING id
+                    """,
+                    (performer[1], event_id),
+                )
+                requested_date_id = cursor.fetchone()[0]
+        return api_data({"display_name": performer[0], "requested_date_id": requested_date_id}, 201)
+
     @app.put("/api/v1/admin/events/<int:event_id>/performers")
     @require_staff(admin=True)
     def update_admin_event_performers(event_id):
@@ -1080,10 +1131,19 @@ def register_admin_api_routes(app):
         try:
             with connect() as connection:
                 with connection.cursor() as cursor:
-                    workflow.remove_lineup_candidate(
-                        cursor, event_id=event_id, requested_date_id=requested_date_id
+                    candidates = workflow.get_lineup_selection_candidates(cursor, event_id)
+                    candidate = next(
+                        (item for item in candidates if item["requested_date_id"] == requested_date_id),
+                        None,
                     )
-            return api_data({"message": "Performer removed from the lineup."})
+                    workflow.remove_lineup_candidate(
+                        cursor,
+                        event_id=event_id,
+                        requested_date_id=requested_date_id,
+                        profile_id=candidate.get("profile_id") if candidate else None,
+                    )
+            display_name = candidate.get("display_name") if candidate else "Performer"
+            return api_data({"message": f"{display_name} removed from the lineup."})
         except ValueError as exc:
             return api_error("performer_request_removal_failed", str(exc))
 

@@ -138,7 +138,9 @@ CREATE TABLE IF NOT EXISTS action_tokens (
       'availability_confirm',
       'availability_cancel',
       'newsletter_subscribe_confirm',
-      'staff_login'
+      'staff_login',
+      'profile_moderation_approve',
+      'profile_moderation_deny'
     )
   ),
   email text,
