@@ -126,7 +126,7 @@
         .current-name {
             margin: 0;
             font-size: clamp(2.8rem, 7vw, 5.4rem);
-            line-height: .95;
+            line-height: 1.1;
             color: #fff;
             white-space: nowrap;
             width: 100%;
@@ -494,7 +494,8 @@
                 }
                 if (!payload || !payload.data || !payload.data.now_playing) return;
                 var state = payload.data.now_playing;
-                applyBackground(state.profile_id);
+                if (state.profile_id) applyBackground(state.profile_id);
+                else applyBackground('banner');
                 updateBanner(payload.data.banner);
                 fitArtistName();
                 eventDate.textContent = payload.data.event
@@ -529,11 +530,12 @@
             request.send(null);
         }
 
-        updateBanner({text: bannerText.textContent, logo_url: bannerLogo.getAttribute('src'), qr_url: bannerQrImage.getAttribute('src'), display_time_secs: {{ banner.display_time_secs }}, display_interval_secs: {{ banner.display_interval_secs }}, display_delay_secs: {{ banner.display_delay_secs }}, jukebox_url: {{ banner.jukebox_url|tojson }} });
+        updateBanner({text: bannerText.textContent, logo_url: bannerLogo.getAttribute('src'), qr_url: bannerQrImage.getAttribute('src'), display_time_secs: {{ banner.display_time_secs }}, display_interval_secs: {{ banner.display_interval_secs }}, display_delay_secs: {{ banner.display_delay_secs }}, refresh_interval_secs: {{ banner.refresh_interval_secs }}, jukebox_url: {{ banner.jukebox_url|tojson }} });
+        applyBackground('banner');
         setScreen('banner');
         fitArtistName();
         window.addEventListener('resize', fitArtistName);
-        setInterval(refreshNowPlaying, 5000);
+        setInterval(refreshNowPlaying, {{ banner.refresh_interval_secs }});
     </script>
 </body>
 
