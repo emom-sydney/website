@@ -214,7 +214,7 @@ def _roll_call(cursor, event_id):
             WHERE perf.event_id = selection.event_id
               AND perf.profile_id = selection.profile_id
           )
-        ORDER BY 3 NULLS LAST, 2
+        ORDER BY 5 NULLS LAST, 2
         """,
         (event_id, event_id),
     )
