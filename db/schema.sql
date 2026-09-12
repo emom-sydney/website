@@ -138,7 +138,9 @@ CREATE TABLE IF NOT EXISTS action_tokens (
       'availability_confirm',
       'availability_cancel',
       'newsletter_subscribe_confirm',
-      'staff_login'
+      'staff_login',
+      'profile_moderation_approve',
+      'profile_moderation_deny'
     )
   ),
   email text,
@@ -155,7 +157,7 @@ CREATE TABLE IF NOT EXISTS moderation_actions (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   draft_id bigint NOT NULL REFERENCES profile_submission_drafts(id) ON DELETE CASCADE,
   moderator_profile_id integer NOT NULL REFERENCES profiles(id),
-  action text NOT NULL CHECK (action IN ('approved', 'denied', 'selected', 'standby', 'reserve')),
+  action text NOT NULL CHECK (action IN ('approved', 'denied', 'selected', 'standby', 'reserve', 'cancelled', 'declined')),
   reason text,
   event_id integer REFERENCES events(id) ON DELETE CASCADE,
   requested_date_id bigint REFERENCES requested_dates(id) ON DELETE CASCADE,
@@ -165,7 +167,7 @@ CREATE TABLE IF NOT EXISTS moderation_actions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_moderation_actions_lineup_status
   ON moderation_actions (draft_id, event_id, requested_date_id, action)
-  WHERE action IN ('selected', 'standby', 'reserve');
+  WHERE action IN ('selected', 'standby', 'reserve', 'cancelled', 'declined');
 
 CREATE TABLE IF NOT EXISTS event_performer_selections (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -359,12 +361,21 @@ CREATE INDEX IF NOT EXISTS idx_profile_qr_events_occurred
 
 INSERT INTO app_settings (key, value_json)
 VALUES
+  ('global_site_logo_url', '"/assets/img/site_logo.png"'::jsonb),
   ('performer_request_cooldown_events', '3'::jsonb),
   ('availability_confirmation_lead_days', '10'::jsonb),
   ('lineup_selection_lead_days', '7'::jsonb),
   ('action_token_ttl_hours', '24'::jsonb),
   ('qr_tracking_retention_days', '90'::jsonb),
-  ('tribuo_base_url', '"https://example.com"'::jsonb)
+  ('tribuo_base_url', '"https://example.com"'::jsonb),
+  ('now_playing_banner_text', '"Welcome to EMOM Sydney/Eora"'::jsonb),
+  ('now_playing_banner_logo_url', '"/assets/img/site_logo.png"'::jsonb),
+  ('now_playing_banner_display_time_secs', '30'::jsonb),
+  ('now_playing_banner_display_interval_secs', '300'::jsonb),
+  ('now_playing_banner_display_delay_secs', '60'::jsonb),
+  ('now_playing_refresh_interval_secs', '5000'::jsonb),
+  ('nowplaying_bg_images', '["https://media.emom.me/assets/nowplaying/bg/image.jpg", "https://media.emom.me/assets/nowplaying/bg/image.mp4"]'::jsonb),
+  ('now_playing_jukebox_url', 'null'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 INSERT INTO volunteer_roles (role_key, display_name, description, role_scope, default_capacity, sort_order)

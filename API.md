@@ -10,6 +10,11 @@ email-action pages deliberately live outside the API namespace.
   - publishes all events as an iCalendar feed, including optional start/end
     times and location details
 - `GET /api/v1/live/now-playing`
+  - returns performer state plus banner configuration. The banner logo uses
+    `now_playing_banner_logo_url` when configured, otherwise
+    `global_site_logo_url`; both may be relative or fully-qualified URLs.
+  - the kiosk browser may query the configured jukebox URL directly over the
+    venue LAN. The VPS does not proxy or query the jukebox.
 - `POST /api/v1/profiles/submissions/access-links`
 - `GET /api/v1/profiles/submissions/context`
   - requires `Authorization: Bearer <profile-submission-access-token>`

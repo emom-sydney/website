@@ -104,6 +104,8 @@
       selected: "Selected",
       standby: "Standby",
       reserve: "Reserve",
+      cancelled: "Cancelled",
+      declined: "Declined",
     }[status] || status;
   }
 
@@ -463,13 +465,21 @@
     if (eventDetails.type_id === 2) {
       let performers = eventDetails.performers || [];
       node.innerHTML = `<h2>${escapeHtml(eventDetails.event_name)} — performers</h2>
-        <label>Find performer <input data-performer-search autocomplete="off"></label>
-        <div data-performer-suggestions></div>
+        <p><button type="button" class="admin-add-performer-button" data-show-performer-search>Find performer</button></p>
+        <div data-performer-search-panel hidden>
+          <label>Performer name <input data-performer-search autocomplete="off"></label>
+          <div data-performer-suggestions></div>
+        </div>
         <table><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Mobile</th><th>Actions</th></tr></thead>
         <tbody data-performer-list></tbody></table>
         <button type="button" data-save-performers>Save lineup</button>`;
       const listNode = node.querySelector("[data-performer-list]");
       const suggestionsNode = node.querySelector("[data-performer-suggestions]");
+      const searchPanel = node.querySelector("[data-performer-search-panel]");
+      node.querySelector("[data-show-performer-search]").addEventListener("click", () => {
+        searchPanel.hidden = !searchPanel.hidden;
+        if (!searchPanel.hidden) node.querySelector("[data-performer-search]").focus();
+      });
       const render = () => { listNode.innerHTML = performers.map((item, index) => `<tr>
         <td>${index + 1}</td><td>${escapeHtml(item.display_name)}</td>
         <td>${item.email ? `<a href="mailto:${escapeHtml(item.email)}">${escapeHtml(item.email)}</a>` : ""}</td>
@@ -522,6 +532,11 @@
       <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date, ${newFaceCount} of whom haven't played before.${frequentNewFaceNote}</p>
       <form data-lineup-form>
         <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
+        <p><button type="button" class="admin-add-performer-button" data-add-lineup-performer>Add performer</button></p>
+        <div data-add-lineup-panel hidden>
+          <label>Performer name <input type="search" data-lineup-performer-search autocomplete="off" minlength="2"></label>
+          <div data-lineup-performer-suggestions></div>
+        </div>
         <div class="admin-table-wrap"><table data-sortable-table>
           <thead><tr><th>Performer</th><th data-sortable="false">Info</th><th data-sortable="false">Social media</th><th data-sort-labels="Req,Played" data-sort-keys="requestCount,playedCount">Req / Played</th><th>Status</th><th data-sortable="false">Action</th></tr></thead>
           <tbody>${data.candidates.map((item) => `
@@ -534,7 +549,7 @@
                 ${item.availability_status === "availability_cancelled"
                   ? "<small>Cancelled</small>"
                   : `<select name="status_${item.requested_date_id}"${item.is_profile_approved ? "" : " disabled"}>
-                      ${["requested", "availability_confirmed", "selected", "standby", "reserve"].map((value) => {
+                      ${["requested", "availability_confirmed", "selected", "standby", "reserve", "cancelled", "declined"].map((value) => {
                         const current = lineupEffectiveStatus(item);
                         return `<option value="${value}"${current === value ? " selected" : ""}>${lineupStatusLabel(value)}</option>`;
                       }).join("")}
@@ -550,6 +565,43 @@
     setupSortableTable(node.querySelector("[data-sortable-table]"));
     setupInfoTooltips(node);
 
+    const addPanel = node.querySelector("[data-add-lineup-panel]");
+    const addSearch = node.querySelector("[data-lineup-performer-search]");
+    const addSuggestions = node.querySelector("[data-lineup-performer-suggestions]");
+    let addSearchTimer;
+    node.querySelector("[data-add-lineup-performer]").addEventListener("click", () => {
+      addPanel.hidden = !addPanel.hidden;
+      if (!addPanel.hidden) addSearch.focus();
+    });
+    addSearch.addEventListener("input", () => {
+      clearTimeout(addSearchTimer);
+      const query = addSearch.value.trim();
+      addSuggestions.innerHTML = "";
+      if (query.length < 2) return;
+      addSearchTimer = setTimeout(async () => {
+        try {
+          const result = await api(`/api/v1/admin/profiles/search?q=${encodeURIComponent(query)}`);
+          addSuggestions.innerHTML = result.profiles.map((item, index) =>
+            `<button type="button" data-add-suggestion="${index}">${escapeHtml(item.display_name)}${item.email ? ` — ${escapeHtml(item.email)}` : ""}</button>`
+          ).join("");
+          addSuggestions.querySelectorAll("[data-add-suggestion]").forEach((button) => button.addEventListener("click", async () => {
+            const item = result.profiles[Number(button.dataset.addSuggestion)];
+            button.disabled = true;
+            try {
+              await api(`/api/v1/admin/events/${eventId}/lineup/performers`, {
+                method: "POST",
+                body: JSON.stringify({ profile_id: item.profile_id }),
+              });
+              await loadLineup(node);
+            } catch (error) {
+              window.showToast?.(error.message, { kind: "error" });
+              button.disabled = false;
+            }
+          }));
+        } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+      }, 250);
+    });
+
     function updateAction(row, item) {
       const actionCell = row.querySelector("[data-action-cell]");
       if (item.availability_status === "availability_cancelled") {
@@ -558,6 +610,10 @@
       }
       const select = row.querySelector("select");
       const status = select?.value || lineupEffectiveStatus(item);
+      if (status === "cancelled" || status === "declined") {
+        actionCell.innerHTML = '<button type="button" data-action="remove">Remove from lineup</button>';
+        return;
+      }
       if (!item.is_profile_approved || status === "availability_confirmed") {
         actionCell.innerHTML = status === "availability_confirmed" ? "<small>N/A</small>" : "";
         return;

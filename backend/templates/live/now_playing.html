@@ -32,6 +32,24 @@
             background: #000
         }
 
+        .background-media {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: .65;
+            z-index: 0
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .35);
+            z-index: 1
+        }
+
         .shell {
             min-height: 100vh;
             width: 100%;
@@ -39,7 +57,9 @@
             display: grid;
             place-items: center;
             padding: 24px;
-            overflow: hidden
+            overflow: hidden;
+            position: relative;
+            z-index: 2
         }
 
         .panel {
@@ -60,6 +80,10 @@
             align-items: flex-start;
             justify-content: space-between;
             gap: 24px
+        }
+
+        .panel-header[hidden] {
+            display: none
         }
 
         .heading {
@@ -102,7 +126,7 @@
         .current-name {
             margin: 0;
             font-size: clamp(2.8rem, 7vw, 5.4rem);
-            line-height: .95;
+            line-height: 1.1;
             color: #fff;
             white-space: nowrap;
             width: 100%;
@@ -114,6 +138,59 @@
         .current-name.empty {
             color: var(--muted);
             font-style: italic
+        }
+
+        .display-screen[hidden] {
+            display: none
+        }
+
+        .banner-screen {
+            min-height: 430px;
+            display: grid;
+            place-items: center;
+            gap: 24px;
+            padding: 36px 24px;
+            text-align: center
+        }
+
+        .banner-screen img {
+            display: block;
+            max-width: min(72vw, 520px);
+            max-height: 190px;
+            object-fit: contain
+        }
+
+        .banner-text {
+            margin: 0;
+            font-size: clamp(2rem, 5vw, 4rem);
+            line-height: 1.05
+        }
+
+        .banner-qr {
+            width: 150px;
+            padding: 8px;
+            background: #fff;
+            border-radius: 12px
+        }
+
+        .banner-qr img {
+            width: 100%;
+            max-width: none;
+            max-height: none
+        }
+
+        .jukebox-track {
+            margin: 0;
+            text-align: center;
+            font-size: clamp(2rem, 6vw, 5rem);
+            line-height: 1
+        }
+
+        .jukebox-artist {
+            margin: 12px 0 0;
+            text-align: center;
+            color: var(--muted);
+            font-size: clamp(1.2rem, 3vw, 2rem)
         }
 
         .artist-qr {
@@ -201,6 +278,7 @@
 </head>
 
 <body>
+    <div id="background-media" aria-hidden="true"></div>
     <main class="shell">
         <section class="panel">
             <header class="panel-header">
@@ -209,14 +287,32 @@
                 </div>
                 <div id="artist-qr"{% if not artist_qr_url %} hidden{% endif %}>{% if artist_qr_url %}<div class="artist-qr"><img src="{{ artist_qr_url }}" data-profile-id="{{ now_playing.profile_id }}" alt="QR code for {{ now_playing.text }}'s artist profile"></div>{% endif %}</div>
             </header>
-            <section id="current" class="current">
+            <section id="banner-screen" class="display-screen banner-screen">
+                <img id="banner-logo"{% if banner.logo_url %} src="{{ banner.logo_url }}"{% endif %} alt="Sydney EMOM logo"{% if not banner.logo_url %} hidden{% endif %}>
+                <p id="banner-text" class="banner-text">{{ banner.text }}</p>
+                <div id="banner-qr" class="banner-qr"><img id="banner-qr-image"{% if banner.qr_url %} src="{{ banner.qr_url }}"{% endif %} alt="QR code for the Sydney EMOM website"></div>
+            </section>
+            <section id="current" class="display-screen current" hidden>
                 {% if now_playing.text.strip() %}<p id="current-name" class="current-name" data-empty-label="- - -">{{
                     now_playing.text }}</p>{% else %}<p id="current-name" class="current-name empty" data-empty-label="- - -">- - -</p>{% endif %}
             </section>
+            <section id="jukebox-screen" class="display-screen current" hidden>
+                <div><p class="current-label">Now playing on the jukebox</p><p id="jukebox-track" class="jukebox-track"></p><p id="jukebox-artist" class="jukebox-artist"></p></div>
+            </section>
+        </section>
     </main>
     <script>
         var currentName = document.querySelector('#current-name');
         var current = document.querySelector('#current');
+        var bannerScreen = document.querySelector('#banner-screen');
+        var panelHeader = document.querySelector('.panel-header');
+        var bannerLogo = document.querySelector('#banner-logo');
+        var bannerText = document.querySelector('#banner-text');
+        var bannerQr = document.querySelector('#banner-qr');
+        var bannerQrImage = document.querySelector('#banner-qr-image');
+        var jukeboxScreen = document.querySelector('#jukebox-screen');
+        var jukeboxTrack = document.querySelector('#jukebox-track');
+        var jukeboxArtist = document.querySelector('#jukebox-artist');
         var artistQr = document.querySelector('#artist-qr');
         var eventDate = document.querySelector('#event-date');
         var emptyLabel = currentName.getAttribute('data-empty-label') || '- - -';
@@ -224,6 +320,14 @@
         var panel = document.querySelector('.panel');
         var activeArtistColour = '#0082eb';
         var lastArtistName = currentName.textContent.replace(/^\s+|\s+$/g, '');
+        var bannerConfig = {display_time_secs: 30, display_interval_secs: 300, display_delay_secs: 60};
+        var inactiveSince = null;
+        var jukeboxStartedAt = null;
+        var lastBannerAt = null;
+        var bannerUntil = 0;
+        var backgroundUrls = {{ background_urls|tojson }};
+        var lastBackgroundProfileId = null;
+        var backgroundStorageKey = 'emom-now-playing-background-cycle';
 
         function fitArtistName() {
             var availableWidth = currentName.clientWidth;
@@ -253,6 +357,129 @@
             while (node.firstChild) node.removeChild(node.firstChild);
         }
 
+        function applyBackground(profileId) {
+            if (!profileId || !backgroundUrls.length || profileId === lastBackgroundProfileId) return;
+            lastBackgroundProfileId = profileId;
+            var signature = JSON.stringify(backgroundUrls);
+            var stored;
+            try { stored = JSON.parse(localStorage.getItem(backgroundStorageKey) || 'null'); } catch (error) { stored = null; }
+            if (!stored || stored.signature !== signature) stored = {signature: signature, remaining: backgroundUrls.slice(), current: {}};
+            if (stored.current.profileId === profileId && stored.current.url) {
+                renderBackground(stored.current.url);
+                return;
+            }
+            if (!stored.remaining.length) stored.remaining = backgroundUrls.slice();
+            var index = Math.floor(Math.random() * stored.remaining.length);
+            var url = stored.remaining.splice(index, 1)[0];
+            stored.current = {profileId: profileId, url: url};
+            try { localStorage.setItem(backgroundStorageKey, JSON.stringify(stored)); } catch (error) {}
+            renderBackground(url);
+        }
+
+        function renderBackground(url) {
+            var container = document.querySelector('#background-media');
+            clearChildren(container);
+            if (/\.mp4(?:[?#].*)?$/i.test(url)) {
+                var video = document.createElement('video');
+                video.className = 'background-media';
+                video.src = url;
+                video.autoplay = true;
+                video.muted = true;
+                video.loop = true;
+                video.playsInline = true;
+                container.appendChild(video);
+                video.play().catch(function () {});
+            } else {
+                var image = document.createElement('img');
+                image.className = 'background-media';
+                image.src = url;
+                image.alt = '';
+                container.appendChild(image);
+            }
+        }
+
+        function setScreen(screen) {
+            bannerScreen.hidden = screen !== 'banner';
+            current.hidden = screen !== 'performer';
+            jukeboxScreen.hidden = screen !== 'jukebox';
+            panelHeader.hidden = screen === 'banner';
+        }
+
+        function updateBanner(config) {
+            bannerConfig = config || bannerConfig;
+            bannerText.textContent = String(bannerConfig.text || '');
+            bannerLogo.hidden = !bannerConfig.logo_url;
+            if (bannerConfig.logo_url) bannerLogo.src = bannerConfig.logo_url;
+            bannerQr.hidden = !bannerConfig.qr_url;
+            if (bannerConfig.qr_url) bannerQrImage.src = bannerConfig.qr_url;
+        }
+
+        function showBanner(now) {
+            setScreen('banner');
+            lastBannerAt = now;
+            bannerUntil = now + bannerConfig.display_time_secs * 1000;
+        }
+
+        function showPerformer() {
+            setScreen('performer');
+            inactiveSince = null;
+            bannerUntil = 0;
+        }
+
+        function showJukebox(track) {
+            setScreen('jukebox');
+            inactiveSince = null;
+            jukeboxTrack.textContent = String(track.title || '');
+            jukeboxArtist.textContent = String(track.artist || '');
+        }
+
+        function showIdle(now) {
+            if (!inactiveSince) inactiveSince = now;
+            if (bannerScreen.hidden) showBanner(now);
+            else setScreen('banner');
+        }
+
+        function isPlaying(payload) {
+            var playback = payload && payload.data && payload.data.playback;
+            var track = playback && playback.track;
+            return payload && payload.data && payload.data.service && payload.data.service.status === 'ok'
+                && playback && playback.state === 'playing' && track && String(track.title || '').trim()
+                ? track : null;
+        }
+
+        function fetchJukebox(url) {
+            if (!url) return Promise.resolve(null);
+            return fetch(url, {cache: 'no-store', credentials: 'omit'}).then(function (response) {
+                if (!response.ok) throw Error('jukebox request failed');
+                return response.json();
+            }).then(isPlaying).catch(function () { return null; });
+        }
+
+        function updateDisplay(state, jukeboxTrackState) {
+            var now = Date.now();
+            var performerName = String(state.text || '').replace(/^\s+|\s+$/g, '');
+            if (performerName) {
+                if (performerName !== lastArtistName) changeArtistColour();
+                currentName.textContent = performerName;
+                currentName.className = 'current-name';
+                lastArtistName = performerName;
+                showPerformer();
+                return;
+            }
+            if (jukeboxTrackState) {
+                if (!jukeboxStartedAt) {
+                    jukeboxStartedAt = now;
+                    lastBannerAt = now;
+                }
+                if (bannerUntil && now < bannerUntil) setScreen('banner');
+                else if (now - lastBannerAt >= bannerConfig.display_interval_secs * 1000) showBanner(now);
+                else showJukebox(jukeboxTrackState);
+                return;
+            }
+            jukeboxStartedAt = null;
+            showIdle(now);
+        }
+
         function refreshNowPlaying() {
             var request = new XMLHttpRequest();
             request.open('GET', '/api/v1/live/now-playing?display=1', true);
@@ -267,11 +494,9 @@
                 }
                 if (!payload || !payload.data || !payload.data.now_playing) return;
                 var state = payload.data.now_playing;
-                var name = String(state.text || '').replace(/^\s+|\s+$/g, '');
-                if (name && name !== lastArtistName) changeArtistColour();
-                currentName.textContent = name || emptyLabel;
-                currentName.className = 'current-name' + (name ? '' : ' empty');
-                lastArtistName = name;
+                if (state.profile_id) applyBackground(state.profile_id);
+                else applyBackground('banner');
+                updateBanner(payload.data.banner);
                 fitArtistName();
                 eventDate.textContent = payload.data.event
                     ? 'EMOM Sydney · ' + payload.data.event.event_date
@@ -287,7 +512,7 @@
                         frame.className = 'artist-qr';
                         image.src = versionedQrUrl;
                         image.setAttribute('data-profile-id', profileId);
-                        image.alt = 'QR code for ' + name + "'s artist profile";
+                        image.alt = 'QR code for ' + String(state.text || 'the artist') + "'s artist profile";
                         frame.appendChild(image);
                         clearChildren(artistQr);
                         artistQr.appendChild(frame);
@@ -297,13 +522,20 @@
                     artistQr.hidden = true;
                     clearChildren(artistQr);
                 }
+                fetchJukebox(payload.data.banner && payload.data.banner.jukebox_url).then(function (track) {
+                    updateDisplay(state, track);
+                    fitArtistName();
+                });
             };
             request.send(null);
         }
 
+        updateBanner({text: bannerText.textContent, logo_url: bannerLogo.getAttribute('src'), qr_url: bannerQrImage.getAttribute('src'), display_time_secs: {{ banner.display_time_secs }}, display_interval_secs: {{ banner.display_interval_secs }}, display_delay_secs: {{ banner.display_delay_secs }}, refresh_interval_secs: {{ banner.refresh_interval_secs }}, jukebox_url: {{ banner.jukebox_url|tojson }} });
+        applyBackground('banner');
+        setScreen('banner');
         fitArtistName();
         window.addEventListener('resize', fitArtistName);
-        setInterval(refreshNowPlaying, 5000);
+        setInterval(refreshNowPlaying, {{ banner.refresh_interval_secs }});
     </script>
 </body>
 

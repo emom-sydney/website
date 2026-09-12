@@ -284,3 +284,15 @@
 [data-event-edit-form] button[type="submit"] {
   justify-self: end;
 }
+.admin-add-performer-button {
+  background: #007bff;
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 10px 20px;
+  cursor: pointer;
+}
+
+.admin-add-performer-button:hover {
+  background: #0069d9;
+}
