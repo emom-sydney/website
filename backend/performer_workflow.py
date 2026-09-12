@@ -964,7 +964,7 @@ def parse_lineup_selection_statuses(form, candidates):
     return parsed
 
 
-def normalize_profile_submission_payload(payload, email):
+def normalize_profile_submission_payload(payload, email, *, require_requested_events=True):
     profile_type = normalize_text(payload.get("profile_type"))
     display_name = normalize_text(payload.get("display_name"))
     first_name = normalize_text(payload.get("first_name"))
@@ -985,7 +985,7 @@ def normalize_profile_submission_payload(payload, email):
     if not contact_phone:
         raise ValueError("A contact phone number is required.")
 
-    if not isinstance(requested_event_ids, list) or not requested_event_ids:
+    if not isinstance(requested_event_ids, list) or (require_requested_events and not requested_event_ids):
         raise ValueError("At least one requested event date is required.")
 
     normalized_event_ids = []
@@ -1036,6 +1036,215 @@ def normalize_profile_submission_payload(payload, email):
         "social_links": normalized_social_links,
         "requested_event_ids": normalized_event_ids,
     }
+
+
+def normalize_manual_profile_payload(payload):
+    email = normalize_email(payload.get("email"))
+    if not email:
+        raise ValueError("A valid email address is required.")
+    normalized = normalize_profile_submission_payload(
+        {
+            **payload,
+            "requested_event_ids": payload.get("requested_event_ids") or [],
+        },
+        email,
+        require_requested_events=False,
+    )
+    image_url = normalize_text(payload.get("image_url"))
+    if image_url:
+        from urllib.parse import urlparse
+        parsed_image_url = urlparse(image_url)
+        if parsed_image_url.scheme not in {"http", "https"} or not parsed_image_url.netloc:
+            raise ValueError("Image URL must be an http or https URL.")
+    normalized["image_url"] = image_url
+    return normalized
+
+
+def get_manual_performer_profile(cursor, profile_id):
+    profile = get_existing_profile_by_id(cursor, profile_id)
+    if not profile or not profile["has_artist_role"]:
+        return None
+
+    cursor.execute(
+        """
+        SELECT ai.image_url
+        FROM profile_images ai
+        WHERE ai.profile_id = %s
+        ORDER BY ai.id
+        LIMIT 1
+        """,
+        (profile_id,),
+    )
+    image = cursor.fetchone()
+    profile["image_url"] = image[0] if image else None
+
+    cursor.execute(
+        """
+        SELECT rd.event_id
+        FROM requested_dates rd
+        JOIN events e ON e.id = rd.event_id
+        WHERE rd.draft_id = (
+          SELECT d.id
+          FROM profile_submission_drafts d
+          WHERE d.profile_id = %s AND d.status = 'approved'
+          ORDER BY d.submitted_at DESC, d.id DESC
+          LIMIT 1
+        )
+          AND e.type_id = %s
+          AND e.event_date > CURRENT_DATE
+          AND rd.status NOT IN ('withdrawn', 'not_selected')
+        ORDER BY e.event_date, e.id
+        """,
+        (profile_id, OPEN_MIC_EVENT_TYPE_ID),
+    )
+    profile["requested_event_ids"] = [row[0] for row in cursor.fetchall()]
+    return profile
+
+
+def validate_manual_profile_event_ids(cursor, event_ids):
+    if not event_ids:
+        return
+    cursor.execute(
+        """
+        SELECT id
+        FROM events
+        WHERE id = ANY(%s)
+          AND type_id = %s
+          AND event_date > CURRENT_DATE
+        """,
+        (event_ids, OPEN_MIC_EVENT_TYPE_ID),
+    )
+    found = {row[0] for row in cursor.fetchall()}
+    if found != set(event_ids):
+        raise ValueError("One or more requested events are not future Open Mic events.")
+
+
+def save_manual_performer_profile(cursor, *, payload, staff_profile_id, profile_id=None):
+    current = get_manual_performer_profile(cursor, profile_id) if profile_id is not None else None
+    if profile_id is not None and not current:
+        raise ValueError("That artist profile no longer exists.")
+
+    if profile_id is None:
+        cursor.execute(
+            "SELECT id FROM profiles WHERE lower(email) = lower(%s)",
+            (payload["email"],),
+        )
+    else:
+        cursor.execute(
+            "SELECT id FROM profiles WHERE lower(email) = lower(%s) AND id <> %s",
+            (payload["email"], profile_id),
+        )
+    if cursor.fetchone():
+        raise ValueError("Another profile already uses that email address.")
+
+    validate_manual_profile_event_ids(cursor, payload["requested_event_ids"])
+
+    if profile_id is None:
+        cursor.execute(
+            """
+            INSERT INTO profiles (
+              profile_type, display_name, first_name, last_name, email, contact_phone,
+              is_email_public, is_name_public, is_profile_approved,
+              is_profile_index_visible, approved_at, approved_by_profile_id
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, false, now(), %s)
+            RETURNING id
+            """,
+            (
+                payload["profile_type"], payload["display_name"], payload["first_name"],
+                payload["last_name"], payload["email"], payload["contact_phone"],
+                payload["is_email_public"], payload["is_name_public"], staff_profile_id,
+            ),
+        )
+        profile_id = cursor.fetchone()[0]
+        current_tribuo_tag = None
+    else:
+        cursor.execute(
+            """
+            UPDATE profiles
+            SET profile_type = %s, display_name = %s, first_name = %s, last_name = %s,
+                email = %s, contact_phone = %s, is_email_public = %s, is_name_public = %s,
+                is_profile_approved = true, approved_at = COALESCE(approved_at, now()),
+                approved_by_profile_id = COALESCE(approved_by_profile_id, %s)
+            WHERE id = %s
+            """,
+            (
+                payload["profile_type"], payload["display_name"], payload["first_name"],
+                payload["last_name"], payload["email"], payload["contact_phone"],
+                payload["is_email_public"], payload["is_name_public"], staff_profile_id, profile_id,
+            ),
+        )
+        current_tribuo_tag = current.get("tribuo_tag")
+
+    upsert_artist_role(cursor, profile_id, payload["artist_bio"], True)
+    replace_profile_social_links(cursor, profile_id, payload["social_links"])
+    if payload.get("image_url"):
+        cursor.execute("DELETE FROM profile_images WHERE profile_id = %s", (profile_id,))
+        cursor.execute("INSERT INTO profile_images (profile_id, image_url) VALUES (%s, %s)", (profile_id, payload["image_url"]))
+    else:
+        cursor.execute("SELECT 1 FROM profile_images WHERE profile_id = %s LIMIT 1", (profile_id,))
+        if cursor.fetchone():
+            cursor.execute("DELETE FROM profile_images WHERE profile_id = %s", (profile_id,))
+    set_tribuo_tag(
+        cursor, profile_id=profile_id, display_name=payload["display_name"],
+        enabled=payload["show_tribuo_link"], current_tag=current_tribuo_tag,
+    )
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM profile_submission_drafts
+        WHERE profile_id = %s AND status = 'approved'
+        ORDER BY submitted_at DESC, id DESC
+        LIMIT 1
+        """,
+        (profile_id,),
+    )
+    draft_row = cursor.fetchone()
+    draft_payload = {**payload, "profile_id": profile_id}
+    if draft_row:
+        draft_id = draft_row[0]
+        cursor.execute(
+            """
+            UPDATE profile_submission_drafts
+            SET email = %s, profile_type = %s, display_name = %s, first_name = %s,
+                last_name = %s, contact_phone = %s, is_email_public = %s, is_name_public = %s,
+                artist_bio = %s, is_artist_bio_public = true, additional_info = %s,
+                show_tribuo_link = %s, submitted_by_email = %s
+            WHERE id = %s
+            """,
+            (
+                payload["email"], payload["profile_type"], payload["display_name"], payload["first_name"],
+                payload["last_name"], payload["contact_phone"], payload["is_email_public"],
+                payload["is_name_public"], payload["artist_bio"], payload["additional_info"],
+                payload["show_tribuo_link"], payload["email"], draft_id,
+            ),
+        )
+        cursor.execute("DELETE FROM profile_submission_social_profiles WHERE draft_id = %s", (draft_id,))
+    else:
+        draft_id = insert_profile_submission_draft(cursor=cursor, profile={"id": profile_id}, email=payload["email"], draft_payload=draft_payload)
+    insert_profile_submission_social_links(cursor, draft_id, payload["social_links"])
+
+    cursor.execute(
+        """
+        UPDATE requested_dates
+        SET status = 'withdrawn'
+        WHERE draft_id = %s
+          AND status IN ('requested', 'withdrawn')
+          AND event_id <> ALL(%s)
+        """,
+        (draft_id, payload["requested_event_ids"] or [-1]),
+    )
+    for event_id in payload["requested_event_ids"]:
+        cursor.execute(
+            """
+            INSERT INTO requested_dates (draft_id, event_id, status)
+            VALUES (%s, %s, 'requested')
+            ON CONFLICT (draft_id, event_id) DO NOTHING
+            """,
+            (draft_id, event_id),
+        )
+    return get_manual_performer_profile(cursor, profile_id)
 
 
 def sync_performer_alumni_subscription(*, app, email, first_name=None, last_name=None, should_subscribe):

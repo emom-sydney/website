@@ -84,6 +84,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   app_settings,
   profiles,
   profile_roles,
+  profile_images,
   profile_social_profiles,
   social_platforms,
   events,

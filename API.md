@@ -73,6 +73,11 @@ Dashboard and domains:
 - `GET /api/v1/admin/profiles/submissions?status=pending`
 - `GET /api/v1/admin/profiles/submissions/<draft_id>`
 - `POST /api/v1/admin/profiles/submissions/<draft_id>/decisions`
+- `GET /api/v1/admin/profiles/options` (admin only)
+- `GET /api/v1/admin/profiles/search?q=<text>&artist_only=1` (admin only)
+- `GET /api/v1/admin/profiles/<profile_id>` (admin only)
+- `POST /api/v1/admin/profiles` (admin only)
+- `PUT /api/v1/admin/profiles/<profile_id>` (admin only)
 
 Lineup selection details:
 

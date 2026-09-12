@@ -612,13 +612,15 @@ def register_admin_api_routes(app):
         query = str(request.args.get("q") or "").strip()
         if len(query) < 2:
             return api_data({"profiles": []})
+        artist_only = request.args.get("artist_only") == "1"
         with connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT id, display_name, email, contact_phone
                     FROM profiles
-                    WHERE display_name ILIKE %s OR email ILIKE %s
+                    WHERE (display_name ILIKE %s OR email ILIKE %s)
+                      {'AND EXISTS (SELECT 1 FROM profile_roles ar WHERE ar.profile_id = profiles.id AND ar.role = \'artist\')' if artist_only else ''}
                     ORDER BY display_name, id
                     LIMIT 10
                     """,
@@ -629,6 +631,79 @@ def register_admin_api_routes(app):
                     for item in cursor.fetchall()
                 ]
         return api_data({"profiles": profiles})
+
+    @app.get("/api/v1/admin/profiles/<int:profile_id>")
+    @require_staff(admin=True)
+    def get_admin_performer_profile(profile_id):
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                profile = workflow.get_manual_performer_profile(cursor, profile_id)
+                if not profile:
+                    return api_error("not_found", "Artist profile not found.", 404)
+                cursor.execute(
+                    """
+                    SELECT id, event_name, event_date
+                    FROM events
+                    WHERE type_id = %s AND event_date > CURRENT_DATE
+                    ORDER BY event_date, id
+                    """,
+                    (workflow.OPEN_MIC_EVENT_TYPE_ID,),
+                )
+                events = [
+                    {"id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+                    for row in cursor.fetchall()
+                ]
+        profile["additional_info"] = None
+        return api_data({"profile": workflow.serialize_profile(profile), "events": events, "image_url": profile["image_url"]})
+
+    @app.get("/api/v1/admin/profiles/options")
+    @require_staff(admin=True)
+    def get_admin_performer_profile_options():
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                platforms = workflow.get_social_platforms(cursor)
+                cursor.execute(
+                    """
+                    SELECT id, event_name, event_date
+                    FROM events
+                    WHERE type_id = %s AND event_date > CURRENT_DATE
+                    ORDER BY event_date, id
+                    """,
+                    (workflow.OPEN_MIC_EVENT_TYPE_ID,),
+                )
+                events = [
+                    {"id": row[0], "event_name": row[1], "event_date": row[2].isoformat()}
+                    for row in cursor.fetchall()
+                ]
+        return api_data({"social_platforms": platforms, "events": events})
+
+    def save_admin_performer_profile(profile_id=None):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        try:
+            payload = workflow.normalize_manual_profile_payload(request.get_json(silent=True) or {})
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    profile = workflow.save_manual_performer_profile(
+                        cursor,
+                        payload=payload,
+                        staff_profile_id=g.staff["profile_id"],
+                        profile_id=profile_id,
+                    )
+            return api_data({"profile": workflow.serialize_profile(profile)}, 201 if profile_id is None else 200)
+        except ValueError as exc:
+            return api_error("profile_save_failed", str(exc))
+
+    @app.post("/api/v1/admin/profiles")
+    @require_staff(admin=True)
+    def create_admin_performer_profile():
+        return save_admin_performer_profile()
+
+    @app.put("/api/v1/admin/profiles/<int:profile_id>")
+    @require_staff(admin=True)
+    def update_admin_performer_profile(profile_id):
+        return save_admin_performer_profile(profile_id)
 
     @app.post("/api/v1/admin/events/<int:event_id>/lineup/performers")
     @require_staff(admin=True)

@@ -44,3 +44,34 @@ def test_registration_payload_defaults_tribuo_checkbox_to_false():
         "artist@example.com",
     )
     assert payload["show_tribuo_link"] is False
+
+
+def test_manual_profile_payload_supports_groups_without_event_requests():
+    payload = workflow.normalize_manual_profile_payload(
+        {
+            "profile_type": "group",
+            "display_name": "The Group",
+            "email": "group@example.com",
+            "contact_phone": "0400000000",
+            "requested_event_ids": [],
+        }
+    )
+    assert payload["profile_type"] == "group"
+    assert payload["requested_event_ids"] == []
+
+
+def test_manual_profile_payload_rejects_non_http_image_urls():
+    try:
+        workflow.normalize_manual_profile_payload(
+            {
+                "profile_type": "person",
+                "display_name": "Test Artist",
+                "email": "artist@example.com",
+                "contact_phone": "0400000000",
+                "image_url": "javascript:alert(1)",
+            }
+        )
+    except ValueError as exc:
+        assert "Image URL" in str(exc)
+    else:
+        raise AssertionError("Expected invalid image URL to be rejected")

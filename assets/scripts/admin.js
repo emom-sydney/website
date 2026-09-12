@@ -818,14 +818,120 @@
   }
 
   async function loadProfiles(node) {
-    const data = await api("/api/v1/admin/profiles/submissions?status=pending");
-    node.innerHTML = data.submissions.length
-      ? `<div class="admin-list">${data.submissions.map((item) => `
-          <article>
-            <h2><a href="/admin/profiles/submissions/${item.id}/">${escapeHtml(item.display_name)}</a></h2>
-            <p>${escapeHtml(item.email)} · ${escapeHtml(item.submitted_at)}</p>
-          </article>`).join("")}</div>`
-      : "<p>No profile submissions are awaiting moderation.</p>";
+    const [data, session] = await Promise.all([
+      api("/api/v1/admin/profiles/submissions?status=pending"),
+      api("/api/v1/admin/session"),
+    ]);
+    node.innerHTML = `${session.is_admin ? `
+      <section class="admin-profile-tools">
+        <button type="button" data-create-profile>Create performer profile</button>
+        <div data-profile-editor></div>
+      </section>` : ""}
+      <h2>Pending profile submissions</h2>
+      <div>${data.submissions.length
+        ? `<div class="admin-list">${data.submissions.map((item) => `
+            <article>
+              <h3><a href="/admin/profiles/submissions/${item.id}/">${escapeHtml(item.display_name)}</a></h3>
+              <p>${escapeHtml(item.email)} · ${escapeHtml(item.submitted_at)}</p>
+            </article>`).join("")}</div>`
+        : "<p>No profile submissions are awaiting moderation.</p>"}</div>`;
+    if (!session.is_admin) return;
+
+    const editor = node.querySelector("[data-profile-editor]");
+    const options = await api("/api/v1/admin/profiles/options");
+    const socialPlatforms = options.social_platforms || [];
+    const showEditor = (profile, events = []) => {
+      const selectedEvents = new Set(profile?.requested_event_ids || []);
+      const socialLinks = profile?.social_links || [];
+      editor.innerHTML = `
+        <form data-manual-profile-form>
+          <h2>${profile ? `Edit ${escapeHtml(profile.display_name)}` : "Create performer profile"}</h2>
+          <div class="admin-event-edit__row">
+            <label>Profile type <select name="profile_type">
+              <option value="person"${profile?.profile_type !== "group" ? " selected" : ""}>Artist</option>
+              <option value="group"${profile?.profile_type === "group" ? " selected" : ""}>Group</option>
+            </select></label>
+            <label>Display name <input name="display_name" required value="${escapeHtml(profile?.display_name)}"></label>
+          </div>
+          <div class="admin-event-edit__row">
+            <label>First name <input name="first_name" value="${escapeHtml(profile?.first_name)}"></label>
+            <label>Last name <input name="last_name" value="${escapeHtml(profile?.last_name)}"></label>
+          </div>
+          <div class="admin-event-edit__row">
+            <label>Email <input name="email" type="email" required value="${escapeHtml(profile?.email)}"></label>
+            <label>Phone <input name="contact_phone" required value="${escapeHtml(profile?.contact_phone)}"></label>
+          </div>
+          <label><input type="checkbox" name="is_email_public"${profile?.is_email_public ? " checked" : ""}> Show email publicly</label>
+          <label><input type="checkbox" name="is_name_public"${profile?.is_name_public ? " checked" : ""}> Show real name publicly</label>
+          <label>Artist bio <textarea name="artist_bio" rows="6">${escapeHtml(profile?.artist_bio)}</textarea></label>
+          <label>Image URL <input name="image_url" type="url" value="${escapeHtml(profile?.image_url)}"></label>
+          <label><input type="checkbox" name="show_tribuo_link"${profile?.show_tribuo_link ? " checked" : ""}> Show Tribuo link</label>
+          <fieldset><legend>Social links</legend><div data-manual-social-links></div><button type="button" data-add-social>Add social link</button></fieldset>
+          <fieldset><legend>Future Open Mic availability requests</legend>
+            ${events.length ? events.map((event) => `<label class="admin-choice"><input type="checkbox" name="requested_event_ids" value="${event.id}"${selectedEvents.has(event.id) ? " checked" : ""}> ${escapeHtml(event.event_date)} — ${escapeHtml(event.event_name)}</label>`).join("") : "<small>No future Open Mic events.</small>"}
+          </fieldset>
+          <button type="submit">Save profile</button><p role="status" data-manual-profile-status></p>
+        </form>`;
+      const socialNode = editor.querySelector("[data-manual-social-links]");
+      const addSocial = (link = {}) => {
+        const row = document.createElement("div");
+        row.className = "admin-social-row";
+        row.innerHTML = `<select name="social_platform_id"><option value="">Platform</option>${socialPlatforms.map((platform) => `<option value="${platform.id}"${String(platform.id) === String(link.social_platform_id) ? " selected" : ""}>${escapeHtml(platform.platform_name)}</option>`).join("")}</select><input name="profile_name" placeholder="Profile name" value="${escapeHtml(link.profile_name)}"><button type="button" data-remove-social>Remove</button>`;
+        row.querySelector("[data-remove-social]").addEventListener("click", () => row.remove());
+        socialNode.append(row);
+      };
+      socialLinks.forEach(addSocial);
+      if (!socialLinks.length) addSocial();
+      editor.querySelector("[data-add-social]").addEventListener("click", () => addSocial());
+      editor.querySelector("[data-manual-profile-form]").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const social_links = [...socialNode.children].map((row) => ({
+          social_platform_id: Number(row.querySelector("[name=social_platform_id]").value),
+          profile_name: row.querySelector("[name=profile_name]").value,
+        })).filter((link) => link.social_platform_id && link.profile_name.trim());
+        const payload = {
+          profile_type: form.get("profile_type"), display_name: form.get("display_name"),
+          first_name: form.get("first_name"), last_name: form.get("last_name"), email: form.get("email"),
+          contact_phone: form.get("contact_phone"), is_email_public: form.has("is_email_public"),
+          is_name_public: form.has("is_name_public"), artist_bio: form.get("artist_bio"),
+          image_url: form.get("image_url"), show_tribuo_link: form.has("show_tribuo_link"),
+          social_links, requested_event_ids: form.getAll("requested_event_ids").map(Number),
+        };
+        const status = editor.querySelector("[data-manual-profile-status]");
+        status.textContent = "Saving…";
+        try {
+          await api(profile ? `/api/v1/admin/profiles/${profile.id}` : "/api/v1/admin/profiles", { method: profile ? "PUT" : "POST", body: JSON.stringify(payload) });
+          editor.innerHTML = "";
+          const profileSearch = node.querySelector("[data-manual-profile-search]");
+          const profileSuggestions = node.querySelector("[data-manual-profile-suggestions]");
+          if (profileSearch) profileSearch.value = "";
+          if (profileSuggestions) profileSuggestions.innerHTML = "";
+          window.showToast?.("Profile saved.", { kind: "success" });
+        } catch (error) { status.textContent = error.message; status.classList.add("is-error"); }
+      });
+    };
+    node.querySelector("[data-create-profile]").addEventListener("click", () => showEditor(null, options.events || []));
+    const search = document.createElement("div");
+    search.innerHTML = `<h2>Edit an existing artist profile</h2><label>Search performer <input type="search" data-manual-profile-search autocomplete="off"></label><div data-manual-profile-suggestions></div>`;
+    node.querySelector(".admin-profile-tools").prepend(search);
+    const searchInput = search.querySelector("[data-manual-profile-search]");
+    const suggestions = search.querySelector("[data-manual-profile-suggestions]");
+    let timer;
+    searchInput.addEventListener("input", () => {
+      clearTimeout(timer); const query = searchInput.value.trim(); suggestions.innerHTML = "";
+      if (query.length < 2) return;
+      timer = setTimeout(async () => {
+        const result = await api(`/api/v1/admin/profiles/search?q=${encodeURIComponent(query)}&artist_only=1`);
+        suggestions.innerHTML = result.profiles.map((item, index) => `<button type="button" data-profile-suggestion="${index}">${escapeHtml(item.display_name)}${item.email ? ` — ${escapeHtml(item.email)}` : ""}</button>`).join("");
+        suggestions.querySelectorAll("[data-profile-suggestion]").forEach((button) => button.addEventListener("click", async () => {
+          const item = result.profiles[Number(button.dataset.profileSuggestion)];
+          const profileData = await api(`/api/v1/admin/profiles/${item.profile_id}`);
+          showEditor({ ...profileData.profile, image_url: profileData.image_url }, profileData.events);
+          suggestions.innerHTML = ""; searchInput.value = item.display_name;
+        }));
+      }, 250);
+    });
   }
 
   async function loadSubmission(node) {
