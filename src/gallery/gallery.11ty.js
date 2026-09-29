@@ -245,6 +245,23 @@ export default async function render(data) {
   }).join(' &gt; ');
 
   let html = `<p class="breadcrumbs">${bcHtml}</p>\n`;
+  html += `<script>
+async function copyImageUrl(event, button) {
+  event.stopPropagation();
+  const url = decodeURIComponent(button.dataset.originalUrl);
+  try {
+    await navigator.clipboard.writeText(url);
+    button.classList.add("sp-lightbox-copy-url-success");
+    button.title = "URL copied";
+    setTimeout(() => {
+      button.classList.remove("sp-lightbox-copy-url-success");
+      button.title = "Copy original file URL";
+    }, 1500);
+  } catch (error) {
+    button.title = "Could not copy URL";
+  }
+}
+</script>\n`;
   html += `<h2>Gallery: ${heading}</h2>\n`;
 
   const normalizedEmbedUrl = getYouTubeNoCookieEmbedUrl(eventYouTubeEmbedUrl);
@@ -324,7 +341,7 @@ export default async function render(data) {
       if (!isStandard) hasOfflineFiles = true;
 
       const label = isStandard
-        ? `<a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""}`
+        ? `<a href="${f.url}">${f.name}</a>${f.sizeFormatted ? ` (${f.sizeFormatted})` : ""} <button type="button" class="sp-lightbox-copy-url" title="Copy original video URL" aria-label="Copy original video URL" data-original-url="${encodeURIComponent(f.url)}" onclick="copyImageUrl(event, this)"><img src="/assets/img/icons/copylink_icon.png" alt=""></button>`
         : `${f.name} (Offline)`;
 
       return `

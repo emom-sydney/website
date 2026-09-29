@@ -741,6 +741,32 @@ form button:hover {
   font-weight: bold;
 }
 
+.sp-lightbox-copy-url {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  margin-left: 0em;
+  padding: 0;
+  vertical-align: middle;
+}
+
+.sp-lightbox-copy-url img {
+  display: block;
+  height: 15px;
+  width: 15px;
+}
+
+.sp-lightbox-copy-url:hover,
+.sp-lightbox-copy-url:focus {
+  opacity: 0.65;
+}
+
+.sp-lightbox-copy-url-success {
+  outline: 2px solid #2e8b57;
+  outline-offset: 2px;
+}
+
 .sp-lightbox-thumbnail-caption {
   font-size: 0.75em;
 }
