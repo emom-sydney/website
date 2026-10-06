@@ -193,6 +193,15 @@
             font-size: clamp(1.2rem, 3vw, 2rem)
         }
 
+        .jukebox-art {
+            display: block;
+            width: min(42vw, 280px);
+            max-height: 280px;
+            object-fit: contain;
+            margin: 0 auto 18px;
+            border-radius: 14px
+        }
+
         .artist-qr {
             width: 150px;
             padding: 8px;
@@ -297,7 +306,7 @@
                     now_playing.text }}</p>{% else %}<p id="current-name" class="current-name empty" data-empty-label="- - -">- - -</p>{% endif %}
             </section>
             <section id="jukebox-screen" class="display-screen current" hidden>
-                <div><p class="current-label">Now playing on the jukebox</p><p id="jukebox-track" class="jukebox-track"></p><p id="jukebox-artist" class="jukebox-artist"></p></div>
+                <div><img id="jukebox-art" class="jukebox-art" alt="" hidden><p class="current-label">Now playing on the jukebox</p><p id="jukebox-track" class="jukebox-track"></p><p id="jukebox-artist" class="jukebox-artist"></p></div>
             </section>
         </section>
     </main>
@@ -311,6 +320,7 @@
         var bannerQr = document.querySelector('#banner-qr');
         var bannerQrImage = document.querySelector('#banner-qr-image');
         var jukeboxScreen = document.querySelector('#jukebox-screen');
+        var jukeboxArt = document.querySelector('#jukebox-art');
         var jukeboxTrack = document.querySelector('#jukebox-track');
         var jukeboxArtist = document.querySelector('#jukebox-artist');
         var artistQr = document.querySelector('#artist-qr');
@@ -328,6 +338,8 @@
         var backgroundUrls = {{ background_urls|tojson }};
         var lastBackgroundProfileId = null;
         var backgroundStorageKey = 'emom-now-playing-background-cycle';
+        var jukeboxRequestSerial = 0;
+        var nowPlayingRequest = null;
 
         function fitArtistName() {
             var availableWidth = currentName.clientWidth;
@@ -429,6 +441,13 @@
         function showJukebox(track) {
             setScreen('jukebox');
             inactiveSince = null;
+            if (track.artwork_url) {
+                jukeboxArt.src = track.artwork_url;
+                jukeboxArt.hidden = false;
+            } else {
+                jukeboxArt.removeAttribute('src');
+                jukeboxArt.hidden = true;
+            }
             jukeboxTrack.textContent = String(track.title || '');
             jukeboxArtist.textContent = String(track.artist || '');
         }
@@ -448,11 +467,37 @@
         }
 
         function fetchJukebox(url) {
-            if (!url) return Promise.resolve(null);
-            return fetch(url, {cache: 'no-store', credentials: 'omit'}).then(function (response) {
+            var serial = ++jukeboxRequestSerial;
+            if (!url) {
+                console.info('Now Playing: jukebox URL is not configured');
+                return Promise.resolve({serial: serial, track: null});
+            }
+            console.info('Now Playing: querying jukebox', url);
+            var controller = typeof AbortController === 'function' ? new AbortController() : null;
+            var timeout = setTimeout(function () { if (controller) controller.abort(); }, 4000);
+            var options = {cache: 'no-store', credentials: 'omit'};
+            if (controller) options.signal = controller.signal;
+            return fetch(url, options).then(function (response) {
                 if (!response.ok) throw Error('jukebox request failed');
                 return response.json();
-            }).then(isPlaying).catch(function () { return null; });
+            }).then(isPlaying).then(function (track) {
+                if (!track || !track.id) return track;
+                var imagesUrl = new URL('/api/v1/tracks/' + encodeURIComponent(track.id) + '/images', url).toString();
+                return fetch(imagesUrl, options).then(function (response) {
+                    if (!response.ok) return null;
+                    return response.json();
+                }).then(function (payload) {
+                    var images = payload && payload.data && Array.isArray(payload.data.images) ? payload.data.images : [];
+                    if (images[0] && images[0].url) track.artwork_url = new URL(images[0].url, url).toString();
+                    return track;
+                }).catch(function () { return track; });
+            }).catch(function (error) {
+                console.warn('Now Playing: jukebox request failed', url, error);
+                return null;
+            }).then(function (track) {
+                clearTimeout(timeout);
+                return {serial: serial, track: track};
+            });
         }
 
         function updateDisplay(state, jukeboxTrackState) {
@@ -471,9 +516,7 @@
                     jukeboxStartedAt = now;
                     lastBannerAt = now;
                 }
-                if (bannerUntil && now < bannerUntil) setScreen('banner');
-                else if (now - lastBannerAt >= bannerConfig.display_interval_secs * 1000) showBanner(now);
-                else showJukebox(jukeboxTrackState);
+                showJukebox(jukeboxTrackState);
                 return;
             }
             jukeboxStartedAt = null;
@@ -481,8 +524,11 @@
         }
 
         function refreshNowPlaying() {
+            if (nowPlayingRequest) nowPlayingRequest.abort();
             var request = new XMLHttpRequest();
+            nowPlayingRequest = request;
             request.open('GET', '/api/v1/live/now-playing?display=1', true);
+            request.timeout = 5000;
             request.setRequestHeader('Cache-Control', 'no-cache');
             request.onreadystatechange = function () {
                 if (request.readyState !== 4 || request.status < 200 || request.status >= 300) return;
@@ -522,11 +568,13 @@
                     artistQr.hidden = true;
                     clearChildren(artistQr);
                 }
-                fetchJukebox(payload.data.banner && payload.data.banner.jukebox_url).then(function (track) {
-                    updateDisplay(state, track);
+                fetchJukebox(payload.data.banner && payload.data.banner.jukebox_url).then(function (result) {
+                    if (result.serial !== jukeboxRequestSerial) return;
+                    updateDisplay(state, result.track);
                     fitArtistName();
                 });
             };
+            request.onloadend = function () { if (nowPlayingRequest === request) nowPlayingRequest = null; };
             request.send(null);
         }
 
