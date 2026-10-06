@@ -296,12 +296,13 @@ def register_live_routes(app):
                 events = workflow.get_upcoming_events(cursor)
                 for event in events:
                     event["performers"] = _roll_call(cursor, event["event_id"])
+                banner = _banner_settings(cursor)
             app.logger.info(
                 "stage manager loaded %d upcoming events (live event=%s)",
                 len(events),
                 value["event_id"],
             )
-            return api_data({"now_playing": value, "events": events})
+            return api_data({"now_playing": value, "events": events, "banner": banner})
         except Exception:
             app.logger.exception("stage manager API failed while loading upcoming events")
             raise
