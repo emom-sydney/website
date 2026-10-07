@@ -1,6 +1,6 @@
 (function () {
   const MAX_TOASTS = 4;
-  const DEFAULT_DURATION_MS = 4000;
+  const DEFAULT_DURATION_MS = 10000;
 
   function getRoot() {
     let root = document.getElementById("toast-root");
