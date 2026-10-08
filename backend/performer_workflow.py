@@ -3341,6 +3341,11 @@ def remove_lineup_candidate(cursor, *, event_id, requested_date_id, profile_id=N
         (event_id, requested_date_id, profile_id, profile_id),
     )
     if cursor.fetchone():
+        if profile_id is not None:
+            cursor.execute(
+                "DELETE FROM performances WHERE event_id = %s AND profile_id = %s",
+                (event_id, profile_id),
+            )
         return
 
     # Some older/manual lineup records do not have a matching selection row.
@@ -3357,6 +3362,11 @@ def remove_lineup_candidate(cursor, *, event_id, requested_date_id, profile_id=N
     )
     if not cursor.fetchone():
         raise ValueError("That performer request was not found for this event.")
+    if profile_id is not None:
+        cursor.execute(
+            "DELETE FROM performances WHERE event_id = %s AND profile_id = %s",
+            (event_id, profile_id),
+        )
 
 
 def is_lineup_selection_candidate_eligible(candidate):
