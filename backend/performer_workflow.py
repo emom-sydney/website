@@ -4597,7 +4597,7 @@ def render_token_page(*, title, content_html, layout_class="token-layout token-l
         "<div id='toast-root' class='toast-stack' aria-live='polite' aria-atomic='true'></div>"
         f"<div class='{safe_layout_class}'>"
         "<div class='token-banner'>"
-        "<img src='/assets/img/new_site_logo.png' alt='sydney.emom logo'>"
+        "<img src='/assets/img/site_logo.png' alt='sydney.emom logo'>"
         "</div>"
         f"{content_html}"
         f"{extra_scripts or ''}"
