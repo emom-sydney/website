@@ -700,7 +700,7 @@ def register_admin_api_routes(app):
                 if row:
                     cursor.execute(
                         """
-                        SELECT p.id, COALESCE(p.display_name, perf.performer_display_name), p.email, p.contact_phone
+                        SELECT perf.id, p.id, perf.performer_display_name, p.email, p.contact_phone
                         FROM performances perf
                         LEFT JOIN profiles p ON p.id = perf.profile_id
                         WHERE perf.event_id = %s
@@ -708,10 +708,27 @@ def register_admin_api_routes(app):
                         """,
                         (event_id,),
                     )
-                    performers = [
-                        {"profile_id": item[0], "display_name": item[1], "email": item[2], "contact_phone": item[3]}
-                        for item in cursor.fetchall()
-                    ]
+                    performers = []
+                    for item in cursor.fetchall():
+                        cursor.execute(
+                            """
+                            SELECT pc.person_profile_id, pc.credited_display_name, pc.credit_label, pc.sort_order
+                            FROM performance_credits pc
+                            WHERE pc.performance_id = %s
+                            ORDER BY pc.sort_order, pc.id
+                            """,
+                            (item[0],),
+                        )
+                        performers.append({
+                            "performance_id": item[0], "profile_id": item[1],
+                            "display_name": item[2], "performer_display_name": item[2],
+                            "email": item[3], "contact_phone": item[4],
+                            "guest_credits": [
+                                {"profile_id": credit[0], "display_name": credit[1],
+                                 "credit_label": credit[2], "sort_order": credit[3]}
+                                for credit in cursor.fetchall()
+                            ],
+                        })
                 else:
                     performers = []
         if not row:
@@ -732,6 +749,60 @@ def register_admin_api_routes(app):
             "type_description": row[12],
             "performers": performers,
         })
+
+    @app.put("/api/v1/admin/performances/<int:performance_id>/credits")
+    @require_staff(admin=True)
+    def update_admin_performance_credits(performance_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        billing_name = str(payload.get("performer_display_name") or "").strip()
+        credits = payload.get("guest_credits") or []
+        if not billing_name:
+            return api_error("invalid_billing_name", "A billing name is required.")
+        if not isinstance(credits, list):
+            return api_error("invalid_credits", "Guest credits must be a list.")
+        normalized = []
+        for credit in credits:
+            try:
+                profile_id = int(credit.get("profile_id"))
+            except (AttributeError, TypeError, ValueError):
+                return api_error("invalid_credit", "Each guest credit must select a person profile.")
+            normalized.append({
+                "profile_id": profile_id,
+                "credit_label": str(credit.get("credit_label") or "").strip() or None,
+            })
+        if len({item["profile_id"] for item in normalized}) != len(normalized):
+            return api_error("duplicate_credit", "A guest can only be credited once per performance.")
+        with connect() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM performances WHERE id = %s", (performance_id,))
+            if not cursor.fetchone():
+                return api_error("not_found", "Performance not found.", 404)
+            if normalized:
+                profile_ids = [item["profile_id"] for item in normalized]
+                cursor.execute(
+                    "SELECT id FROM profiles WHERE id = ANY(%s) AND profile_type = 'person' AND is_profile_approved",
+                    (profile_ids,),
+                )
+                if {row[0] for row in cursor.fetchall()} != set(profile_ids):
+                    return api_error("invalid_credit", "Every guest must be an approved person profile.")
+            cursor.execute(
+                "UPDATE performances SET performer_display_name = %s WHERE id = %s",
+                (billing_name, performance_id),
+            )
+            cursor.execute("DELETE FROM performance_credits WHERE performance_id = %s", (performance_id,))
+            for sort_order, credit in enumerate(normalized):
+                cursor.execute(
+                    """
+                    INSERT INTO performance_credits (
+                      performance_id, person_profile_id, credited_display_name, credit_label, sort_order
+                    )
+                    SELECT %s, p.id, p.display_name, %s, %s FROM profiles p WHERE p.id = %s
+                    """,
+                    (performance_id, credit["credit_label"], sort_order, credit["profile_id"]),
+                )
+        return api_data({"message": "Performance credits saved."})
 
     @app.get("/api/v1/admin/event-types")
     @require_staff(admin=True)
@@ -826,7 +897,7 @@ def register_admin_api_routes(app):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, display_name, email, contact_phone
+                    SELECT id, display_name, email, contact_phone, profile_type
                     FROM profiles
                     WHERE display_name ILIKE %s OR email ILIKE %s
                     ORDER BY display_name, id
@@ -835,10 +906,148 @@ def register_admin_api_routes(app):
                     (f"%{query}%", f"%{query}%"),
                 )
                 profiles = [
-                    {"profile_id": item[0], "display_name": item[1], "email": item[2], "contact_phone": item[3]}
+                    {"profile_id": item[0], "display_name": item[1], "email": item[2], "contact_phone": item[3], "profile_type": item[4]}
                     for item in cursor.fetchall()
                 ]
         return api_data({"profiles": profiles})
+
+    @app.get("/api/v1/admin/profiles/<int:profile_id>/relationships")
+    @require_staff(admin=True)
+    def get_admin_profile_relationships(profile_id):
+        with connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT display_name, profile_type, email, contact_phone FROM profiles WHERE id = %s",
+                (profile_id,),
+            )
+            profile = cursor.fetchone()
+            if not profile:
+                return api_error("not_found", "Profile not found.", 404)
+            if profile[1] != "group":
+                return api_error("invalid_profile", "Only group profiles have memberships.")
+            cursor.execute(
+                """
+                SELECT gm.id, gm.member_profile_id, gm.member_display_name, gm.role_label,
+                       gm.sort_order, gm.is_primary_contact, gm.is_current, gm.ended_at,
+                       p.email
+                FROM group_memberships gm
+                LEFT JOIN profiles p ON p.id = gm.member_profile_id
+                WHERE gm.group_profile_id = %s
+                ORDER BY gm.is_current DESC, gm.sort_order, gm.id
+                """,
+                (profile_id,),
+            )
+            memberships = [{
+                "membership_id": row[0], "profile_id": row[1], "display_name": row[2],
+                "role_label": row[3], "sort_order": row[4],
+                "is_primary_contact": row[5], "is_current": row[6],
+                "ended_at": row[7].isoformat() if row[7] else None,
+                "email": row[8],
+            } for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT editor_email, editor_profile_id, is_primary
+                FROM profile_editors WHERE profile_id = %s
+                ORDER BY is_primary DESC, editor_email
+                """,
+                (profile_id,),
+            )
+            editors = [{"email": row[0], "profile_id": row[1], "is_primary": row[2]}
+                       for row in cursor.fetchall()]
+        return api_data({
+            "profile": {"profile_id": profile_id, "display_name": profile[0],
+                        "email": profile[2], "contact_phone": profile[3]},
+            "memberships": memberships,
+            "editors": editors,
+        })
+
+    @app.put("/api/v1/admin/profiles/<int:profile_id>/relationships")
+    @require_staff(admin=True)
+    def update_admin_profile_relationships(profile_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        payload = request.get_json(silent=True) or {}
+        members = payload.get("members") or []
+        editors = payload.get("editors") or []
+        primary_email = str(payload.get("primary_editor_email") or "").strip().lower()
+        primary_phone = str(payload.get("primary_contact_phone") or "").strip()
+        if not isinstance(members, list) or not members:
+            return api_error("invalid_members", "A group must have at least one current member.")
+        if not primary_email:
+            return api_error("invalid_primary_editor", "The primary contact email is required.")
+        if not primary_phone:
+            return api_error("invalid_primary_contact", "The primary contact phone is required.")
+        if not isinstance(editors, list):
+            return api_error("invalid_editors", "Editors must be a list.")
+        normalized_ids = []
+        primary_ids = []
+        for item in members:
+            try:
+                member_id = int(item.get("profile_id"))
+            except (AttributeError, TypeError, ValueError):
+                return api_error("invalid_member", "Every member must select a person profile.")
+            normalized_ids.append(member_id)
+            if bool(item.get("is_primary_contact")):
+                primary_ids.append(member_id)
+        if len(set(normalized_ids)) != len(normalized_ids) or len(primary_ids) != 1:
+            return api_error("invalid_members", "Members must be unique and have exactly one primary contact.")
+        with connect() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT profile_type FROM profiles WHERE id = %s", (profile_id,))
+            group = cursor.fetchone()
+            if not group:
+                return api_error("not_found", "Profile not found.", 404)
+            if group[0] != "group":
+                return api_error("invalid_profile", "Only group profiles have memberships.")
+            cursor.execute(
+                "SELECT id, display_name FROM profiles WHERE id = ANY(%s) AND profile_type = 'person'",
+                (normalized_ids,),
+            )
+            people = {row[0]: row[1] for row in cursor.fetchall()}
+            if set(people) != set(normalized_ids):
+                return api_error("invalid_member", "Every member must be a person profile.")
+            workflow.sync_group_memberships(
+                cursor,
+                profile_id,
+                [{
+                    "id": member_id,
+                    "display_name": people[member_id],
+                    "role_label": str(members[index].get("role_label") or "").strip() or None,
+                    "sort_order": index,
+                    "is_primary_contact": member_id in primary_ids,
+                } for index, member_id in enumerate(normalized_ids)],
+                {member_id: member_id for member_id in normalized_ids},
+            )
+            primary_profile_id = primary_ids[0]
+            normalized_editors = [{"profile_id": primary_profile_id, "email": primary_email, "is_primary": True}]
+            for editor in editors:
+                try:
+                    editor_profile_id = int(editor.get("profile_id"))
+                except (AttributeError, TypeError, ValueError):
+                    return api_error("invalid_editor", "Every editor must be a current member.")
+                editor_email = str(editor.get("email") or "").strip().lower()
+                if editor_profile_id not in normalized_ids or not editor_email:
+                    return api_error("invalid_editor", "Every editor needs a current member and email.")
+                if editor_email != primary_email:
+                    normalized_editors.append({"profile_id": editor_profile_id, "email": editor_email, "is_primary": False})
+            cursor.execute("DELETE FROM profile_editors WHERE profile_id = %s", (profile_id,))
+            for editor in normalized_editors:
+                workflow.upsert_profile_editor(
+                    cursor, profile_id=editor["profile_id"], email=editor["email"],
+                    editor_profile_id=editor["profile_id"], is_primary=True,
+                )
+                workflow.upsert_profile_editor(
+                    cursor, profile_id=profile_id, email=editor["email"],
+                    editor_profile_id=editor["profile_id"], is_primary=editor["is_primary"],
+                )
+            cursor.execute(
+                "UPDATE profiles SET email = %s, contact_phone = %s WHERE id = %s",
+                (primary_email, primary_phone, profile_id),
+            )
+            cursor.execute(
+                "UPDATE profiles SET email = COALESCE(email, %s), contact_phone = COALESCE(contact_phone, %s) WHERE id = %s",
+                (primary_email, primary_phone, primary_profile_id),
+            )
+        return api_data({"message": "Group relationships saved."})
 
     @app.post("/api/v1/admin/events/<int:event_id>/lineup/performers")
     @require_staff(admin=True)
@@ -1479,6 +1688,8 @@ def register_admin_api_routes(app):
                         draft_id,
                         include_date_summary=True,
                     )
+                    draft["possible_profile_matches"] = workflow.get_possible_profile_matches(cursor, draft)
+                    workflow.attach_possible_associate_matches(cursor, draft)
             return api_data({"submission": draft})
         except ValueError as exc:
             return api_error("submission_not_found", str(exc), 404)
@@ -1517,6 +1728,45 @@ def register_admin_api_routes(app):
                     draft["requested_events"] = [item for item in draft["requested_events"] if item["requested_date_id"] in requested_date_ids]
                     draft["requested_event_ids"] = [item["event_id"] for item in draft["requested_events"]]
                     if decision == "approved":
+                        claim_profile_id = payload.get("claim_profile_id")
+                        if claim_profile_id is not None:
+                            try:
+                                claim_profile_id = int(claim_profile_id)
+                            except (TypeError, ValueError):
+                                raise ValueError("The selected existing profile is invalid.")
+                            possible_ids = {
+                                item["profile_id"]
+                                for item in workflow.get_possible_profile_matches(cursor, draft)
+                            }
+                            if claim_profile_id not in possible_ids:
+                                raise ValueError("The selected existing profile is not a valid match.")
+                            draft["profile_id"] = claim_profile_id
+                            cursor.execute(
+                                "UPDATE profile_submission_drafts SET profile_id = %s WHERE id = %s",
+                                (claim_profile_id, draft_id),
+                            )
+                        associate_claims = payload.get("associate_profile_ids") or {}
+                        if not isinstance(associate_claims, dict):
+                            raise ValueError("Associate profile matches are invalid.")
+                        workflow.attach_possible_associate_matches(cursor, draft)
+                        for associate in draft.get("associates", []):
+                            raw_match = associate_claims.get(str(associate["id"]))
+                            if raw_match in (None, ""):
+                                continue
+                            try:
+                                matched_profile_id = int(raw_match)
+                            except (TypeError, ValueError):
+                                raise ValueError("An associate profile match is invalid.")
+                            possible_ids = {
+                                item["profile_id"] for item in associate["possible_profile_matches"]
+                            }
+                            if matched_profile_id not in possible_ids:
+                                raise ValueError("An associate profile match is not valid.")
+                            associate["profile_id"] = matched_profile_id
+                            cursor.execute(
+                                "UPDATE profile_submission_associates SET profile_id = %s WHERE id = %s",
+                                (matched_profile_id, associate["id"]),
+                            )
                         profile_id = workflow.apply_approved_draft(cursor, draft, g.staff["profile_id"])
                         workflow.attach_profile_to_draft(cursor, draft_id=draft_id, profile_id=profile_id)
                     elif payload.get("include_edit_link", True):

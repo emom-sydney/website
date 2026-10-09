@@ -548,6 +548,40 @@ form button:hover {
   border-radius: 4px;
 }
 
+.performer-associate-row {
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fafafa;
+}
+
+.performer-associate-row > label,
+.performer-associate-row > fieldset {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.performer-event-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.performer-event-option > label {
+  grid-column: 2;
+}
+
+.artist-member-socials {
+  margin-left: 0.5rem;
+  font-size: 0.95em;
+}
+
+.artist-performance-credits {
+  margin-top: 0.4rem;
+}
+
 .performer-registration-new {
   color: #c00;
 }

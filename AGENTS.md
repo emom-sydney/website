@@ -53,12 +53,19 @@ Current relational tables:
 - `profile_roles`
 - `profile_images`
 - `profile_social_profiles`
+- `profile_editors`
+- `group_memberships`
+- `performance_credits`
 - `events`
 - `event_types`
 - `performances`
 - `social_platforms`
 - `profile_submission_drafts`
 - `profile_submission_social_profiles`
+- `profile_submission_associates`
+- `profile_submission_associate_social_profiles`
+- `profile_submission_group_memberships`
+- `profile_submission_guest_credits`
 - `requested_dates`
 - `action_tokens`
 - `moderation_actions`
@@ -78,6 +85,9 @@ Important model details:
 
 - `profiles` is the base entity for both people and groups
 - `profiles.profile_type` is `person` or `group`
+- `profile_editors` allows one email to manage multiple person/group acts
+- `group_memberships` links group profiles to current or former person profiles; former names remain as plain-text history
+- `performance_credits` links date-specific guest people to a performance without creating another lineup slot
 - `profile_roles.role` is currently either `artist` or `volunteer` although the latter is not applicable to profiles of type `group`
 - `profiles` now also stores moderation, visibility, and staff flags:
   - `contact_phone`
@@ -96,6 +106,7 @@ Important model details:
 - `events.event_date` is the canonical date field
 - performer registration is for Open Mic events only, currently `events.type_id = 1`
 - `requested_dates` stores performer requests plus availability reminder tracking
+- `requested_dates.performer_display_name` stages the exact billing used when a selected act is checked in
 - `event_performer_selections` stores pre-event lineup state such as `selected`, `standby`, `reserve`, and `cancelled`
 - `event_performer_selections` is for pre-show management state only; it must not become the source of show order
 - `performances.sort_order` is the canonical order of performers in the live show and should be used by stage-manager and now-playing features
@@ -296,6 +307,7 @@ Notable migrations in the repo:
 - `2026-04-26-volunteer-general-roles.sql`
 - `2026-05-01-sync-identity-sequences.sql`
 - `2026-07-29-backend-api-v1-and-admin.sql`
+- `2026-10-09-group-members-and-performance-credits.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 

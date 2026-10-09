@@ -509,8 +509,52 @@
           <label>Location <select name="location_id"><option value="">No location</option>${locationData.locations.map((location) => `<option value="${location.id}"${String(event.location_id) === String(location.id) ? " selected" : ""}>${escapeHtml(location.name)}${location.address ? ` — ${escapeHtml(location.address)}` : ""}</option>`).join("")}</select></label>
         </div>
         <label class="admin-event-edit__description">Event description <textarea name="event_description" rows="6">${escapeHtml(event.event_description)}</textarea></label>
+        ${eventId && event.performers?.length ? `<h2>Historical billing and guest credits</h2>${event.performers.map((performer) => `
+          <section data-performance-credit data-performance-id="${performer.performance_id}">
+            <label>Billing name <input data-performance-billing value="${escapeHtml(performer.performer_display_name)}"></label>
+            <div data-performance-guests>${(performer.guest_credits || []).map((credit) => `
+              <div data-performance-guest data-profile-id="${credit.profile_id || ""}">
+                <span>${escapeHtml(credit.display_name)}</span>
+                <input data-credit-label value="${escapeHtml(credit.credit_label || "")}" placeholder="e.g. featuring">
+                <button type="button" data-remove-credit>Remove</button>
+              </div>`).join("")}</div>
+            <label>Add guest <input type="search" data-credit-search autocomplete="off"></label>
+            <div data-credit-suggestions></div>
+          </section>`).join("")}` : ""}
         <button type="submit">Save and close</button>
       </form>`;
+
+    node.querySelectorAll("[data-remove-credit]").forEach((button) => button.addEventListener("click", () => button.closest("[data-performance-guest]").remove()));
+    node.querySelectorAll("[data-performance-credit]").forEach((section) => {
+      const search = section.querySelector("[data-credit-search]");
+      const suggestions = section.querySelector("[data-credit-suggestions]");
+      let timer;
+      search.addEventListener("input", () => {
+        clearTimeout(timer);
+        suggestions.innerHTML = "";
+        const query = search.value.trim();
+        if (query.length < 2) return;
+        timer = setTimeout(async () => {
+          try {
+            const result = await api(`/api/v1/admin/profiles/search?q=${encodeURIComponent(query)}`);
+            const people = result.profiles.filter((profile) => profile.profile_type === "person");
+            suggestions.innerHTML = people.map((profile, index) => `<button type="button" data-credit-suggestion="${index}">${escapeHtml(profile.display_name)}</button>`).join("");
+            suggestions.querySelectorAll("[data-credit-suggestion]").forEach((button) => button.addEventListener("click", () => {
+              const profile = people[Number(button.dataset.creditSuggestion)];
+              if (section.querySelector(`[data-performance-guest][data-profile-id="${profile.profile_id}"]`)) return;
+              const row = document.createElement("div");
+              row.dataset.performanceGuest = "";
+              row.dataset.profileId = profile.profile_id;
+              row.innerHTML = `<span>${escapeHtml(profile.display_name)}</span> <input data-credit-label placeholder="e.g. featuring"> <button type="button" data-remove-credit>Remove</button>`;
+              row.querySelector("[data-remove-credit]").addEventListener("click", () => row.remove());
+              section.querySelector("[data-performance-guests]").appendChild(row);
+              search.value = "";
+              suggestions.innerHTML = "";
+            }));
+          } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+        }, 250);
+      });
+    });
     node.querySelector("[data-event-edit-form]").addEventListener("submit", async (submitEvent) => {
       submitEvent.preventDefault();
       const form = new FormData(submitEvent.currentTarget);
@@ -519,6 +563,19 @@
           method: eventId ? "PUT" : "POST",
           body: JSON.stringify(Object.fromEntries(form)),
         });
+        await Promise.all([...node.querySelectorAll("[data-performance-credit]")].map((section) => api(
+          `/api/v1/admin/performances/${section.dataset.performanceId}/credits`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              performer_display_name: section.querySelector("[data-performance-billing]").value,
+              guest_credits: [...section.querySelectorAll("[data-performance-guest]")].map((row) => ({
+                profile_id: Number(row.dataset.profileId),
+                credit_label: row.querySelector("[data-credit-label]").value,
+              })),
+            }),
+          },
+        )));
         window.location.assign("/admin/events/");
       } catch (error) {
         window.showToast?.(error.message, { kind: "error" });
@@ -886,13 +943,108 @@
 
   async function loadProfiles(node) {
     const data = await api("/api/v1/admin/profiles/submissions?status=pending");
-    node.innerHTML = data.submissions.length
+    const submissionsHtml = data.submissions.length
       ? `<div class="admin-list">${data.submissions.map((item) => `
-          <article>
-            <h2><a href="/admin/profiles/submissions/${item.id}/">${escapeHtml(item.display_name)}</a></h2>
-            <p>${escapeHtml(item.email)} · ${escapeHtml(item.submitted_at)}</p>
-          </article>`).join("")}</div>`
+        <article>
+          <h2><a href="/admin/profiles/submissions/${item.id}/">${escapeHtml(item.display_name)}</a></h2>
+          <p>${escapeHtml(item.email)} · ${escapeHtml(item.submitted_at)}</p>
+        </article>`).join("")}</div>`
       : "<p>No profile submissions are awaiting moderation.</p>";
+    node.innerHTML = `${submissionsHtml}
+      <hr><h2>Manage a group</h2>
+      <label>Group name <input type="search" data-group-search autocomplete="off"></label>
+      <div data-group-suggestions></div><div data-group-editor></div>`;
+    const search = node.querySelector("[data-group-search]");
+    const suggestions = node.querySelector("[data-group-suggestions]");
+    const editor = node.querySelector("[data-group-editor]");
+    let timer;
+    search.addEventListener("input", () => {
+      clearTimeout(timer);
+      suggestions.innerHTML = "";
+      const query = search.value.trim();
+      if (query.length < 2) return;
+      timer = setTimeout(async () => {
+        const result = await api(`/api/v1/admin/profiles/search?q=${encodeURIComponent(query)}`);
+        const groups = result.profiles.filter((profile) => profile.profile_type === "group");
+        suggestions.innerHTML = groups.map((profile, index) => `<button type="button" data-group-index="${index}">${escapeHtml(profile.display_name)}</button>`).join("");
+        suggestions.querySelectorAll("[data-group-index]").forEach((button) => button.addEventListener("click", () => {
+          renderGroupEditor(groups[Number(button.dataset.groupIndex)].profile_id);
+          suggestions.innerHTML = "";
+        }));
+      }, 250);
+    });
+
+    async function renderGroupEditor(profileId) {
+      const relationships = await api(`/api/v1/admin/profiles/${profileId}/relationships`);
+      const members = relationships.memberships.filter((member) => member.is_current);
+      const editorByProfile = new Map(relationships.editors.map((item) => [Number(item.profile_id), item]));
+      editor.innerHTML = `<h3>${escapeHtml(relationships.profile.display_name)}</h3>
+        <form data-group-relationships>
+          <label>Primary contact email <input type="email" name="primary_editor_email" required value="${escapeHtml(relationships.editors.find((item) => item.is_primary)?.email || relationships.profile.email || "")}"></label>
+          <label>Primary contact phone <input name="primary_contact_phone" required value="${escapeHtml(relationships.profile.contact_phone || "")}"></label>
+          <div data-current-members>${members.map((member, index) => `
+            <div data-current-member data-profile-id="${member.profile_id}">
+              <strong>${escapeHtml(member.display_name)}</strong>
+              <input data-member-role value="${escapeHtml(member.role_label || "")}" placeholder="Role">
+              <label><input type="radio" name="primary_member" value="${member.profile_id}"${member.is_primary_contact ? " checked" : ""}> Primary contact</label>
+              <label><input type="checkbox" data-member-editor${editorByProfile.has(Number(member.profile_id)) ? " checked" : ""}> Can edit group</label>
+              <input type="email" data-member-email value="${escapeHtml(editorByProfile.get(Number(member.profile_id))?.email || member.email || "")}" placeholder="Member email">
+              <button type="button" data-remove-member>Remove</button>
+            </div>`).join("")}</div>
+          <label>Add existing person <input type="search" data-member-search autocomplete="off"></label>
+          <div data-member-suggestions></div>
+          ${relationships.memberships.some((member) => !member.is_current) ? `<h4>Former members</h4><ul>${relationships.memberships.filter((member) => !member.is_current).map((member) => `<li>${escapeHtml(member.display_name)}</li>`).join("")}</ul>` : ""}
+          <button type="submit">Save group</button>
+        </form>`;
+      editor.querySelectorAll("[data-remove-member]").forEach((button) => button.addEventListener("click", () => button.closest("[data-current-member]").remove()));
+      const memberSearch = editor.querySelector("[data-member-search]");
+      const memberSuggestions = editor.querySelector("[data-member-suggestions]");
+      let memberTimer;
+      memberSearch.addEventListener("input", () => {
+        clearTimeout(memberTimer);
+        const query = memberSearch.value.trim();
+        memberSuggestions.innerHTML = "";
+        if (query.length < 2) return;
+        memberTimer = setTimeout(async () => {
+          const result = await api(`/api/v1/admin/profiles/search?q=${encodeURIComponent(query)}`);
+          const people = result.profiles.filter((profile) => profile.profile_type === "person");
+          memberSuggestions.innerHTML = people.map((person, index) => `<button type="button" data-person-index="${index}">${escapeHtml(person.display_name)}</button>`).join("");
+          memberSuggestions.querySelectorAll("[data-person-index]").forEach((button) => button.addEventListener("click", () => {
+            const person = people[Number(button.dataset.personIndex)];
+            if (editor.querySelector(`[data-current-member][data-profile-id="${person.profile_id}"]`)) return;
+            const row = document.createElement("div");
+            row.dataset.currentMember = "";
+            row.dataset.profileId = person.profile_id;
+            row.innerHTML = `<strong>${escapeHtml(person.display_name)}</strong> <input data-member-role placeholder="Role"> <label><input type="radio" name="primary_member" value="${person.profile_id}"> Primary contact</label> <label><input type="checkbox" data-member-editor> Can edit group</label> <input type="email" data-member-email value="${escapeHtml(person.email || "")}" placeholder="Member email"> <button type="button" data-remove-member>Remove</button>`;
+            row.querySelector("[data-remove-member]").addEventListener("click", () => row.remove());
+            editor.querySelector("[data-current-members]").appendChild(row);
+            memberSearch.value = "";
+            memberSuggestions.innerHTML = "";
+          }));
+        }, 250);
+      });
+      editor.querySelector("[data-group-relationships]").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const primaryId = Number(form.get("primary_member"));
+        const currentMembers = [...editor.querySelectorAll("[data-current-member]")].map((row) => ({
+          profile_id: Number(row.dataset.profileId),
+          role_label: row.querySelector("[data-member-role]").value,
+          is_primary_contact: Number(row.dataset.profileId) === primaryId,
+        }));
+        const editors = [...editor.querySelectorAll("[data-current-member]")]
+          .filter((row) => row.querySelector("[data-member-editor]").checked)
+          .map((row) => ({ profile_id: Number(row.dataset.profileId), email: row.querySelector("[data-member-email]").value }));
+        try {
+          await api(`/api/v1/admin/profiles/${profileId}/relationships`, {
+            method: "PUT",
+            body: JSON.stringify({ members: currentMembers, editors, primary_editor_email: form.get("primary_editor_email"), primary_contact_phone: form.get("primary_contact_phone") }),
+          });
+          window.showToast?.("Group relationships saved.");
+          await renderGroupEditor(profileId);
+        } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
+      });
+    }
   }
 
   async function loadSubmission(node) {
@@ -911,8 +1063,28 @@
         <dt>Show Tribuo link</dt><dd>${item.show_tribuo_link ? "Yes" : "No"}</dd>
         <dt>Artist bio</dt><dd>${escapeHtml(item.artist_bio)}</dd>
         <dt>Additional info</dt><dd>${escapeHtml(item.additional_info)}</dd>
-        <dt>Social media</dt><dd>${renderSocialLinks(item.social_links)}</dd>
+      <dt>Social media</dt><dd>${renderSocialLinks(item.social_links)}</dd>
       </dl>
+      ${item.group_members?.length ? `<h3>Proposed group members</h3><ul>${item.group_members.map((member) =>
+        `<li>${escapeHtml(member.display_name)}${member.role_label ? ` — ${escapeHtml(member.role_label)}` : ""}${member.is_primary_contact ? " (primary contact)" : ""}${member.profile_id ? " (existing profile)" : " (new member-only profile)"}</li>`
+      ).join("")}</ul>` : ""}
+      ${item.requested_events?.some((requested) => requested.guest_credits?.length || requested.performer_display_name !== item.display_name)
+        ? `<h3>Billing and guest credits</h3><ul>${item.requested_events.map((requested) =>
+          `<li>${escapeHtml(requested.event_date)} — ${escapeHtml(requested.performer_display_name)}${requested.guest_credits?.length ? `<ul>${requested.guest_credits.map((guest) => `<li>${escapeHtml(guest.credit_label || "Featuring")}: ${escapeHtml(guest.display_name)}${guest.profile_id ? " (existing profile)" : " (new member-only profile)"}</li>`).join("")}</ul>` : ""}</li>`
+        ).join("")}</ul>` : ""}
+      ${item.associates?.some((associate) => associate.possible_profile_matches?.length) ? `<h3>Possible member matches</h3>${item.associates.filter((associate) => associate.possible_profile_matches?.length).map((associate) => `
+        <label>${escapeHtml(associate.display_name)}
+          <select data-associate-claim-id="${associate.id}" form="decision-form">
+            <option value="">Create a new member-only profile</option>
+            ${associate.possible_profile_matches.map((match) => `<option value="${match.profile_id}">${escapeHtml(match.display_name)}${match.is_group_member ? " — existing group member" : ""}</option>`).join("")}
+          </select>
+        </label>`).join("")}` : ""}
+      ${item.possible_profile_matches?.length ? `<label>Possible existing person profile
+        <select name="claim_profile_id" form="decision-form">
+          <option value="">Create a new profile</option>
+          ${item.possible_profile_matches.map((match) => `<option value="${match.profile_id}">${escapeHtml(match.display_name)}${match.is_group_member ? " — existing group member" : ""}</option>`).join("")}
+        </select>
+      </label>` : ""}
       ${item.previous_performances?.length ? `<p><strong>Previously performed at:</strong> ${item.previous_performances.map(escapeHtml).join(", ")}</p>` : ""}
       ${item.requested_date_summary?.length ? `
         <h3>Requested dates</h3>
@@ -945,13 +1117,20 @@
       event.preventDefault();
       const formElement = event.currentTarget;
       const form = new FormData(formElement);
+      const associateProfileIds = Object.fromEntries(
+        [...node.querySelectorAll("[data-associate-claim-id]")]
+          .filter((select) => select.value)
+          .map((select) => [select.dataset.associateClaimId, Number(select.value)])
+      );
       try {
         const result = await api(`/api/v1/admin/profiles/submissions/${draftId}/decisions`, {
           method: "POST",
           body: JSON.stringify({
             decision: form.get("decision"),
             message: form.get("message"),
-            requested_date_ids: form.getAll("requested_date_ids").map(Number),
+          requested_date_ids: form.getAll("requested_date_ids").map(Number),
+          claim_profile_id: form.get("claim_profile_id") ? Number(form.get("claim_profile_id")) : null,
+          associate_profile_ids: associateProfileIds,
             include_edit_link: form.get("include_edit_link") === "on",
           }),
         });

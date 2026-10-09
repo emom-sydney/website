@@ -95,8 +95,16 @@ def register_performer_workflow_routes(app):
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_REGISTRATION_LINK)
                     email = token_row["email"]
                     settings = get_workflow_settings(cursor)
-                    live_profile = get_existing_profile_by_email(cursor, email)
-                    latest_draft = get_latest_prefill_submission_by_email(cursor, email)
+                    manageable_profiles = get_manageable_profiles(cursor, email)
+                    requested_profile_id = request.args.get("profile_id", type=int)
+                    live_profile = get_authorized_profile(
+                        cursor, email=email, profile_id=requested_profile_id
+                    )
+                    latest_draft = (
+                        get_latest_prefill_submission(cursor, email=email, profile_id=live_profile["id"])
+                        if live_profile
+                        else get_latest_prefill_submission(cursor, email=email, profile_id=None)
+                    )
                     profile = serialize_prefill_profile(latest_draft) if latest_draft else live_profile
                     availability_profile = live_profile
                     if not availability_profile and latest_draft and latest_draft["profile_id"]:
@@ -117,6 +125,7 @@ def register_performer_workflow_routes(app):
                     "data": {
                     "email": email,
                     "profile": serialize_profile(profile),
+                    "manageable_profiles": manageable_profiles,
                     "can_subscribe_alumni": has_performed,
                     "subscribe_alumni": subscribe_alumni,
                     "social_platforms": social_platforms,
@@ -130,6 +139,23 @@ def register_performer_workflow_routes(app):
         except Exception:
             app.logger.exception("Performer registration session lookup failed")
             return error_response("Unable to load performer registration right now.", 500)
+
+    @app.get("/api/v1/profiles/member-candidates")
+    def member_candidates():
+        raw_token = get_bearer_token()
+        query = normalize_text(request.args.get("q")) or ""
+        if not raw_token:
+            return error_response("A registration token is required.", 400)
+        if len(query) < 2:
+            return jsonify({"data": {"profiles": []}})
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    get_action_token(cursor, raw_token, ACTION_TYPE_REGISTRATION_LINK)
+                    profiles = search_member_candidates(cursor, query)
+            return jsonify({"data": {"profiles": profiles}})
+        except ValueError as exc:
+            return error_response(str(exc), 400)
 
     @app.route("/api/v1/profiles/submissions", methods=["OPTIONS"])
     def performer_registration_submit_options():
@@ -146,7 +172,12 @@ def register_performer_workflow_routes(app):
                 with connection.cursor() as cursor:
                     token_row = get_action_token(cursor, raw_token, ACTION_TYPE_REGISTRATION_LINK)
                     email = token_row["email"]
-                    profile = get_existing_profile_by_email(cursor, email)
+                    requested_profile_id = request.args.get("profile_id", type=int)
+                    profile = (
+                        get_authorized_profile(cursor, email=email, profile_id=requested_profile_id)
+                        if requested_profile_id is not None
+                        else get_existing_profile_by_email(cursor, email)
+                    )
 
                     if profile:
                         cursor.execute(
@@ -196,18 +227,27 @@ def register_performer_workflow_routes(app):
                     email = token_row["email"]
                     settings = get_workflow_settings(cursor)
                     draft_payload = normalize_profile_submission_payload(payload, email)
-                    profile, matched_by = get_existing_profile_for_submission(
-                        cursor,
-                        email=email,
-                        display_name=draft_payload["display_name"],
+                    profile = get_authorized_profile(
+                        cursor, email=email, profile_id=draft_payload.get("profile_id")
                     )
+                    if profile and profile["profile_type"] != draft_payload["profile_type"]:
+                        raise ValueError("An existing profile cannot be changed between person and group.")
+                    matched_by = "editor_grant" if profile else None
                     has_performed = has_profile_performed(cursor, profile["id"]) if profile else False
                     available_events = get_available_events(cursor, profile["id"] if profile else None, settings)
                     available_event_ids = {event["id"] for event in available_events}
                     ensure_requested_events_are_allowed(draft_payload["requested_event_ids"], available_event_ids)
                     ensure_social_platforms_exist(
-                        cursor, [item["social_platform_id"] for item in draft_payload["social_links"]]
+                        cursor,
+                        [item["social_platform_id"] for item in draft_payload["social_links"]]
+                        + [
+                            link["social_platform_id"]
+                            for associate in draft_payload["associates"]
+                            for link in associate["social_links"]
+                        ],
                     )
+                    ensure_associate_profiles_are_people(cursor, draft_payload["associates"])
+                    ensure_primary_contact_is_controlled(cursor, email, draft_payload)
 
                     supersede_pending_drafts(cursor, profile["id"] if profile else None, email)
                     draft_id = insert_profile_submission_draft(
@@ -218,7 +258,15 @@ def register_performer_workflow_routes(app):
                     )
 
                     insert_profile_submission_social_links(cursor, draft_id, draft_payload["social_links"])
-                    insert_requested_dates(cursor, draft_id, draft_payload["requested_event_ids"])
+                    associate_ids = insert_profile_submission_associates(
+                        cursor, draft_id, draft_payload["associates"]
+                    )
+                    insert_profile_submission_group_memberships(
+                        cursor, draft_id, draft_payload["group_members"], associate_ids
+                    )
+                    insert_requested_events(
+                        cursor, draft_id, draft_payload["requested_events"], associate_ids
+                    )
                     stored_draft = get_profile_submission_draft(cursor, draft_id)
                     current_status_summary = get_upcoming_event_status_summary(cursor)
 
@@ -276,6 +324,15 @@ def register_performer_workflow_routes(app):
                     draft = get_profile_submission_draft(cursor, token_row["draft_id"])
                     if draft["status"] != WORKFLOW_STATUS_PENDING:
                         raise ValueError("This submission has already been reviewed.")
+                    if draft["profile_id"] is None and get_possible_profile_matches(cursor, draft):
+                        raise ValueError(
+                            "This submission may match an existing person profile and must be reviewed in the staff area."
+                        )
+                    attach_possible_associate_matches(cursor, draft)
+                    if any(item.get("possible_profile_matches") for item in draft.get("associates", [])):
+                        raise ValueError(
+                            "One or more proposed members may match existing profiles and must be reviewed in the staff area."
+                        )
 
                     profile_id = apply_approved_draft(cursor, draft, token_row["profile_id"])
                     attach_profile_to_draft(cursor, draft_id=draft["id"], profile_id=profile_id)
@@ -964,77 +1021,142 @@ def parse_lineup_selection_statuses(form, candidates):
     return parsed
 
 
-def normalize_profile_submission_payload(payload, email):
-    profile_type = normalize_text(payload.get("profile_type"))
-    display_name = normalize_text(payload.get("display_name"))
-    first_name = normalize_text(payload.get("first_name"))
-    last_name = normalize_text(payload.get("last_name"))
-    contact_phone = normalize_text(payload.get("contact_phone"))
-    artist_bio = normalize_text(payload.get("artist_bio"))
-    additional_info = normalize_text(payload.get("additional_info"))
-    show_tribuo_link = normalize_boolean(payload.get("show_tribuo_link"), default=False)
-    social_links = payload.get("social_links") or []
-    requested_event_ids = payload.get("requested_event_ids") or []
-
-    if profile_type not in {"person", "group"}:
-        raise ValueError("Profile type must be either 'person' or 'group'.")
-
-    if not display_name:
-        raise ValueError("A display name is required.")
-
-    if not contact_phone:
-        raise ValueError("A contact phone number is required.")
-
-    if not isinstance(requested_event_ids, list) or not requested_event_ids:
-        raise ValueError("At least one requested event date is required.")
-
-    normalized_event_ids = []
-    for event_id in requested_event_ids:
-        if not isinstance(event_id, int):
-            raise ValueError("Requested event ids must be integers.")
-        if event_id not in normalized_event_ids:
-            normalized_event_ids.append(event_id)
-
-    if not isinstance(social_links, list):
+def normalize_social_links(value):
+    if not isinstance(value, list):
         raise ValueError("Social links must be an array.")
-
-    normalized_social_links = []
-    for item in social_links:
+    normalized = []
+    for item in value:
         if not isinstance(item, dict):
             raise ValueError("Each social link must be an object.")
-
         social_platform_id = item.get("social_platform_id")
         profile_name = normalize_text(item.get("profile_name"))
         if social_platform_id is None and not profile_name:
             continue
-        if not isinstance(social_platform_id, int):
-            raise ValueError("Each social link must include an integer social_platform_id.")
-        if not profile_name:
-            raise ValueError("Each social link must include a profile name.")
+        if not isinstance(social_platform_id, int) or not profile_name:
+            raise ValueError("Each social link must include a platform and profile name.")
+        normalized.append({"social_platform_id": social_platform_id, "profile_name": profile_name})
+    return normalized
 
-        normalized_social_links.append(
-            {
-                "social_platform_id": social_platform_id,
-                "profile_name": profile_name,
-            }
-        )
+
+def normalize_profile_submission_payload(payload, email):
+    profile_type = normalize_text(payload.get("profile_type"))
+    display_name = normalize_text(payload.get("display_name"))
+    contact_phone = normalize_text(payload.get("contact_phone"))
+    if profile_type not in {"person", "group"}:
+        raise ValueError("Profile type must be either 'person' or 'group'.")
+    if not display_name:
+        raise ValueError("A display name is required.")
+    if not contact_phone:
+        raise ValueError("A contact phone number is required.")
+
+    associates_input = payload.get("associates") or []
+    if not isinstance(associates_input, list):
+        raise ValueError("Associates must be an array.")
+    associates = []
+    associate_keys = set()
+    for sort_order, item in enumerate(associates_input):
+        if not isinstance(item, dict):
+            raise ValueError("Each associate must be an object.")
+        client_key = normalize_text(item.get("client_key"))
+        profile_id = item.get("profile_id")
+        name = normalize_text(item.get("display_name"))
+        if not client_key or client_key in associate_keys:
+            raise ValueError("Each associate needs a unique client_key.")
+        if profile_id is not None and not isinstance(profile_id, int):
+            raise ValueError("Associate profile ids must be integers.")
+        if not name:
+            raise ValueError("Each associate needs a display name.")
+        associate_keys.add(client_key)
+        associates.append({
+            "client_key": client_key,
+            "profile_id": profile_id,
+            "display_name": name,
+            "social_links": normalize_social_links(item.get("social_links") or []),
+            "sort_order": sort_order,
+        })
+
+    group_members = payload.get("group_members") or []
+    if not isinstance(group_members, list):
+        raise ValueError("Group members must be an array.")
+    normalized_members = []
+    for sort_order, item in enumerate(group_members):
+        if not isinstance(item, dict) or item.get("associate_key") not in associate_keys:
+            raise ValueError("Each group member must reference an associate.")
+        normalized_members.append({
+            "associate_key": item["associate_key"],
+            "role_label": normalize_text(item.get("role_label")),
+            "is_primary_contact": normalize_boolean(item.get("is_primary_contact"), default=False),
+            "sort_order": sort_order,
+        })
+    relationship_payload_supplied = "associates" in payload or "group_members" in payload
+    if profile_type == "group" and relationship_payload_supplied:
+        if not normalized_members:
+            raise ValueError("A group must include at least one member.")
+        if sum(1 for item in normalized_members if item["is_primary_contact"]) != 1:
+            raise ValueError("A group must have exactly one primary contact member.")
+        associates_by_key = {item["client_key"]: item for item in associates}
+        existing_member_ids = [
+            associates_by_key[item["associate_key"]]["profile_id"]
+            for item in normalized_members
+            if associates_by_key[item["associate_key"]]["profile_id"] is not None
+        ]
+        if len(existing_member_ids) != len(set(existing_member_ids)):
+            raise ValueError("A person can only be listed once as a current group member.")
+    elif profile_type != "group" and normalized_members:
+        raise ValueError("Only group profiles can have group members.")
+
+    requested_events_input = payload.get("requested_events")
+    if requested_events_input is None:
+        requested_events_input = [
+            {"event_id": event_id, "performer_display_name": display_name, "guest_credits": []}
+            for event_id in (payload.get("requested_event_ids") or [])
+        ]
+    if not isinstance(requested_events_input, list) or not requested_events_input:
+        raise ValueError("At least one requested event date is required.")
+    requested_events = []
+    seen_event_ids = set()
+    for item in requested_events_input:
+        if not isinstance(item, dict) or not isinstance(item.get("event_id"), int):
+            raise ValueError("Requested event ids must be integers.")
+        event_id = item["event_id"]
+        if event_id in seen_event_ids:
+            raise ValueError("A requested event date can only be included once.")
+        seen_event_ids.add(event_id)
+        guests = []
+        for sort_order, guest in enumerate(item.get("guest_credits") or []):
+            if not isinstance(guest, dict) or guest.get("associate_key") not in associate_keys:
+                raise ValueError("Each guest credit must reference an associate.")
+            guests.append({
+                "associate_key": guest["associate_key"],
+                "credit_label": normalize_text(guest.get("credit_label")),
+                "sort_order": sort_order,
+            })
+        requested_events.append({
+            "event_id": event_id,
+            "performer_display_name": normalize_text(item.get("performer_display_name")) or display_name,
+            "guest_credits": guests,
+        })
 
     return {
+        "profile_id": payload.get("profile_id"),
         "email": email,
         "profile_type": profile_type,
         "display_name": display_name,
-        "first_name": first_name,
-        "last_name": last_name,
+        "first_name": normalize_text(payload.get("first_name")),
+        "last_name": normalize_text(payload.get("last_name")),
         "contact_phone": contact_phone,
         "is_email_public": normalize_boolean(payload.get("is_email_public"), default=False),
         "is_name_public": normalize_boolean(payload.get("is_name_public"), default=False),
         "subscribe_alumni": normalize_boolean(payload.get("subscribe_alumni"), default=False),
-        "show_tribuo_link": show_tribuo_link,
-        "artist_bio": artist_bio,
+        "show_tribuo_link": normalize_boolean(payload.get("show_tribuo_link"), default=False),
+        "artist_bio": normalize_text(payload.get("artist_bio")),
         "is_artist_bio_public": True,
-        "additional_info": additional_info,
-        "social_links": normalized_social_links,
-        "requested_event_ids": normalized_event_ids,
+        "additional_info": normalize_text(payload.get("additional_info")),
+        "social_links": normalize_social_links(payload.get("social_links") or []),
+        "associates": associates,
+        "group_members": normalized_members,
+        "requested_events": requested_events,
+        "requested_event_ids": [item["event_id"] for item in requested_events],
     }
 
 
@@ -1279,6 +1401,7 @@ def get_existing_profile_by_email(cursor, email):
         }
         for social_platform_id, profile_name, platform_name, url_format in cursor.fetchall()
     ]
+    attach_live_group_members(cursor, profile)
     return profile
 
 
@@ -1308,6 +1431,56 @@ def get_existing_profile_by_display_name(cursor, display_name):
     return get_existing_profile_by_id(cursor, rows[0][0])
 
 
+def get_possible_profile_matches(cursor, draft):
+    cursor.execute(
+        """
+        SELECT p.id, p.display_name,
+               p.is_profile_index_visible,
+               EXISTS (SELECT 1 FROM group_memberships gm WHERE gm.member_profile_id = p.id) AS is_group_member
+        FROM profiles p
+        WHERE p.profile_type = 'person'
+          AND lower(p.display_name) = lower(%s)
+          AND (%s IS NULL OR p.id <> %s)
+        ORDER BY is_group_member DESC, p.id
+        """,
+        (draft["display_name"], draft.get("profile_id"), draft.get("profile_id")),
+    )
+    return [
+        {"profile_id": row[0], "display_name": row[1],
+         "is_profile_index_visible": row[2], "is_group_member": row[3]}
+        for row in cursor.fetchall()
+    ]
+
+
+def attach_possible_associate_matches(cursor, draft):
+    for associate in draft.get("associates", []):
+        associate["possible_profile_matches"] = []
+        if associate["profile_id"] is not None:
+            continue
+        cursor.execute(
+            """
+            SELECT p.id, p.display_name,
+                   EXISTS (SELECT 1 FROM group_memberships gm WHERE gm.member_profile_id = p.id)
+            FROM profiles p
+            WHERE p.profile_type = 'person'
+              AND lower(p.display_name) = lower(%s)
+            ORDER BY 3 DESC, p.id
+            """,
+            (associate["display_name"],),
+        )
+        associate["possible_profile_matches"] = [
+            {"profile_id": row[0], "display_name": row[1], "is_group_member": row[2]}
+            for row in cursor.fetchall()
+        ]
+    matches_by_id = {item["id"]: item.get("possible_profile_matches", []) for item in draft.get("associates", [])}
+    for collection in [draft.get("group_members", [])] + [
+        event.get("guest_credits", []) for event in draft.get("requested_events", [])
+    ]:
+        for item in collection:
+            item["possible_profile_matches"] = matches_by_id.get(item["id"], [])
+    return draft
+
+
 def has_profile_performed(cursor, profile_id):
     cursor.execute(
         """
@@ -1327,6 +1500,24 @@ def delete_performer_profile_data(cursor, *, email, profile_id):
     if profile_id is not None:
         cursor.execute(
             """
+            SELECT g.display_name
+            FROM group_memberships gm
+            JOIN profiles g ON g.id = gm.group_profile_id
+            WHERE gm.member_profile_id = %s
+              AND gm.is_current = true
+              AND gm.is_primary_contact = true
+            ORDER BY g.display_name
+            LIMIT 1
+            """,
+            (profile_id,),
+        )
+        primary_group = cursor.fetchone()
+        if primary_group:
+            raise ValueError(
+                f"You are the primary contact for {primary_group[0]}. Please ask an administrator to assign a replacement before deleting your profile."
+            )
+        cursor.execute(
+            """
             UPDATE performances perf
             SET performer_display_name = COALESCE(NULLIF(BTRIM(perf.performer_display_name), ''), p.display_name),
                 profile_id = NULL
@@ -1336,6 +1527,30 @@ def delete_performer_profile_data(cursor, *, email, profile_id):
             """,
             (profile_id,),
         )
+        cursor.execute(
+            """
+            UPDATE performance_credits pc
+            SET credited_display_name = COALESCE(NULLIF(BTRIM(pc.credited_display_name), ''), p.display_name),
+                person_profile_id = NULL
+            FROM profiles p
+            WHERE p.id = %s AND pc.person_profile_id = p.id
+            """,
+            (profile_id,),
+        )
+        cursor.execute(
+            """
+            UPDATE group_memberships gm
+            SET member_display_name = COALESCE(NULLIF(BTRIM(gm.member_display_name), ''), p.display_name),
+                member_profile_id = NULL,
+                is_current = false,
+                is_primary_contact = false,
+                ended_at = COALESCE(gm.ended_at, now())
+            FROM profiles p
+            WHERE p.id = %s AND gm.member_profile_id = p.id
+            """,
+            (profile_id,),
+        )
+        cursor.execute("DELETE FROM profile_editors WHERE editor_profile_id = %s", (profile_id,))
 
         # These are attribution fields on other records, not performer-owned data.
         # Clear them before deleting the profile so the deletion cannot leave a
@@ -1481,19 +1696,119 @@ def get_existing_profile_by_id(cursor, profile_id):
         }
         for social_platform_id, profile_name, platform_name, url_format in cursor.fetchall()
     ]
+    attach_live_group_members(cursor, profile)
     return profile
+
+
+def attach_live_group_members(cursor, profile):
+    profile["associates"] = []
+    profile["group_members"] = []
+    profile["requested_events"] = []
+    if profile["profile_type"] != "group":
+        return
+    cursor.execute(
+        """
+        SELECT gm.id, gm.member_profile_id, gm.member_display_name, gm.role_label,
+               gm.sort_order, gm.is_primary_contact,
+               psp.social_platform_id, psp.profile_name, sp.platform_name, sp.url_format
+        FROM group_memberships gm
+        LEFT JOIN profile_social_profiles psp ON psp.profile_id = gm.member_profile_id
+        LEFT JOIN social_platforms sp ON sp.id = psp.social_platform_id
+        WHERE gm.group_profile_id = %s AND gm.is_current = true
+        ORDER BY gm.sort_order, gm.id, psp.id
+        """,
+        (profile["id"],),
+    )
+    members_by_id = {}
+    for item in cursor.fetchall():
+        member = members_by_id.setdefault(item[0], {
+            "id": item[0], "client_key": f"member-{item[0]}",
+            "profile_id": item[1], "display_name": item[2], "role_label": item[3],
+            "sort_order": item[4], "is_primary_contact": item[5], "social_links": [],
+        })
+        if item[6] is not None:
+            member["social_links"].append({
+                "social_platform_id": item[6], "profile_name": item[7],
+                "platform_name": item[8], "url_format": item[9],
+            })
+    profile["group_members"] = list(members_by_id.values())
+    profile["associates"] = list(members_by_id.values())
 
 
 def get_existing_profile_for_submission(cursor, *, email, display_name):
     profile = get_existing_profile_by_email(cursor, email)
     if profile:
         return profile, "email"
-
-    profile = get_existing_profile_by_display_name(cursor, display_name)
-    if profile:
-        return profile, "display_name"
-
     return None, None
+
+
+def get_manageable_profiles(cursor, email):
+    cursor.execute(
+        """
+        SELECT DISTINCT p.id, p.profile_type, p.display_name
+        FROM profiles p
+        JOIN profile_editors pe ON pe.profile_id = p.id
+        WHERE lower(pe.editor_email) = lower(%s)
+        ORDER BY p.display_name, p.id
+        """,
+        (email,),
+    )
+    return [
+        {"id": row[0], "profile_type": row[1], "display_name": row[2]}
+        for row in cursor.fetchall()
+    ]
+
+
+def get_authorized_profile(cursor, *, email, profile_id):
+    if profile_id is None:
+        manageable = get_manageable_profiles(cursor, email)
+        if len(manageable) == 1:
+            profile_id = manageable[0]["id"]
+        elif not manageable:
+            return None
+        else:
+            return None
+    if not isinstance(profile_id, int):
+        raise ValueError("A valid profile id is required.")
+    cursor.execute(
+        """
+        SELECT 1
+        FROM profile_editors
+        WHERE profile_id = %s AND lower(editor_email) = lower(%s)
+        """,
+        (profile_id, email),
+    )
+    if not cursor.fetchone():
+        raise ValueError("You do not have permission to edit that profile.")
+    return get_existing_profile_by_id(cursor, profile_id)
+
+
+def search_member_candidates(cursor, query):
+    cursor.execute(
+        """
+        SELECT p.id, p.display_name,
+               COALESCE(json_agg(json_build_object(
+                 'social_platform_id', sp.id,
+                 'platform_name', sp.platform_name,
+                 'profile_name', psp.profile_name,
+                 'url_format', sp.url_format
+               ) ORDER BY psp.id) FILTER (WHERE psp.id IS NOT NULL), '[]'::json)
+        FROM profiles p
+        LEFT JOIN profile_social_profiles psp ON psp.profile_id = p.id
+        LEFT JOIN social_platforms sp ON sp.id = psp.social_platform_id
+        WHERE p.profile_type = 'person'
+          AND p.is_profile_approved = true
+          AND p.display_name ILIKE %s
+        GROUP BY p.id, p.display_name
+        ORDER BY p.display_name, p.id
+        LIMIT 12
+        """,
+        (f"%{query}%",),
+    )
+    return [
+        {"profile_id": row[0], "display_name": row[1], "social_links": row[2] or []}
+        for row in cursor.fetchall()
+    ]
 
 
 def serialize_profile(profile):
@@ -1515,6 +1830,9 @@ def serialize_profile(profile):
         "additional_info": profile.get("additional_info"),
         "has_artist_role": profile["has_artist_role"],
         "social_links": profile["social_links"],
+        "associates": profile.get("associates", []),
+        "group_members": profile.get("group_members", []),
+        "requested_events": profile.get("requested_events", []),
         "requested_event_ids": profile.get("requested_event_ids", []),
     }
 
@@ -1538,6 +1856,9 @@ def serialize_prefill_profile(draft):
         "additional_info": draft.get("additional_info"),
         "has_artist_role": True,
         "social_links": draft["social_links"],
+        "associates": draft.get("associates", []),
+        "group_members": draft.get("group_members", []),
+        "requested_events": draft.get("requested_events", []),
         "requested_event_ids": draft["requested_event_ids"],
     }
 
@@ -1563,22 +1884,33 @@ def get_social_platforms(cursor):
     ]
 
 
-def get_latest_prefill_submission_by_email(cursor, email):
+def get_latest_prefill_submission(cursor, *, email, profile_id):
+    profile_condition = "profile_id = %s" if profile_id is not None else "profile_id IS NULL"
+    params = [email]
+    if profile_id is not None:
+        params.append(profile_id)
+    params.extend([WORKFLOW_STATUS_PENDING, WORKFLOW_STATUS_DENIED, WORKFLOW_STATUS_APPROVED])
     cursor.execute(
-        """
+        f"""
         SELECT id
         FROM profile_submission_drafts
         WHERE lower(email) = lower(%s)
+          AND {profile_condition}
           AND status IN (%s, %s, %s)
         ORDER BY submitted_at DESC, id DESC
         LIMIT 1
         """,
-        (email, WORKFLOW_STATUS_PENDING, WORKFLOW_STATUS_DENIED, WORKFLOW_STATUS_APPROVED),
+        tuple(params),
     )
     row = cursor.fetchone()
     if not row:
         return None
     return get_profile_submission_draft(cursor, row[0])
+
+
+def get_latest_prefill_submission_by_email(cursor, email):
+    """Compatibility wrapper for callers that still expect the pre-multi-act lookup."""
+    return get_latest_prefill_submission(cursor, email=email, profile_id=None)
 
 
 def get_available_events(cursor, profile_id, settings):
@@ -1751,15 +2083,118 @@ def insert_profile_submission_social_links(cursor, draft_id, social_links):
         )
 
 
-def insert_requested_dates(cursor, draft_id, requested_event_ids):
-    for event_id in requested_event_ids:
+def ensure_associate_profiles_are_people(cursor, associates):
+    profile_ids = sorted({item["profile_id"] for item in associates if item["profile_id"] is not None})
+    if not profile_ids:
+        return
+    cursor.execute(
+        "SELECT id FROM profiles WHERE id = ANY(%s) AND profile_type = 'person' AND is_profile_approved = true",
+        (profile_ids,),
+    )
+    if {row[0] for row in cursor.fetchall()} != set(profile_ids):
+        raise ValueError("One or more selected members are not approved person profiles.")
+
+
+def ensure_primary_contact_is_controlled(cursor, email, draft_payload):
+    if draft_payload["profile_type"] != "group" or not draft_payload["group_members"]:
+        return
+    primary_key = next(
+        item["associate_key"] for item in draft_payload["group_members"] if item["is_primary_contact"]
+    )
+    primary = next(item for item in draft_payload["associates"] if item["client_key"] == primary_key)
+    if primary["profile_id"] is None:
+        return
+    cursor.execute(
+        """
+        SELECT 1 FROM profile_editors
+        WHERE profile_id = %s AND lower(editor_email) = lower(%s)
+        """,
+        (primary["profile_id"], email),
+    )
+    if not cursor.fetchone():
+        raise ValueError("The primary contact must be a member profile managed by your email address.")
+
+
+def insert_profile_submission_associates(cursor, draft_id, associates):
+    associate_ids = {}
+    for item in associates:
         cursor.execute(
             """
-            INSERT INTO requested_dates (draft_id, event_id)
-            VALUES (%s, %s)
+            INSERT INTO profile_submission_associates
+              (draft_id, client_key, profile_id, display_name, sort_order)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
             """,
-            (draft_id, event_id),
+            (draft_id, item["client_key"], item["profile_id"], item["display_name"], item["sort_order"]),
         )
+        associate_id = cursor.fetchone()[0]
+        associate_ids[item["client_key"]] = associate_id
+        if item["profile_id"] is None:
+            for sort_order, link in enumerate(item["social_links"]):
+                cursor.execute(
+                    """
+                    INSERT INTO profile_submission_associate_social_profiles
+                      (associate_id, social_platform_id, profile_name, sort_order)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (associate_id, link["social_platform_id"], link["profile_name"], sort_order),
+                )
+    return associate_ids
+
+
+def insert_profile_submission_group_memberships(cursor, draft_id, members, associate_ids):
+    for member in members:
+        cursor.execute(
+            """
+            INSERT INTO profile_submission_group_memberships
+              (draft_id, associate_id, role_label, sort_order, is_primary_contact)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                draft_id,
+                associate_ids[member["associate_key"]],
+                member["role_label"],
+                member["sort_order"],
+                member["is_primary_contact"],
+            ),
+        )
+
+
+def insert_requested_events(cursor, draft_id, requested_events, associate_ids):
+    for requested_event in requested_events:
+        cursor.execute(
+            """
+            INSERT INTO requested_dates (draft_id, event_id, performer_display_name)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (draft_id, requested_event["event_id"], requested_event["performer_display_name"]),
+        )
+        requested_date_id = cursor.fetchone()[0]
+        for guest in requested_event["guest_credits"]:
+            cursor.execute(
+                """
+                INSERT INTO profile_submission_guest_credits
+                  (requested_date_id, associate_id, credit_label, sort_order)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    requested_date_id,
+                    associate_ids[guest["associate_key"]],
+                    guest["credit_label"],
+                    guest["sort_order"],
+                ),
+            )
+
+
+def insert_requested_dates(cursor, draft_id, requested_event_ids):
+    insert_requested_events(
+        cursor,
+        draft_id,
+        [{"event_id": event_id, "performer_display_name": None, "guest_credits": []}
+         for event_id in requested_event_ids],
+        {},
+    )
 
 
 def get_requested_date_with_context(cursor, requested_date_id):
@@ -1953,6 +2388,8 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
         "show_tribuo_link": row[13],
         "status": row[14],
         "social_links": [],
+        "associates": [],
+        "group_members": [],
         "requested_event_ids": [],
         "requested_events": [],
     }
@@ -1979,8 +2416,10 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
 
     cursor.execute(
         """
-        SELECT rd.id, rd.event_id, e.event_date, e.event_name
+        SELECT rd.id, rd.event_id, e.event_date, e.event_name,
+               COALESCE(rd.performer_display_name, d.display_name)
         FROM requested_dates rd
+        JOIN profile_submission_drafts d ON d.id = rd.draft_id
         JOIN events e ON e.id = rd.event_id
         WHERE rd.draft_id = %s
         ORDER BY e.event_date, rd.event_id
@@ -1988,11 +2427,74 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
         (draft_id,),
     )
     requested_events = [
-        {"requested_date_id": row[0], "event_id": row[1], "event_date": row[2].isoformat(), "event_name": row[3]}
+        {
+            "requested_date_id": row[0],
+            "event_id": row[1],
+            "event_date": row[2].isoformat(),
+            "event_name": row[3],
+            "performer_display_name": row[4],
+            "guest_credits": [],
+        }
         for row in cursor.fetchall()
     ]
     draft["requested_events"] = requested_events
     draft["requested_event_ids"] = [item["event_id"] for item in requested_events]
+
+    cursor.execute(
+        """
+        SELECT a.id, a.client_key, a.profile_id, a.display_name,
+               s.social_platform_id, s.profile_name, sp.platform_name, sp.url_format
+        FROM profile_submission_associates a
+        LEFT JOIN profile_submission_associate_social_profiles s ON s.associate_id = a.id
+        LEFT JOIN social_platforms sp ON sp.id = s.social_platform_id
+        WHERE a.draft_id = %s
+        ORDER BY a.sort_order, a.id, s.sort_order, s.id
+        """,
+        (draft_id,),
+    )
+    associates_by_id = {}
+    for item in cursor.fetchall():
+        associate = associates_by_id.setdefault(item[0], {
+            "id": item[0], "client_key": item[1], "profile_id": item[2],
+            "display_name": item[3], "social_links": [],
+        })
+        if item[4] is not None:
+            associate["social_links"].append({
+                "social_platform_id": item[4], "profile_name": item[5],
+                "platform_name": item[6], "url_format": item[7],
+            })
+    draft["associates"] = list(associates_by_id.values())
+
+    cursor.execute(
+        """
+        SELECT associate_id, role_label, sort_order, is_primary_contact
+        FROM profile_submission_group_memberships
+        WHERE draft_id = %s
+        ORDER BY sort_order, associate_id
+        """,
+        (draft_id,),
+    )
+    draft["group_members"] = [
+        {**associates_by_id[row[0]], "role_label": row[1], "sort_order": row[2], "is_primary_contact": row[3]}
+        for row in cursor.fetchall()
+    ]
+
+    events_by_requested_date = {item["requested_date_id"]: item for item in requested_events}
+    cursor.execute(
+        """
+        SELECT g.requested_date_id, g.associate_id, g.credit_label, g.sort_order
+        FROM profile_submission_guest_credits g
+        JOIN requested_dates rd ON rd.id = g.requested_date_id
+        WHERE rd.draft_id = %s
+        ORDER BY g.requested_date_id, g.sort_order, g.associate_id
+        """,
+        (draft_id,),
+    )
+    for row in cursor.fetchall():
+        events_by_requested_date[row[0]]["guest_credits"].append({
+            **associates_by_id[row[1]], "credit_label": row[2], "sort_order": row[3],
+        })
+
     draft["previous_performances"] = []
     if draft["profile_id"] is not None:
         cursor.execute(
@@ -2185,6 +2687,20 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
 
     upsert_artist_role(cursor, profile_id, draft["artist_bio"], True)
     replace_profile_social_links(cursor, profile_id, draft["social_links"])
+    associate_profiles = resolve_submission_associates(cursor, draft, approved_by_profile_id)
+    if draft["profile_type"] == "group" and draft.get("group_members"):
+        sync_group_memberships(cursor, profile_id, draft["group_members"], associate_profiles)
+        primary_member = next(item for item in draft["group_members"] if item["is_primary_contact"])
+        editor_profile_id = associate_profiles[primary_member["id"]]
+    else:
+        editor_profile_id = profile_id if draft["profile_type"] == "person" else None
+    upsert_profile_editor(
+        cursor,
+        profile_id=profile_id,
+        email=draft["email"],
+        editor_profile_id=editor_profile_id,
+        is_primary=True,
+    )
     update_profile_visibility_from_requests(cursor, profile_id, draft["requested_event_ids"])
     set_tribuo_tag(
         cursor,
@@ -2219,6 +2735,113 @@ def replace_profile_social_links(cursor, profile_id, social_links):
             VALUES (%s, %s, %s)
             """,
             (profile_id, item["social_platform_id"], item["profile_name"]),
+        )
+
+
+def upsert_profile_editor(cursor, *, profile_id, email, editor_profile_id, is_primary=False):
+    if is_primary:
+        cursor.execute("UPDATE profile_editors SET is_primary = false WHERE profile_id = %s", (profile_id,))
+    cursor.execute(
+        """
+        INSERT INTO profile_editors (profile_id, editor_email, editor_profile_id, is_primary)
+        VALUES (%s, lower(%s), %s, %s)
+        ON CONFLICT (profile_id, editor_email)
+        DO UPDATE SET editor_profile_id = EXCLUDED.editor_profile_id,
+                      is_primary = EXCLUDED.is_primary
+        """,
+        (profile_id, email, editor_profile_id, is_primary),
+    )
+
+
+def resolve_submission_associates(cursor, draft, approved_by_profile_id):
+    primary_associate_ids = {
+        item["id"] for item in draft.get("group_members", []) if item["is_primary_contact"]
+    }
+    resolved = {}
+    for associate in draft.get("associates", []):
+        profile_id = associate["profile_id"]
+        if profile_id is None:
+            is_primary_contact = associate["id"] in primary_associate_ids
+            cursor.execute(
+                """
+                INSERT INTO profiles (
+                  profile_type, display_name, email, contact_phone,
+                  is_profile_approved, is_profile_index_visible,
+                  profile_expires_on, approved_at, approved_by_profile_id
+                )
+                VALUES ('person', %s, %s, %s, true, false,
+                        CURRENT_DATE + INTERVAL '100 years', now(), %s)
+                RETURNING id
+                """,
+                (
+                    associate["display_name"],
+                    draft["email"] if is_primary_contact else None,
+                    draft["contact_phone"] if is_primary_contact else None,
+                    approved_by_profile_id,
+                ),
+            )
+            profile_id = cursor.fetchone()[0]
+            upsert_artist_role(cursor, profile_id, None, False)
+            replace_profile_social_links(cursor, profile_id, associate["social_links"])
+            cursor.execute(
+                "UPDATE profile_submission_associates SET profile_id = %s WHERE id = %s",
+                (profile_id, associate["id"]),
+            )
+            if is_primary_contact:
+                upsert_profile_editor(
+                    cursor,
+                    profile_id=profile_id,
+                    email=draft["email"],
+                    editor_profile_id=profile_id,
+                    is_primary=True,
+                )
+        resolved[associate["id"]] = profile_id
+    return resolved
+
+
+def sync_group_memberships(cursor, group_profile_id, members, associate_profiles):
+    desired_profile_ids = {associate_profiles[item["id"]] for item in members}
+    cursor.execute(
+        "UPDATE group_memberships SET is_primary_contact = false WHERE group_profile_id = %s AND is_current",
+        (group_profile_id,),
+    )
+    cursor.execute(
+        """
+        UPDATE group_memberships
+        SET is_current = false, is_primary_contact = false, ended_at = now()
+        WHERE group_profile_id = %s AND is_current
+          AND NOT (member_profile_id = ANY(%s))
+        """,
+        (group_profile_id, list(desired_profile_ids)),
+    )
+    for item in members:
+        member_profile_id = associate_profiles[item["id"]]
+        cursor.execute(
+            """
+            UPDATE group_memberships
+            SET member_display_name = %s, role_label = %s, sort_order = %s,
+                is_primary_contact = %s, ended_at = NULL
+            WHERE group_profile_id = %s AND member_profile_id = %s AND is_current
+            RETURNING id
+            """,
+            (
+                item["display_name"], item["role_label"], item["sort_order"],
+                item["is_primary_contact"], group_profile_id, member_profile_id,
+            ),
+        )
+        if cursor.fetchone():
+            continue
+        cursor.execute(
+            """
+            INSERT INTO group_memberships (
+              group_profile_id, member_profile_id, member_display_name,
+              role_label, sort_order, is_primary_contact
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                group_profile_id, member_profile_id, item["display_name"],
+                item["role_label"], item["sort_order"], item["is_primary_contact"],
+            ),
         )
 
 

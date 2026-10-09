@@ -18,8 +18,13 @@ email-action pages deliberately live outside the API namespace.
 - `POST /api/v1/profiles/submissions/access-links`
 - `GET /api/v1/profiles/submissions/context`
   - requires `Authorization: Bearer <profile-submission-access-token>`
+  - returns `manageable_profiles`; pass `profile_id` to select an existing act managed by the token email
+- `GET /api/v1/profiles/member-candidates?q=...`
+  - token-protected person-profile search for group members and performance guests
 - `POST /api/v1/profiles/submissions`
   - requires the same Bearer token
+  - accepts optional `profile_id`, reusable `associates`, ordered `group_members`, and `requested_events` with exact billing names and guest-credit references
+  - continues to accept `requested_event_ids` for compatibility
 - `DELETE /api/v1/profiles/submissions`
   - requires the same Bearer token
   - permanently deletes the performer profile and pending workflow data, unsubscribes the alumni contact, retains only name-only historical performance credits, and emails the performer and administrators about the manual 48-hour site rebuild
@@ -44,6 +49,13 @@ Errors use:
 ```
 
 ## Staff API
+
+Group and performance relationship administration:
+
+- `GET|PUT /api/v1/admin/profiles/<profile_id>/relationships`
+- `PUT /api/v1/admin/performances/<performance_id>/credits`
+
+Group updates archive removed members as names-only history. Performance-credit updates replace exact billing and ordered guests without changing the booked slot.
 
 Authentication:
 
@@ -102,7 +114,9 @@ Profile moderation details:
 - `GET /api/v1/admin/profiles/submissions/<draft_id>` includes submitted social
   links, requested-date IDs, and previous performance event titles.
 - The decision endpoint accepts `message`, `requested_date_ids`, and
-  `include_edit_link`. Unchecked requested dates are withdrawn before an
+  `include_edit_link`. It also accepts `claim_profile_id` plus an
+  `associate_profile_ids` mapping when staff deliberately link a submission or
+  proposed member to an existing person profile. Unchecked requested dates are withdrawn before an
   approval email is sent, and the edited message is used for approval or
   denial notification.
 

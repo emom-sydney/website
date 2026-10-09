@@ -41,6 +41,11 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
       <label for="performer-email-display">Email address</label>
       <input type="email" id="performer-email-display" readonly>
 
+      <div id="performer-act-choice-row" hidden>
+        <label for="performer-act-choice">Act to register</label>
+        <select id="performer-act-choice"></select>
+      </div>
+
       <label class="performer-registration-checkbox">
         <input type="checkbox" id="performer-is-email-public" name="is_email_public">
         <span>Show email on your profile page</span>
@@ -87,6 +92,24 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
         <button type="button" id="performer-add-social-link">Add social link</button>
       </fieldset>
 
+      <fieldset class="performer-registration-fieldset" id="performer-group-members-fieldset" hidden>
+        <legend>Group members</legend>
+        <p class="performer-registration-note">Add each current member. Search by name to link an existing EMOM person, or enter a new name and optional social links.</p>
+        <div id="performer-group-members"></div>
+        <button type="button" id="performer-add-group-member">Add member</button>
+        <label class="performer-registration-checkbox">
+          <input type="checkbox" id="performer-member-permission">
+          <span>I have permission to submit these member names and social accounts.</span>
+        </label>
+      </fieldset>
+
+      <fieldset class="performer-registration-fieldset">
+        <legend>Guest collaborators</legend>
+        <p class="performer-registration-note">Optional. Add people appearing on particular requested dates, such as a featured singer or visual artist.</p>
+        <div id="performer-guest-credits"></div>
+        <button type="button" id="performer-add-guest">Add guest</button>
+      </fieldset>
+
       <fieldset class="performer-registration-fieldset">
         <legend><span class="performer-registration-new" aria-label="New">🆕</span> Tribuo</legend>
         <label class="performer-registration-checkbox">
@@ -107,7 +130,7 @@ description: "Register to perform at sydney.emom. Create your artist profile, se
       <button type="submit">Submit for moderation</button>
     </form>
 
-    <section class="performer-registration-danger-zone" aria-labelledby="performer-delete-heading">
+    <section class="performer-registration-danger-zone" id="performer-delete-zone" aria-labelledby="performer-delete-heading">
       <h3 id="performer-delete-heading">Delete my profile</h3>
       <p>If you no longer want an EMOM performer profile, you can permanently delete it and unsubscribe from the alumni mailing list.</p>
       <button type="button" id="performer-delete-start">Delete my profile</button>

@@ -19,14 +19,15 @@ sequenceDiagram
     API-->>Artist: Email /perform/?token=...
     Artist->>Site: Open link
     Site->>API: GET submissions/context (Bearer token)
-    API-->>Site: Prefill, platforms, eligible events
+    API-->>Site: Managed-act chooser, prefill, platforms, eligible events
+    Artist->>Site: Link or propose members and date-specific guests
     Site->>API: POST submissions (Bearer token)
     API->>DB: Store draft, social links, requested dates
     API->>DB: Consume access token
     API-->>Staff: Email staff-login review link
     Staff->>Staff: Review and approve/deny
     Staff->>API: POST /api/v1/admin/profiles/submissions/:id/decisions
-    API->>DB: Apply decision and audit action
+    API->>DB: Apply profile, memberships, editors, billing, and guest staging
     API-->>Artist: Approval or denial email
 
     Artist->>Site: Confirm permanent profile deletion
@@ -66,6 +67,11 @@ sequenceDiagram
 
 `event_performer_selections` is the planned lineup source of truth.
 `performances` records who actually played.
+
+`group_memberships` records current and former composition of group profiles.
+`performance_credits` records people who appeared with a booked act on a
+particular date. Roll-call check-in materializes the requested billing name and
+guest credits without adding lineup slots.
 
 The admin lineup page presents a unified status for each request. `requested`
 means that no lineup-selection row exists; `availability_confirmed` means the

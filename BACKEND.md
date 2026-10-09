@@ -83,6 +83,16 @@ and a subset of requested dates. Social links and previous performance titles
 are shown on the moderation page. Unselected dates are withdrawn, while the
 remaining dates are included in the approval workflow.
 
+Group submissions also stage person associates, current memberships, a primary
+member-contact, exact per-date billing, and guest credits. Approval creates
+only missing person records, keeps those people out of the artist index, and
+grants act editing through `profile_editors`. Exact-name matches are staff
+claim suggestions and are not adopted automatically.
+
+Stage-manager check-in copies staged billing and guest rows into `performances`
+and `performance_credits`. Group composition remains separate in
+`group_memberships`; neither relationship changes live show order.
+
 Event deletion is available to administrators only for future events through
 the admin interface. Past events are treated as historical records and cannot
 be deleted there. An exceptional historical deletion—particularly one with

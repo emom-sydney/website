@@ -20,10 +20,19 @@ if (appNode) {
   const subscribeAlumniContainer = document.getElementById("performer-subscribe-alumni-row");
   const socialLinksNode = document.getElementById("performer-social-links");
   const addSocialLinkButton = document.getElementById("performer-add-social-link");
+  const actChoiceRow = document.getElementById("performer-act-choice-row");
+  const actChoiceField = document.getElementById("performer-act-choice");
+  const groupMembersFieldset = document.getElementById("performer-group-members-fieldset");
+  const groupMembersNode = document.getElementById("performer-group-members");
+  const addGroupMemberButton = document.getElementById("performer-add-group-member");
+  const memberPermissionField = document.getElementById("performer-member-permission");
+  const guestCreditsNode = document.getElementById("performer-guest-credits");
+  const addGuestButton = document.getElementById("performer-add-guest");
   const eventOptionsNode = document.getElementById("performer-event-options");
   const eventsNoteNode = document.getElementById("performer-events-note");
   const persistentStatusNode = document.getElementById("performer-registration-persistent-status");
   const deleteStartButton = document.getElementById("performer-delete-start");
+  const deleteZone = document.getElementById("performer-delete-zone");
   const deleteConfirmationNode = document.getElementById("performer-delete-confirmation");
   const deleteAcknowledgement = document.getElementById("performer-delete-acknowledgement");
   const deleteConfirmButton = document.getElementById("performer-delete-confirm");
@@ -31,6 +40,9 @@ if (appNode) {
 
   let registrationToken = new URLSearchParams(window.location.search).get("token") || "";
   let socialPlatforms = [];
+  let manageableProfiles = [];
+  let selectedProfileId = null;
+  let associateCounter = 0;
   let availableEvents = [];
 
   function setStatus(message, kind = "") {
@@ -237,10 +249,141 @@ if (appNode) {
     createSocialLinkRow();
   }
 
-  function populateEvents(events, selectedEventIds = []) {
+  function addAssociateSocialRow(container, link = {}) {
+    const row = document.createElement("div");
+    row.className = "performer-social-link-row";
+    row.innerHTML = `
+      <select data-associate-social-platform aria-label="Social platform">
+        <option value="">Choose platform</option>
+        ${socialPlatforms.map((platform) => `<option value="${platform.id}"${Number(link.social_platform_id) === Number(platform.id) ? " selected" : ""}>${escapeHtml(platform.platform_name)}</option>`).join("")}
+      </select>
+      <input data-associate-social-name value="${escapeHtml(link.profile_name || "")}" placeholder="Profile name or URL" aria-label="Profile name or URL">
+      <button type="button" data-remove-associate-social>Remove</button>`;
+    row.querySelector("[data-remove-associate-social]").addEventListener("click", () => row.remove());
+    container.appendChild(row);
+  }
+
+  function renderAssociateDateChoices(container, selectedEventIds = []) {
+    const selected = new Set(selectedEventIds.map(Number));
+    container.innerHTML = availableEvents.map((eventItem) => `
+      <label class="performer-registration-checkbox">
+        <input type="checkbox" data-associate-event-id value="${eventItem.id}"${selected.has(Number(eventItem.id)) ? " checked" : ""}>
+        <span>${escapeHtml(eventItem.event_name)} (${escapeHtml(formatDate(eventItem.event_date))})</span>
+      </label>`).join("");
+  }
+
+  function createAssociateRow(kind, value = {}) {
+    const container = kind === "member" ? groupMembersNode : guestCreditsNode;
+    const key = value.client_key || `associate-${++associateCounter}`;
+    const row = document.createElement("div");
+    row.className = "performer-associate-row";
+    row.dataset.associateKey = key;
+    row.dataset.associateKind = kind;
+    row.innerHTML = `
+      <input type="hidden" data-associate-profile-id value="${value.profile_id || ""}">
+      <label>${kind === "member" ? "Member" : "Guest"} name
+        <input data-associate-name required autocomplete="off" value="${escapeHtml(value.display_name || "")}">
+      </label>
+      <div data-associate-suggestions></div>
+      <label>${kind === "member" ? "Role (optional)" : "Credit (optional)"}
+        <input data-associate-label value="${escapeHtml(value.role_label || value.credit_label || "")}" placeholder="${kind === "member" ? "e.g. visuals" : "e.g. featuring"}">
+      </label>
+      ${kind === "member" ? `<label class="performer-registration-checkbox"><input type="radio" name="primary-group-contact" data-primary-contact${value.is_primary_contact ? " checked" : ""}><span>Primary group contact</span></label>` : ""}
+      <div data-associate-socials></div>
+      <button type="button" data-add-associate-social>Add social link</button>
+      ${kind === "guest" ? `<fieldset><legend>Appearing on</legend><div data-associate-dates></div></fieldset>` : ""}
+      <button type="button" data-remove-associate>Remove ${kind}</button>`;
+    const socialContainer = row.querySelector("[data-associate-socials]");
+    (value.social_links || []).forEach((link) => addAssociateSocialRow(socialContainer, link));
+    const addAssociateSocialButton = row.querySelector("[data-add-associate-social]");
+    addAssociateSocialButton.addEventListener("click", () => addAssociateSocialRow(socialContainer));
+    const setExistingProfileState = (isExisting) => {
+      addAssociateSocialButton.hidden = isExisting;
+      socialContainer.querySelectorAll("input, select, button").forEach((field) => { field.disabled = isExisting; });
+      row.querySelector("[data-existing-profile-note]")?.remove();
+      if (isExisting) {
+        const note = document.createElement("small");
+        note.dataset.existingProfileNote = "";
+        note.textContent = "Social links are controlled by this person’s profile.";
+        socialContainer.appendChild(note);
+      }
+    };
+    setExistingProfileState(Boolean(value.profile_id));
+    row.querySelector("[data-remove-associate]").addEventListener("click", () => row.remove());
+    if (kind === "guest") {
+      renderAssociateDateChoices(row.querySelector("[data-associate-dates]"), value.requested_event_ids || []);
+    }
+    const nameField = row.querySelector("[data-associate-name]");
+    const profileIdField = row.querySelector("[data-associate-profile-id]");
+    const suggestions = row.querySelector("[data-associate-suggestions]");
+    let timer;
+    nameField.addEventListener("input", () => {
+      profileIdField.value = "";
+      setExistingProfileState(false);
+      clearTimeout(timer);
+      suggestions.innerHTML = "";
+      const query = nameField.value.trim();
+      if (query.length < 2) return;
+      timer = setTimeout(async () => {
+        try {
+          const response = await fetch(`/api/v1/profiles/member-candidates?q=${encodeURIComponent(query)}`, {
+            headers: { "Authorization": `Bearer ${registrationToken}` },
+          });
+          const result = await parseJsonResponse(response, "Unable to search existing people.");
+          const candidates = result.profiles || [];
+          suggestions.innerHTML = candidates.map((candidate, index) =>
+            `<button type="button" data-candidate-index="${index}">${escapeHtml(candidate.display_name)}</button>`
+          ).join("");
+          suggestions.querySelectorAll("[data-candidate-index]").forEach((button) => button.addEventListener("click", () => {
+            const candidate = candidates[Number(button.dataset.candidateIndex)];
+            profileIdField.value = candidate.profile_id;
+            nameField.value = candidate.display_name;
+            socialContainer.innerHTML = "";
+            setExistingProfileState(true);
+            suggestions.innerHTML = `<small>Linked to existing EMOM person profile.</small>`;
+          }));
+        } catch (error) {
+          suggestions.textContent = error.message;
+        }
+      }, 250);
+    });
+    container.appendChild(row);
+    return row;
+  }
+
+  function collectAssociateRows() {
+    const rows = [...document.querySelectorAll("[data-associate-key]")];
+    const associates = [];
+    const groupMembers = [];
+    const guestsByEvent = new Map();
+    for (const row of rows) {
+      const clientKey = row.dataset.associateKey;
+      const profileId = Number.parseInt(row.querySelector("[data-associate-profile-id]").value || "0", 10) || null;
+      const displayName = row.querySelector("[data-associate-name]").value.trim();
+      const socialLinks = [...row.querySelectorAll("[data-associate-socials] .performer-social-link-row")].map((socialRow) => ({
+        social_platform_id: Number.parseInt(socialRow.querySelector("[data-associate-social-platform]").value || "0", 10),
+        profile_name: socialRow.querySelector("[data-associate-social-name]").value.trim(),
+      })).filter((link) => link.social_platform_id && link.profile_name);
+      associates.push({ client_key: clientKey, profile_id: profileId, display_name: displayName, social_links: socialLinks });
+      const label = row.querySelector("[data-associate-label]").value.trim() || null;
+      if (row.dataset.associateKind === "member") {
+        groupMembers.push({ associate_key: clientKey, role_label: label, is_primary_contact: row.querySelector("[data-primary-contact]").checked });
+      } else {
+        row.querySelectorAll("[data-associate-event-id]:checked").forEach((checkbox) => {
+          const eventId = Number(checkbox.value);
+          if (!guestsByEvent.has(eventId)) guestsByEvent.set(eventId, []);
+          guestsByEvent.get(eventId).push({ associate_key: clientKey, credit_label: label });
+        });
+      }
+    }
+    return { associates, groupMembers, guestsByEvent };
+  }
+
+  function populateEvents(events, selectedEventIds = [], requestedEvents = []) {
     eventOptionsNode.innerHTML = "";
     availableEvents = events || [];
     const selectedSet = new Set((selectedEventIds || []).map((value) => Number(value)));
+    const requestedByEvent = new Map((requestedEvents || []).map((item) => [Number(item.event_id), item]));
 
     if (!availableEvents.length) {
       eventOptionsNode.innerHTML = "<p>No eligible future dates are currently available.</p>";
@@ -248,7 +391,7 @@ if (appNode) {
     }
 
     availableEvents.forEach((eventItem) => {
-      const wrapper = document.createElement("label");
+      const wrapper = document.createElement("div");
       wrapper.className = "performer-event-option";
       const isChecked = selectedSet.has(Number(eventItem.id));
       const backupOnlyHtml = eventItem.is_backup_only
@@ -257,6 +400,9 @@ if (appNode) {
       wrapper.innerHTML = `
         <input type="checkbox" value="${eventItem.id}" data-event-checkbox${isChecked ? " checked" : ""}>
         <span>${escapeHtml(eventItem.event_name)} (${escapeHtml(formatDate(eventItem.event_date))}) ${escapeHtml(eventItem.event_description)} ${backupOnlyHtml}</span>
+        <label>Billing name for this date
+          <input type="text" data-billing-name value="${escapeHtml(requestedByEvent.get(Number(eventItem.id))?.performer_display_name || displayNameField.value || "")}">
+        </label>
       `;
       eventOptionsNode.appendChild(wrapper);
     });
@@ -266,6 +412,19 @@ if (appNode) {
     return [...eventOptionsNode.querySelectorAll("[data-event-checkbox]:checked")]
       .map((node) => Number.parseInt(node.value || "0", 10))
       .filter((value) => value > 0);
+  }
+
+  function getRequestedEvents(guestsByEvent) {
+    return [...eventOptionsNode.querySelectorAll(".performer-event-option")]
+      .filter((row) => row.querySelector("[data-event-checkbox]")?.checked)
+      .map((row) => {
+        const eventId = Number(row.querySelector("[data-event-checkbox]").value);
+        return {
+          event_id: eventId,
+          performer_display_name: row.querySelector("[data-billing-name]").value.trim() || displayNameField.value.trim(),
+          guest_credits: guestsByEvent.get(eventId) || [],
+        };
+      });
   }
 
   function getSocialLinksRows() {
@@ -297,13 +456,45 @@ if (appNode) {
     isEmailPublicField.checked = Boolean(profile?.is_email_public);
     isNamePublicField.checked = Boolean(profile?.is_name_public);
     populateSocialLinks(profile?.social_links || []);
+    groupMembersNode.innerHTML = "";
+    guestCreditsNode.innerHTML = "";
+    (profile?.group_members || []).forEach((member) => createAssociateRow("member", member));
+    const memberKeys = new Set((profile?.group_members || []).map((member) => member.client_key));
+    const guestAssociates = new Map();
+    for (const requestedEvent of profile?.requested_events || []) {
+      for (const guest of requestedEvent.guest_credits || []) {
+        if (!guestAssociates.has(guest.client_key)) {
+          guestAssociates.set(guest.client_key, {
+            ...guest,
+            requested_event_ids: [],
+          });
+        }
+        guestAssociates.get(guest.client_key).requested_event_ids.push(requestedEvent.event_id);
+      }
+    }
+    for (const associate of profile?.associates || []) {
+      if (!memberKeys.has(associate.client_key) && guestAssociates.has(associate.client_key)) {
+        guestAssociates.set(associate.client_key, { ...associate, ...guestAssociates.get(associate.client_key) });
+      }
+    }
+    guestAssociates.forEach((guest) => createAssociateRow("guest", guest));
+    updateGroupMemberVisibility();
   }
 
-  async function loadSession(token) {
+  function updateGroupMemberVisibility() {
+    const isGroup = profileTypeField.value === "group";
+    groupMembersFieldset.hidden = !isGroup;
+    if (isGroup && !groupMembersNode.children.length) createAssociateRow("member");
+  }
+
+  async function loadSession(token, profileId = null) {
     // setStatus("Loading registration form...");
     clearPersistentStatus();
     try {
-      const response = await fetch("/api/v1/profiles/submissions/context", {
+      const contextUrl = profileId
+        ? `/api/v1/profiles/submissions/context?profile_id=${encodeURIComponent(profileId)}`
+        : "/api/v1/profiles/submissions/context";
+      const response = await fetch(contextUrl, {
         headers: {
           "Authorization": `Bearer ${token}`,
         },
@@ -314,6 +505,19 @@ if (appNode) {
       }
 
       socialPlatforms = result.social_platforms || [];
+      manageableProfiles = result.manageable_profiles || [];
+      selectedProfileId = result.profile?.id || (profileId ? Number(profileId) : null);
+      deleteZone.hidden = !selectedProfileId;
+      profileTypeField.disabled = Boolean(selectedProfileId);
+      actChoiceRow.hidden = manageableProfiles.length === 0;
+      actChoiceField.innerHTML = `<option value="">Create a new act</option>${manageableProfiles.map((profile) =>
+        `<option value="${profile.id}"${Number(profile.id) === Number(selectedProfileId) ? " selected" : ""}>${escapeHtml(profile.display_name)} (${escapeHtml(profile.profile_type)})</option>`
+      ).join("")}`;
+      populateEvents(
+        result.available_events || [],
+        result.profile?.requested_event_ids || [],
+        result.profile?.requested_events || [],
+      );
       applyProfile(result.profile, result.email);
       if (subscribeAlumniField) {
         // only offer the option to subscribe to alumni list if they've actually performed
@@ -325,8 +529,6 @@ if (appNode) {
           subscribeAlumniContainer.style.display = canSubscribeAlumni ? "" : "none";
         }
       }
-      populateEvents(result.available_events || [], result.profile?.requested_event_ids || []);
-
       const hasBackupOnlyDates = (result.available_events || []).some(
         (eventItem) => Boolean(eventItem.is_backup_only)
       );
@@ -384,6 +586,13 @@ if (appNode) {
   });
 
   addSocialLinkButton?.addEventListener("click", () => createSocialLinkRow());
+  addGroupMemberButton?.addEventListener("click", () => createAssociateRow("member"));
+  addGuestButton?.addEventListener("click", () => createAssociateRow("guest"));
+  profileTypeField?.addEventListener("change", updateGroupMemberVisibility);
+  actChoiceField?.addEventListener("change", () => {
+    selectedProfileId = Number.parseInt(actChoiceField.value || "0", 10) || null;
+    loadSession(registrationToken, selectedProfileId);
+  });
 
   deleteStartButton?.addEventListener("click", () => {
     clearPersistentStatus();
@@ -413,7 +622,10 @@ if (appNode) {
     deleteConfirmButton.disabled = true;
     deleteCancelButton.disabled = true;
     try {
-      const response = await fetch("/api/v1/profiles/submissions", {
+      const deleteUrl = selectedProfileId
+        ? `/api/v1/profiles/submissions?profile_id=${encodeURIComponent(selectedProfileId)}`
+        : "/api/v1/profiles/submissions";
+      const response = await fetch(deleteUrl, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${registrationToken}`,
@@ -465,8 +677,24 @@ if (appNode) {
     const socialLinks = socialLinkRows.filter(
       (item) => item.social_platform_id > 0 && item.profile_name
     );
+    const { associates, groupMembers, guestsByEvent } = collectAssociateRows();
+    if (associates.some((associate) => !associate.display_name)) {
+      setStatus("Please enter a name for every member and guest.", "error");
+      return;
+    }
+    if (profileTypeField.value === "group") {
+      if (!groupMembers.length || groupMembers.filter((member) => member.is_primary_contact).length !== 1) {
+        setStatus("Please add group members and choose exactly one primary contact.", "error");
+        return;
+      }
+      if (!memberPermissionField.checked) {
+        setStatus("Please confirm that you have permission to submit the member details.", "error");
+        return;
+      }
+    }
 
     const payload = {
+      profile_id: selectedProfileId,
       profile_type: profileTypeField.value,
       display_name: String(displayNameField.value || "").trim(),
       first_name: String(firstNameField.value || "").trim() || null,
@@ -479,7 +707,9 @@ if (appNode) {
       artist_bio: String(bioField.value || "").trim() || null,
       additional_info: String(additionalInfoField.value || "").trim() || null,
       social_links: socialLinks,
-      requested_event_ids: requestedEventIds,
+      associates,
+      group_members: groupMembers,
+      requested_events: getRequestedEvents(guestsByEvent),
     };
 
     if (!payload.display_name) {

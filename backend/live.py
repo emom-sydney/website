@@ -260,6 +260,35 @@ def _publish_arrived_artist(cursor, *, profile_id, staff_profile_id):
         raise ValueError("That performer profile no longer exists.")
 
 
+def _sync_staged_performance_credits(cursor, *, event_id, profile_id, performance_id):
+    cursor.execute(
+        """
+        SELECT requested_date_id
+        FROM event_performer_selections
+        WHERE event_id = %s AND profile_id = %s
+        """,
+        (event_id, profile_id),
+    )
+    selection = cursor.fetchone()
+    if not selection or selection[0] is None:
+        return
+    requested_date_id = selection[0]
+    cursor.execute("DELETE FROM performance_credits WHERE performance_id = %s", (performance_id,))
+    cursor.execute(
+        """
+        INSERT INTO performance_credits (
+          performance_id, person_profile_id, credited_display_name, credit_label, sort_order
+        )
+        SELECT %s, a.profile_id, a.display_name, g.credit_label, g.sort_order
+        FROM profile_submission_guest_credits g
+        JOIN profile_submission_associates a ON a.id = g.associate_id
+        WHERE g.requested_date_id = %s
+        ORDER BY g.sort_order, g.associate_id
+        """,
+        (performance_id, requested_date_id),
+    )
+
+
 def register_live_routes(app):
     @app.get("/live/stagemanager")
     @require_staff(moderator=True, api=False)
@@ -340,13 +369,25 @@ def register_live_routes(app):
                     """INSERT INTO performances (event_id, profile_id, performer_display_name, sort_order, checked_in_at)
                        VALUES (
                          %s, %s,
-                         (SELECT display_name FROM profiles WHERE id = %s),
+                         COALESCE(
+                           (SELECT rd.performer_display_name
+                            FROM event_performer_selections s
+                            JOIN requested_dates rd ON rd.id = s.requested_date_id
+                            WHERE s.event_id = %s AND s.profile_id = %s),
+                           (SELECT display_name FROM profiles WHERE id = %s)
+                         ),
                          (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM performances WHERE event_id = %s),
                          now()
                        )
                        ON CONFLICT (event_id, profile_id)
-                       DO UPDATE SET checked_in_at = now()""",
-                    (event_id, profile_id, profile_id, event_id),
+                       DO UPDATE SET checked_in_at = now(),
+                                     performer_display_name = EXCLUDED.performer_display_name
+                       RETURNING id""",
+                    (event_id, profile_id, event_id, profile_id, profile_id, event_id),
+                )
+                performance_id = cursor.fetchone()[0]
+                _sync_staged_performance_credits(
+                    cursor, event_id=event_id, profile_id=profile_id, performance_id=performance_id
                 )
             else:
                 cursor.execute(
