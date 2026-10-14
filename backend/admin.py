@@ -1068,37 +1068,34 @@ def register_admin_api_routes(app):
                     return api_error("not_found", "Event not found.", 404)
                 if event[0] != 1:
                     return api_error("invalid_event", "Lineup additions are only available for Open Mic events.")
-                cursor.execute(
-                    """
-                    SELECT p.display_name, d.id
-                    FROM profiles p
-                    JOIN profile_roles pr ON pr.profile_id = p.id AND pr.role = 'artist'
-                    JOIN LATERAL (
-                      SELECT id FROM profile_submission_drafts
-                      WHERE profile_id = p.id AND status IN ('pending', 'approved')
-                      ORDER BY submitted_at DESC, id DESC LIMIT 1
-                    ) d ON true
-                    WHERE p.id = %s AND p.is_profile_approved
-                    """,
-                    (profile_id,),
-                )
-                performer = cursor.fetchone()
+                try:
+                    performer = workflow.get_or_create_admin_lineup_draft(
+                        cursor,
+                        profile_id=profile_id,
+                        admin_profile_id=g.staff["profile_id"],
+                        submitted_by_email=g.staff["email"],
+                    )
+                except ValueError as exc:
+                    return api_error("invalid_performer", str(exc))
                 if not performer:
                     return api_error("invalid_performer", "That performer cannot be added to the lineup.")
                 cursor.execute(
                     """
-                    INSERT INTO requested_dates (draft_id, event_id, status, availability_responded_at)
-                    VALUES (%s, %s, 'availability_confirmed', now())
+                    INSERT INTO requested_dates (
+                      draft_id, event_id, status, availability_responded_at,
+                      performer_display_name
+                    )
+                    VALUES (%s, %s, 'availability_confirmed', now(), %s)
                     ON CONFLICT (draft_id, event_id) DO UPDATE
-                      SET status = CASE WHEN requested_dates.status = 'availability_cancelled'
-                                        THEN 'availability_confirmed' ELSE requested_dates.status END,
-                          availability_responded_at = COALESCE(requested_dates.availability_responded_at, now())
+                      SET status = 'availability_confirmed',
+                          availability_responded_at = COALESCE(requested_dates.availability_responded_at, now()),
+                          performer_display_name = EXCLUDED.performer_display_name
                     RETURNING id
                     """,
-                    (performer[1], event_id),
+                    (performer["draft_id"], event_id, performer["display_name"]),
                 )
                 requested_date_id = cursor.fetchone()[0]
-        return api_data({"display_name": performer[0], "requested_date_id": requested_date_id}, 201)
+        return api_data({"display_name": performer["display_name"], "requested_date_id": requested_date_id}, 201)
 
     @app.put("/api/v1/admin/events/<int:event_id>/performers")
     @require_staff(admin=True)

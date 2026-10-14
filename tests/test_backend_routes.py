@@ -457,6 +457,8 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
                     "static@yceran.org",
                     "Static",
                     None,
+                    None,
+                    None,
                     "requested",
                     None,
                     None,
@@ -490,6 +492,7 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
     assert "ORDER BY d.submitted_at DESC, d.id DESC, rd.id DESC" in normalized_query
     assert "FROM profile_submission_social_profiles pssp" in normalized_query
     assert "WHERE pssp.draft_id = d.id" in normalized_query
+    assert "COALESCE(rd.performer_display_name, d.display_name) AS display_name" in normalized_query
     assert "WHERE candidate_rank = 1" in normalized_query
     assert candidates == [
         {
@@ -500,6 +503,8 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
             "email": "static@yceran.org",
             "first_name": "Static",
             "contact_phone": None,
+            "artist_bio": None,
+            "additional_info": None,
             "availability_status": "requested",
             "requested_at_epoch": None,
             "availability_email_sent_at_epoch": None,
@@ -519,3 +524,89 @@ def test_lineup_candidate_query_keeps_only_latest_applicable_draft():
             "queue_position": 1,
         }
     ]
+
+
+def test_admin_lineup_draft_snapshots_eligible_legacy_group():
+    class LegacyGroupCursor:
+        def __init__(self):
+            self.calls = []
+            self.next_row = None
+
+        def execute(self, query, params=None):
+            normalized_query = " ".join(query.split())
+            self.calls.append((normalized_query, params))
+            if normalized_query.startswith("SELECT p.display_name"):
+                self.next_row = (
+                    "Kl(aüs)",
+                    "group@example.com",
+                    "group",
+                    None,
+                    None,
+                    "0400 000 000",
+                    False,
+                    False,
+                    "Group bio",
+                    True,
+                    "kla-s",
+                    None,
+                )
+            elif normalized_query.startswith("INSERT INTO profile_submission_drafts"):
+                self.next_row = (501,)
+            else:
+                self.next_row = None
+
+        def fetchone(self):
+            return self.next_row
+
+    cursor = LegacyGroupCursor()
+
+    result = workflow.get_or_create_admin_lineup_draft(
+        cursor,
+        profile_id=15,
+        admin_profile_id=2,
+        submitted_by_email="admin@example.com",
+    )
+
+    assert result == {"display_name": "Kl(aüs)", "draft_id": 501}
+    queries = [query for query, _params in cursor.calls]
+    assert any("INSERT INTO profile_submission_social_profiles" in query for query in queries)
+    assert any("INSERT INTO profile_submission_associates" in query for query in queries)
+    assert any("INSERT INTO profile_submission_associate_social_profiles" in query for query in queries)
+    assert any("INSERT INTO profile_submission_group_memberships" in query for query in queries)
+
+
+def test_admin_lineup_draft_reuses_existing_submission():
+    class ExistingDraftCursor:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, query, params=None):
+            self.calls.append((" ".join(query.split()), params))
+
+        def fetchone(self):
+            return (
+                "Existing Act",
+                "existing@example.com",
+                "person",
+                "Existing",
+                "Act",
+                None,
+                False,
+                False,
+                None,
+                False,
+                None,
+                88,
+            )
+
+    cursor = ExistingDraftCursor()
+
+    result = workflow.get_or_create_admin_lineup_draft(
+        cursor,
+        profile_id=25,
+        admin_profile_id=2,
+        submitted_by_email="admin@example.com",
+    )
+
+    assert result == {"display_name": "Existing Act", "draft_id": 88}
+    assert len(cursor.calls) == 1

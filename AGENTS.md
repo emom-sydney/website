@@ -308,6 +308,7 @@ Notable migrations in the repo:
 - `2026-05-01-sync-identity-sequences.sql`
 - `2026-07-29-backend-api-v1-and-admin.sql`
 - `2026-10-09-group-members-and-performance-credits.sql`
+- `2026-10-12-fix-artist-relationship-trigger.sql`
 
 Despite its filename, `2026-03-23-profile-bios.sql` currently moves bio fields onto `profile_roles` and drops the old `profiles.bio` / `profiles.is_bio_public` columns.
 

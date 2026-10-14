@@ -3816,6 +3816,166 @@ def get_event_selection_context(cursor, event_id):
            }
 
 
+def get_or_create_admin_lineup_draft(
+    cursor, *, profile_id, admin_profile_id, submitted_by_email
+):
+    """Return an eligible profile's active draft, snapshotting legacy profiles as needed."""
+    cursor.execute(
+        """
+        SELECT
+          p.display_name,
+          NULLIF(BTRIM(p.email), ''),
+          p.profile_type,
+          p.first_name,
+          p.last_name,
+          p.contact_phone,
+          p.is_email_public,
+          p.is_name_public,
+          pr.bio,
+          pr.is_bio_public,
+          p.tribuo_tag,
+          d.id
+        FROM profiles p
+        JOIN profile_roles pr
+          ON pr.profile_id = p.id
+         AND pr.role = 'artist'
+        LEFT JOIN LATERAL (
+          SELECT id
+          FROM profile_submission_drafts
+          WHERE profile_id = p.id
+            AND status IN ('pending', 'approved')
+          ORDER BY submitted_at DESC, id DESC
+          LIMIT 1
+        ) d ON true
+        WHERE p.id = %s
+          AND p.is_profile_approved
+        """,
+        (profile_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+
+    display_name, email, profile_type = row[0], row[1], row[2]
+    draft_id = row[11]
+    if draft_id is not None:
+        return {"display_name": display_name, "draft_id": draft_id}
+    if not email:
+        raise ValueError("That performer needs a contact email before being added to a lineup.")
+
+    cursor.execute(
+        """
+        INSERT INTO profile_submission_drafts (
+          profile_id, email, profile_type, display_name, first_name, last_name,
+          contact_phone, is_email_public, is_name_public, artist_bio,
+          is_artist_bio_public, show_tribuo_link, status, submitted_by_email,
+          reviewed_at, reviewed_by_profile_id
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s,
+          %s, %s, %s, %s,
+          %s, %s, 'approved', %s,
+          now(), %s
+        )
+        RETURNING id
+        """,
+        (
+            profile_id,
+            email,
+            profile_type,
+            display_name,
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            row[8],
+            row[9],
+            row[10] is not None,
+            submitted_by_email,
+            admin_profile_id,
+        ),
+    )
+    draft_id = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        INSERT INTO profile_submission_social_profiles (
+          draft_id, social_platform_id, profile_name, sort_order
+        )
+        SELECT
+          %s,
+          psp.social_platform_id,
+          psp.profile_name,
+          (ROW_NUMBER() OVER (ORDER BY psp.id) - 1)::integer
+        FROM profile_social_profiles psp
+        WHERE psp.profile_id = %s
+        ORDER BY psp.id
+        """,
+        (draft_id, profile_id),
+    )
+
+    if profile_type == "group":
+        cursor.execute(
+            """
+            INSERT INTO profile_submission_associates (
+              draft_id, client_key, profile_id, display_name, sort_order
+            )
+            SELECT
+              %s,
+              'membership-' || gm.id::text,
+              gm.member_profile_id,
+              gm.member_display_name,
+              gm.sort_order
+            FROM group_memberships gm
+            WHERE gm.group_profile_id = %s
+              AND gm.is_current
+            ORDER BY gm.sort_order, gm.id
+            """,
+            (draft_id, profile_id),
+        )
+        cursor.execute(
+            """
+            INSERT INTO profile_submission_associate_social_profiles (
+              associate_id, social_platform_id, profile_name, sort_order
+            )
+            SELECT
+              a.id,
+              psp.social_platform_id,
+              psp.profile_name,
+              (ROW_NUMBER() OVER (PARTITION BY a.id ORDER BY psp.id) - 1)::integer
+            FROM profile_submission_associates a
+            JOIN profile_social_profiles psp ON psp.profile_id = a.profile_id
+            WHERE a.draft_id = %s
+            ORDER BY a.sort_order, a.id, psp.id
+            """,
+            (draft_id,),
+        )
+        cursor.execute(
+            """
+            INSERT INTO profile_submission_group_memberships (
+              draft_id, associate_id, role_label, sort_order, is_primary_contact
+            )
+            SELECT
+              %s,
+              a.id,
+              gm.role_label,
+              gm.sort_order,
+              gm.is_primary_contact
+            FROM group_memberships gm
+            JOIN profile_submission_associates a
+              ON a.draft_id = %s
+             AND a.client_key = 'membership-' || gm.id::text
+            WHERE gm.group_profile_id = %s
+              AND gm.is_current
+            ORDER BY gm.sort_order, gm.id
+            """,
+            (draft_id, draft_id, profile_id),
+        )
+
+    return {"display_name": display_name, "draft_id": draft_id}
+
+
 def get_lineup_selection_candidates(cursor, event_id):
     cursor.execute(
         """
@@ -3839,7 +3999,7 @@ def get_lineup_selection_candidates(cursor, event_id):
             rd.id AS requested_date_id,
             d.id AS draft_id,
             p.id AS profile_id,
-            d.display_name,
+            COALESCE(rd.performer_display_name, d.display_name) AS display_name,
             d.email,
             d.first_name,
             d.contact_phone,
