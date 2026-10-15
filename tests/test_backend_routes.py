@@ -3,7 +3,7 @@
 # .. a test that will clearly fail if the db data ever changes... 
 
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -46,6 +46,9 @@ def test_route_contract_has_v1_and_no_legacy_paths(app):
     assert expected <= paths
     assert not any(path.startswith("/api/forms") for path in paths)
     assert "/perform/admin/" not in paths
+    assert "/admin/events/<int:event_id>/standby/" not in paths
+    assert "/api/v1/admin/events/<int:event_id>/standby" not in paths
+    assert "/api/v1/admin/events/<int:event_id>/lineup/promotions" not in paths
 
 
 def test_health_uses_api_envelope(client):
@@ -336,6 +339,222 @@ def test_admin_api_requires_authentication(client):
     response = client.get("/api/v1/admin/events")
     assert response.status_code == 401
     assert response.get_json()["error"]["code"] == "authentication_required"
+
+
+def test_admin_events_supports_all_scope_and_serializes_table_fields(monkeypatch, client):
+    class Cursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, _params=None):
+            self.query = query
+
+        def fetchall(self):
+            return [(
+                12,
+                "October EMOM",
+                "An evening of electronic music.",
+                date(2026, 10, 20),
+                1,
+                "Open Mic",
+                3,
+                "The Venue",
+                datetime(2026, 10, 20, 8, 0, tzinfo=timezone.utc),
+                datetime(2026, 10, 20, 11, 0, tzinfo=timezone.utc),
+                "Australia/Sydney",
+                7,
+                "2026-10-20",
+                None,
+                True,
+                True,
+            )]
+
+    class Connection:
+        def __init__(self):
+            self.cursor_instance = Cursor()
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    connection = Connection()
+    monkeypatch.setattr(admin, "connect", lambda: connection)
+    monkeypatch.setattr(
+        admin,
+        "load_staff_session",
+        lambda: {
+            "profile_id": 2,
+            "is_admin": False,
+            "is_moderator": True,
+        },
+    )
+
+    response = client.get("/api/v1/admin/events?scope=all")
+
+    assert response.status_code == 200
+    assert "WHERE e.event_date" not in connection.cursor_instance.query
+    assert response.get_json()["data"]["events"][0] == {
+        "event_id": 12,
+        "event_name": "October EMOM",
+        "event_description": "An evening of electronic music.",
+        "event_date": "2026-10-20",
+        "type_id": 1,
+        "type_description": "Open Mic",
+        "location_id": 3,
+        "location_name": "The Venue",
+        "starts_at": "2026-10-20T08:00:00+00:00",
+        "ends_at": "2026-10-20T11:00:00+00:00",
+        "timezone": "Australia/Sydney",
+        "performance_slots": 7,
+        "gallery_url": "2026-10-20",
+        "youtube_embed_url": None,
+        "is_upcoming": True,
+        "can_delete": True,
+    }
+
+
+def test_admin_events_rejects_unknown_scope_before_database_use(monkeypatch, client):
+    monkeypatch.setattr(
+        admin,
+        "load_staff_session",
+        lambda: {
+            "profile_id": 2,
+            "is_admin": False,
+            "is_moderator": True,
+        },
+    )
+    monkeypatch.setattr(admin, "connect", lambda: pytest.fail("Invalid scopes must not query the database"))
+
+    response = client.get("/api/v1/admin/events?scope=sideways")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "invalid_scope"
+
+
+@pytest.mark.parametrize(("scope", "where_clause"), [
+    ("future", "WHERE e.event_date >= CURRENT_DATE"),
+    ("past", "WHERE e.event_date < CURRENT_DATE"),
+])
+def test_admin_events_applies_requested_date_scope(monkeypatch, client, scope, where_clause):
+    class Cursor:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, _params=None):
+            self.query = query
+
+        def fetchall(self):
+            return []
+
+    class Connection:
+        def __init__(self):
+            self.cursor_instance = Cursor()
+
+        def cursor(self):
+            return self.cursor_instance
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    connection = Connection()
+    monkeypatch.setattr(admin, "connect", lambda: connection)
+    monkeypatch.setattr(
+        admin,
+        "load_staff_session",
+        lambda: {
+            "profile_id": 2,
+            "is_admin": False,
+            "is_moderator": True,
+        },
+    )
+
+    response = client.get(f"/api/v1/admin/events?scope={scope}")
+
+    assert response.status_code == 200
+    assert where_clause in connection.cursor_instance.query
+
+
+def test_admin_event_details_include_gallery_and_youtube_fields(monkeypatch, client):
+    class Cursor:
+        def __init__(self):
+            self.query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, _params=None):
+            self.query = query
+
+        def fetchone(self):
+            return (
+                12,
+                date(2026, 10, 20),
+                1,
+                "October EMOM",
+                "An evening of electronic music.",
+                7,
+                datetime(2026, 10, 20, 8, 0, tzinfo=timezone.utc),
+                datetime(2026, 10, 20, 11, 0, tzinfo=timezone.utc),
+                "Australia/Sydney",
+                3,
+                "The Venue",
+                "123 Example Street",
+                "Open Mic",
+                "2026-10-20",
+                "https://youtu.be/dQw4w9WgXcQ",
+            )
+
+        def fetchall(self):
+            return []
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(admin, "connect", lambda: Connection())
+    monkeypatch.setattr(
+        admin,
+        "load_staff_session",
+        lambda: {
+            "profile_id": 2,
+            "is_admin": True,
+            "is_moderator": False,
+        },
+    )
+
+    response = client.get("/api/v1/admin/events/12")
+
+    assert response.status_code == 200
+    event = response.get_json()["data"]
+    assert event["gallery_url"] == "2026-10-20"
+    assert event["youtube_embed_url"] == "https://youtu.be/dQw4w9WgXcQ"
 
 
 def test_moderator_cannot_open_full_lineup(monkeypatch, client):

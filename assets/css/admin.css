@@ -70,28 +70,6 @@
   box-shadow: 0 2px 8px rgba(0,0,0,0.07);
 }
 
-.admin-event-card {
-  position: relative;
-}
-
-.admin-event-delete {
-  position: absolute;
-  right: 1rem;
-  bottom: 1rem;
-  border: 0;
-  padding: .25rem .4rem;
-  color: #777;
-  background: transparent;
-  font-size: 1.25rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.admin-event-delete:hover,
-.admin-event-delete:focus-visible {
-  color: #a00;
-}
-
 .admin-summary-card strong {
   display: block;
   font-size: 2rem;
@@ -122,6 +100,135 @@
   padding: .6rem;
   border-bottom: 1px solid #555;
   text-align: left;
+}
+
+.admin-table-wrap th {
+  white-space: nowrap;
+}
+
+.admin-events-table tbody tr:hover {
+  background: #f2f6fa;
+}
+
+.admin-event-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: .75rem;
+  padding: 1rem;
+  color: #222;
+  background: #e8e8e8;
+  border-radius: .5rem .5rem 0 0;
+}
+
+.admin-event-toolbar label {
+  display: grid;
+  gap: .25rem;
+  margin: 0;
+  font-size: .85rem;
+  font-weight: 700;
+}
+
+.admin-event-toolbar :is(input, select, button) {
+  min-height: 2.4rem;
+}
+
+.admin-event-toolbar__search {
+  flex: 1 1 18rem;
+}
+
+.admin-event-toolbar__search input {
+  width: 100%;
+}
+
+.admin-filter-clear {
+  white-space: nowrap;
+}
+
+.admin-result-count {
+  margin: .65rem 0;
+  font-size: .9rem;
+}
+
+.admin-events-table {
+  min-width: 980px;
+}
+
+.admin-events-table th:last-child,
+.admin-events-table td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+}
+
+.admin-events-table tbody tr:hover td:last-child {
+  background: #f2f6fa;
+}
+
+.admin-event-name {
+  min-width: 14rem;
+  max-width: 22rem;
+}
+
+.admin-event-name small {
+  display: block;
+  overflow: hidden;
+  margin-top: .2rem;
+  color: #666;
+  font-size: .8rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-row-actions {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  white-space: nowrap;
+}
+
+.admin-row-actions button {
+  padding: 0;
+  border: 0;
+  color: #9b1c1c;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.admin-status-pill {
+  display: inline-block;
+  padding: .2rem .45rem;
+  border-radius: 999px;
+  color: #555;
+  background: #e8e8e8;
+  font-size: .8rem;
+  white-space: nowrap;
+}
+
+.admin-status-pill.is-published {
+  color: #155724;
+  background: #d4edda;
+}
+
+.admin-events-empty {
+  padding: 1.5rem;
+  color: #222;
+  background: #fff;
+  border-radius: .5rem;
+}
+
+@media (max-width: 700px) {
+  .admin-event-toolbar > label,
+  .admin-event-toolbar__search {
+    flex: 1 1 100%;
+  }
+
+  .admin-event-toolbar :is(input, select) {
+    width: 100%;
+  }
 }
 
 .admin-table-sort {
@@ -279,6 +386,15 @@
 
 .admin-event-edit__description {
   width: 100%;
+}
+
+.admin-event-edit__url {
+  flex: 1 1 24rem;
+}
+
+.admin-event-edit__url input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 [data-event-edit-form] button[type="submit"] {

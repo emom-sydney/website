@@ -71,8 +71,8 @@ session cookie is Secure, HttpOnly, and SameSite=Lax. Mutations also require a
 session-bound CSRF token.
 
 Staff eligibility is checked on every request. Administrators receive all
-capabilities; moderators receive profile-moderation and standby-promotion
-capabilities. Staff must retain a person profile and volunteer role.
+capabilities; moderators receive profile-moderation capabilities. Staff must
+retain a person profile and volunteer role.
 
 Staff can register one or more WebAuthn passkeys from the admin header and use
 them for routine login. Email links remain available for recovery. Passkey

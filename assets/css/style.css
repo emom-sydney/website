@@ -196,13 +196,6 @@ body.token-page {
   padding-left: 1.2rem;
 }
 
-.token-backup-option {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-  margin-bottom: 0.75rem;
-}
-
 .summary {
   padding: 0.75rem 1rem;
   background: #f3f3f3;

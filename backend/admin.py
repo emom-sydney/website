@@ -614,16 +614,6 @@ def register_admin_routes(app):
             event_id=None,
         )
 
-    @app.get("/admin/events/<int:event_id>/standby/")
-    @require_staff(moderator=True, api=False)
-    def admin_standby_page(event_id):
-        return render_template(
-            "admin/standby.html",
-            staff=g.staff,
-            active_tab="events",
-            event_id=event_id,
-        )
-
     @app.get("/admin/profiles/")
     @require_staff(moderator=True, api=False)
     def admin_profiles_page():
@@ -674,9 +664,51 @@ def register_admin_api_routes(app):
     @app.get("/api/v1/admin/events")
     @require_staff(moderator=True)
     def admin_events():
+        scope = (request.args.get("scope") or "future").strip().lower()
+        if scope not in {"future", "past", "all"}:
+            return api_error("invalid_scope", "Event scope must be future, past, or all.")
+
+        scope_clause = {
+            "future": "WHERE e.event_date >= CURRENT_DATE",
+            "past": "WHERE e.event_date < CURRENT_DATE",
+            "all": "",
+        }[scope]
         with connect() as connection:
             with connection.cursor() as cursor:
-                events = workflow.get_upcoming_events(cursor)
+                cursor.execute(
+                    f"""
+                    SELECT e.id, e.event_name, e.event_description, e.event_date, e.type_id,
+                           et.description, e.location_id, l.name, e.starts_at, e.ends_at,
+                           e.timezone, e.performance_slots, e.gallery_url, e.youtube_embed_url,
+                           e.event_date >= CURRENT_DATE, e.event_date > CURRENT_DATE
+                    FROM events e
+                    JOIN event_types et ON et.id = e.type_id
+                    LEFT JOIN locations l ON l.id = e.location_id
+                    {scope_clause}
+                    ORDER BY e.event_date, e.id
+                    """
+                )
+                events = [
+                    {
+                        "event_id": row[0],
+                        "event_name": row[1],
+                        "event_description": row[2] or "",
+                        "event_date": row[3].isoformat(),
+                        "type_id": row[4],
+                        "type_description": row[5],
+                        "location_id": row[6],
+                        "location_name": row[7] or "",
+                        "starts_at": row[8].isoformat() if row[8] else None,
+                        "ends_at": row[9].isoformat() if row[9] else None,
+                        "timezone": row[10],
+                        "performance_slots": row[11],
+                        "gallery_url": row[12],
+                        "youtube_embed_url": row[13],
+                        "is_upcoming": row[14],
+                        "can_delete": row[15],
+                    }
+                    for row in cursor.fetchall()
+                ]
         return api_data({"events": events})
 
     @app.get("/api/v1/admin/events/<int:event_id>")
@@ -688,7 +720,7 @@ def register_admin_api_routes(app):
                     """
                     SELECT e.id, e.event_date, e.type_id, e.event_name, e.event_description, e.performance_slots,
                            e.starts_at, e.ends_at, e.timezone, e.location_id, l.name, l.address,
-                           et.description
+                           et.description, e.gallery_url, e.youtube_embed_url
                     FROM events e
                     JOIN event_types et ON et.id = e.type_id
                     LEFT JOIN locations l ON l.id = e.location_id
@@ -730,6 +762,8 @@ def register_admin_api_routes(app):
             "location_name": row[10] or "",
             "location_address": row[11] or "",
             "type_description": row[12],
+            "gallery_url": row[13] or "",
+            "youtube_embed_url": row[14] or "",
             "performers": performers,
         })
 
@@ -964,6 +998,8 @@ def register_admin_api_routes(app):
         ends_at = str(payload.get("ends_at") or "").strip() or None
         timezone_name = str(payload.get("timezone") or "Australia/Sydney").strip()
         location_id = payload.get("location_id") or None
+        gallery_url = str(payload.get("gallery_url") or "").strip() or None
+        youtube_embed_url = str(payload.get("youtube_embed_url") or "").strip() or None
         performance_slots = payload.get("performance_slots")
         try:
             from datetime import date
@@ -1007,12 +1043,14 @@ def register_admin_api_routes(app):
                     UPDATE events
                     SET event_date = %s, type_id = %s, event_name = %s,
                         event_description = %s, performance_slots = %s,
-                        starts_at = %s, ends_at = %s, timezone = %s, location_id = %s
+                        starts_at = %s, ends_at = %s, timezone = %s, location_id = %s,
+                        gallery_url = %s, youtube_embed_url = %s
                     WHERE id = %s
                     RETURNING id
                     """,
                     (event_date, type_id, event_name, event_description, performance_slots,
-                     starts_at, ends_at, timezone_name, location_id, event_id),
+                     starts_at, ends_at, timezone_name, location_id, gallery_url,
+                     youtube_embed_url, event_id),
                 )
                 if not cursor.fetchone():
                     return api_error("not_found", "Event not found.", 404)
@@ -1032,6 +1070,8 @@ def register_admin_api_routes(app):
         ends_at = str(payload.get("ends_at") or "").strip() or None
         timezone_name = str(payload.get("timezone") or "Australia/Sydney").strip()
         location_id = payload.get("location_id") or None
+        gallery_url = str(payload.get("gallery_url") or "").strip() or None
+        youtube_embed_url = str(payload.get("youtube_embed_url") or "").strip() or None
         performance_slots = payload.get("performance_slots")
         try:
             from datetime import date
@@ -1060,12 +1100,12 @@ def register_admin_api_routes(app):
                 cursor.execute(
                     """
                     INSERT INTO events (event_date, type_id, event_name, event_description, performance_slots,
-                                        starts_at, ends_at, timezone, location_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        starts_at, ends_at, timezone, location_id, gallery_url, youtube_embed_url)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (event_date, type_id, event_name, event_description, performance_slots,
-                     starts_at, ends_at, timezone_name, location_id),
+                     starts_at, ends_at, timezone_name, location_id, gallery_url, youtube_embed_url),
                 )
                 event_id = cursor.fetchone()[0]
         return api_data({"event_id": event_id, "message": "Event saved."}, 201)
@@ -1356,46 +1396,6 @@ def register_admin_api_routes(app):
             return api_data({"message": f"{display_name} removed from the lineup."})
         except ValueError as exc:
             return api_error("performer_request_removal_failed", str(exc))
-
-    @app.get("/api/v1/admin/events/<int:event_id>/standby")
-    @require_staff(moderator=True)
-    def admin_event_standby(event_id):
-        with connect() as connection:
-            with connection.cursor() as cursor:
-                event = workflow.get_event_selection_context(cursor, event_id)
-                current = workflow.get_current_selected_lineup(cursor, event_id)
-                candidates = workflow.get_backup_candidates(cursor, event_id)
-        return api_data({"event": event, "current_lineup": current, "candidates": candidates})
-
-    @app.post("/api/v1/admin/events/<int:event_id>/lineup/promotions")
-    @require_staff(moderator=True)
-    def promote_standby(event_id):
-        csrf_error = require_csrf()
-        if csrf_error:
-            return csrf_error
-        payload = request.get_json(silent=True) or {}
-        try:
-            requested_date_id = int(payload.get("requested_date_id"))
-            with connect() as connection:
-                with connection.cursor() as cursor:
-                    event = workflow.get_event_selection_context(cursor, event_id)
-                    promoted = workflow.promote_backup_selection(
-                        cursor,
-                        event_id=event_id,
-                        requested_date_id=requested_date_id,
-                        admin_profile_id=g.staff["profile_id"],
-                    )
-                    links = workflow.create_availability_action_links(
-                        app=app,
-                        cursor=cursor,
-                        requested_date_id=requested_date_id,
-                        event_id=event_id,
-                        ttl_hours=workflow.get_workflow_settings(cursor)["action_token_ttl_hours"],
-                    )
-                workflow.send_backup_promoted_email(event, promoted, links)
-            return api_data({"promoted": promoted}, 201)
-        except (TypeError, ValueError) as exc:
-            return api_error("promotion_failed", str(exc))
 
     @app.get("/api/v1/admin/events/<int:event_id>/performer/<int:position>/name")
     # @require_staff(admin=True) # Should probably require this at some point

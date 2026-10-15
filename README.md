@@ -73,7 +73,7 @@ It currently handles:
     selected/standby/reserve statuses
   - admin availability overrides, oldest-first standby queue numbering, and
     editable action-email confirmation dialogs
-  - standby promotion after cancellations
+  - cancellation alerts linking administrators back to the lineup editor
 
 Supporting scripts:
 

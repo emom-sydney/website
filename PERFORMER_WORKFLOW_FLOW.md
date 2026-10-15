@@ -83,9 +83,10 @@ reserve explains the recent-performance cooldown. Availability-confirmed has
 no action. Default messages begin with `Hi <first name>`, falling back to the
 display name.
 
-If a selected performer cancels, moderators receive a staff-login link to
-`/admin/events/<event_id>/standby/`. A promotion is recorded through
-`POST /api/v1/admin/events/<event_id>/lineup/promotions`.
+If a selected performer cancels and standby or reserve performers are
+available, administrators receive a staff-login link to the event's lineup
+page. They can promote a replacement by changing that performer's status to
+`selected` and saving the lineup.
 
 ## Staff Authentication
 
@@ -106,10 +107,9 @@ sequenceDiagram
 ```
 
 Administrators have full staff access. Moderators can review profile
-submissions and promote standby performers. Profile moderation displays
-submitted social links and previous performance titles; approval/denial
-messages are editable, and administrators can withdraw individual requested
-dates before approving a submission.
+submissions. Profile moderation displays submitted social links and previous
+performance titles; approval/denial messages are editable, and administrators
+can withdraw individual requested dates before approving a submission.
 
 ## Jobs
 

@@ -74,8 +74,6 @@ Dashboard and domains:
 - `POST /api/v1/admin/events/<event_id>/performer-requests/<request_id>/availability-reminders`
 - `POST /api/v1/admin/events/<event_id>/performer-requests/<request_id>/lineup-status-notifications`
 - `DELETE /api/v1/admin/events/<event_id>/performer-requests/<request_id>`
-- `GET /api/v1/admin/events/<event_id>/standby`
-- `POST /api/v1/admin/events/<event_id>/lineup/promotions`
 - `GET /api/v1/admin/profiles/submissions?status=pending`
 - `GET /api/v1/admin/profiles/submissions/<draft_id>`
 - `POST /api/v1/admin/profiles/submissions/<draft_id>/decisions`
@@ -111,7 +109,7 @@ Every state-changing request must also send the `emom_staff_csrf` cookie value
 in `X-CSRF-Token`.
 
 Administrators can use every staff endpoint. Moderators can use profile
-moderation and standby-promotion endpoints but cannot edit a full lineup.
+moderation endpoints but cannot edit a full lineup.
 
 ## Human-Facing Backend Routes
 
@@ -120,7 +118,6 @@ moderation and standby-promotion endpoints but cannot edit a full lineup.
 - `/admin/`
 - `/admin/events/`
 - `/admin/events/<event_id>/lineup/`
-- `/admin/events/<event_id>/standby/`
 - `/admin/profiles/`
 - `/admin/profiles/submissions/<draft_id>/`
 - `/perform/availability/confirm/?token=...`

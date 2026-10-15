@@ -801,71 +801,6 @@ def register_performer_workflow_routes(app):
             app.logger.exception("Lineup selection start failed")
             return error_response("Unable to send an lineup selection link right now.", 500)
 
-    def backup_selection():
-        if request.method == "GET":
-            raw_token = normalize_text(request.args.get("token"))
-            if not raw_token:
-                return html_error_page("Missing standby selection token.", 400)
-
-            try:
-                with connect() as connection:
-                    with connection.cursor() as cursor:
-                        token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
-                        event = get_event_selection_context(cursor, token_row["event_id"])
-                        current_selected = get_current_selected_lineup(cursor, token_row["event_id"])
-                        backups = get_backup_candidates(cursor, token_row["event_id"])
-                        if not backups:
-                            raise ValueError("There are no standby performers available for this event.")
-                return render_backup_selection_form(raw_token, event, current_selected, backups)
-            except ValueError as exc:
-                return html_error_page(str(exc), 400)
-            except Exception:
-                app.logger.exception("Standby selection form lookup failed")
-                return html_error_page("Unable to load standby selection right now.", 500)
-
-        raw_token = normalize_text(request.form.get("token"))
-        requested_date_id_text = normalize_text(request.form.get("requested_date_id"))
-        if not raw_token:
-            return html_error_page("Missing standby selection token.", 400)
-        if not requested_date_id_text or not requested_date_id_text.isdigit():
-            return html_error_page("A standby performer must be selected.", 400)
-
-        requested_date_id = int(requested_date_id_text)
-
-        try:
-            with connect() as connection:
-                with connection.cursor() as cursor:
-                    token_row = get_action_token(cursor, raw_token, ACTION_TYPE_STAFF_LOGIN)
-                    event = get_event_selection_context(cursor, token_row["event_id"])
-                    settings = get_workflow_settings(cursor)
-                    promoted = promote_backup_selection(
-                        cursor,
-                        event_id=token_row["event_id"],
-                        requested_date_id=requested_date_id,
-                        admin_profile_id=token_row["profile_id"],
-                    )
-                    invalidate_backup_selection_tokens_for_event(cursor, token_row["event_id"])
-                    availability_links = create_availability_action_links(
-                        app=app,
-                        cursor=cursor,
-                        requested_date_id=promoted["requested_date_id"],
-                        event_id=token_row["event_id"],
-                        ttl_hours=settings["action_token_ttl_hours"],
-                    )
-
-                send_backup_promoted_email(event, promoted, availability_links)
-
-            return html_success_page(
-                "Standby performer promoted",
-                f"{promoted['display_name']} has been promoted into the lineup for {event['event_name']}.",
-            )
-        except ValueError as exc:
-            return html_error_page(str(exc), 400)
-        except Exception:
-            app.logger.exception("Standby promotion failed")
-            return html_error_page("Unable to promote standby performer right now.", 500)
-
-
 def get_json_payload():
     if not request.is_json:
         raise ValueError("Request body must be JSON.")
@@ -3589,22 +3524,6 @@ def apply_cooldown_backups_for_selected(cursor, *, event_id, selected_profile_id
         )
 
 
-def get_current_selected_lineup(cursor, event_id):
-    cursor.execute(
-        """
-        SELECT p.display_name, sel.slot_number
-        FROM event_performer_selections sel
-        JOIN profiles p
-          ON p.id = sel.profile_id
-        WHERE sel.event_id = %s
-          AND sel.status = 'selected'
-        ORDER BY sel.slot_number NULLS LAST, p.display_name
-        """,
-        (event_id,),
-    )
-    return [{"display_name": row[0], "slot_number": row[1]} for row in cursor.fetchall()]
-
-
 def get_backup_candidates(cursor, event_id):
     cursor.execute(
         """
@@ -3641,78 +3560,6 @@ def get_backup_candidates(cursor, event_id):
         }
         for row in cursor.fetchall()
     ]
-
-
-def promote_backup_selection(cursor, *, event_id, requested_date_id, admin_profile_id):
-    backups = get_backup_candidates(cursor, event_id)
-    backup = next((item for item in backups if item["requested_date_id"] == requested_date_id), None)
-    if not backup:
-        raise ValueError("That standby performer is not available for promotion.")
-
-    cursor.execute(
-        """
-        SELECT COALESCE(MAX(slot_number), 0) + 1
-        FROM event_performer_selections
-        WHERE event_id = %s
-          AND status = 'selected'
-        """,
-        (event_id,),
-    )
-    next_slot = cursor.fetchone()[0]
-
-    cursor.execute(
-        """
-        UPDATE event_performer_selections
-        SET
-          status = 'selected',
-          slot_number = %s,
-          selected_at = now(),
-          selected_by_profile_id = %s
-        WHERE event_id = %s
-          AND requested_date_id = %s
-        """,
-        (next_slot, admin_profile_id, event_id, requested_date_id),
-    )
-    cursor.execute(
-        """
-        UPDATE requested_dates
-        SET
-          selected_at = now(),
-          selected_by_profile_id = %s
-        WHERE id = %s
-        """,
-        (admin_profile_id, requested_date_id),
-    )
-    record_moderation_action(
-        cursor,
-        draft_id=backup["draft_id"],
-        moderator_profile_id=admin_profile_id,
-        action=LINEUP_STATUS_SELECTED,
-        reason="Standby/reserve performer promoted",
-        event_id=event_id,
-        requested_date_id=requested_date_id,
-    )
-
-    return {
-        "requested_date_id": requested_date_id,
-        "display_name": backup["display_name"],
-        "email": backup["email"],
-        "contact_phone": backup["contact_phone"],
-        "slot_number": next_slot,
-    }
-
-
-def invalidate_backup_selection_tokens_for_event(cursor, event_id):
-    cursor.execute(
-        """
-        UPDATE action_tokens
-        SET used_at = now()
-        WHERE event_id = %s
-          AND action_type = %s
-          AND used_at IS NULL
-        """,
-        (event_id, ACTION_TYPE_STAFF_LOGIN),
-    )
 
 
 def handle_selection_cancellation_if_needed(app, cursor, requested_date):
@@ -3760,28 +3607,28 @@ def handle_selection_cancellation_if_needed(app, cursor, requested_date):
         (requested_date["event_id"], requested_date["profile_id"]),
     )
 
-    moderator_emails = get_moderator_emails(cursor)
-    if not moderator_emails:
+    admin_emails = get_admin_emails(cursor)
+    if not admin_emails:
         return
 
     event = get_event_selection_context(cursor, requested_date["event_id"])
     backups = get_backup_candidates(cursor, requested_date["event_id"])
     if backups:
-        for moderator in moderator_emails:
-            next_path = f"/admin/events/{requested_date['event_id']}/standby/"
+        for admin in admin_emails:
+            next_path = f"/admin/events/{requested_date['event_id']}/lineup/"
             raw_token, expires_at, _ = create_staff_login_token(
                 cursor,
-                moderator,
+                admin,
                 next_path=next_path,
                 event_id=requested_date["event_id"],
             )
-            backup_url = build_staff_login_url(raw_token, next_path)
-            send_backup_selection_email(
-                moderator_email=moderator["email"],
+            lineup_url = build_staff_login_url(raw_token, next_path)
+            send_lineup_replacement_email(
+                admin_email=admin["email"],
                 event_name=event["event_name"],
                 event_date=event["event_date"],
                 cancelled_performer_name=requested_date["display_name"],
-                backup_url=backup_url,
+                lineup_url=lineup_url,
                 backups=backups,
                 expires_at=expires_at,
             )
@@ -3789,7 +3636,7 @@ def handle_selection_cancellation_if_needed(app, cursor, requested_date):
 
     if get_selected_count(cursor, requested_date["event_id"]) < event["performance_slots"]:
         send_open_slot_alert_email(
-            moderator_emails=moderator_emails,
+            moderator_emails=admin_emails,
             event_name=event["event_name"],
             event_date=event["event_date"],
             selected_count=get_selected_count(cursor, requested_date["event_id"]),
@@ -4183,8 +4030,8 @@ def send_lineup_status_notification(event, candidate, *, status=None, message=No
     return candidate
 
 
-def send_backup_selection_email(
-    *, moderator_email, event_name, event_date, cancelled_performer_name, backup_url, backups, expires_at
+def send_lineup_replacement_email(
+    *, admin_email, event_name, event_date, cancelled_performer_name, lineup_url, backups, expires_at
 ):
     backup_lines = "\n".join(
         f"- {item['display_name']} <{item['email']}> [{format_selection_status_label(item.get('selection_status'))}]"
@@ -4195,25 +4042,10 @@ def send_backup_selection_email(
         f"{cancelled_name} has cancelled for {event_name} on {event_date}.\n\n"
         "Current standby/reserve pool:\n"
         f"{backup_lines}\n\n"
-        f"Choose a standby performer to promote: {backup_url}\n\n"
+        f"Review and update the lineup: {lineup_url}\n\n"
         f"This link expires at {format_link_expiry_local(expires_at)}.\n"
     )
-    send_mail(moderator_email, f"sydney.emom standby selection needed for {event_name}", body)
-
-
-def send_backup_promoted_email(event, promoted, availability_links):
-    body = (
-        f"You have been promoted from standby to the confirmed lineup for {event['event_name']} on {event['event_date']}.\n"
-        "Please confirm whether you can still perform using one of the links below:\n\n"
-        f"Confirm availability: {availability_links['confirm_url']}\n"
-        f"Cancel availability: {availability_links['cancel_url']}\n\n"
-        f"These links expire at {format_link_expiry_local(availability_links['expires_at'])}.\n"
-    )
-    send_mail(
-        promoted["email"],
-        f"sydney.emom | performance confirmed for {event['event_name']}",
-        body,
-    )
+    send_mail(admin_email, f"sydney.emom lineup update needed for {event_name}", body)
 
 
 def send_open_slot_alert_email(*, moderator_emails, event_name, event_date, selected_count, slot_count):
@@ -4463,55 +4295,6 @@ def render_lineup_selection_form(
         content_html=content_html,
         layout_class="token-layout token-layout--wide",
         extra_scripts=extra_scripts,
-    )
-
-
-def render_backup_selection_form(raw_token, event, current_selected, backups):
-    selected_rows = "\n".join(
-        f"<li>{html.escape(item['display_name'])} (slot {item['slot_number']})</li>"
-        for item in current_selected
-    ) or "<li>No selected performers currently recorded.</li>"
-
-    backup_rows = "\n".join(
-        (
-            "<label class=\"token-backup-option\">"
-            f"<input type=\"radio\" name=\"requested_date_id\" value=\"{item['requested_date_id']}\" required>"
-            f"<span><strong>{html.escape(item['display_name'])}</strong><br>"
-            f"{html.escape(item['email'] or '')}<br>"
-            f"{html.escape(item['contact_phone'] or '')}<br>"
-            f"<small>Status: {html.escape(format_selection_status_label(item.get('selection_status')))}</small></span>"
-            "</label>"
-        )
-        for item in backups
-    ) or "<p>No standby performers are currently available.</p>"
-
-    content_html = (
-        "<div class='token-form-card'>"
-        "<h1>Standby selection</h1>"
-        "<p><strong>Event:</strong> "
-        + html.escape(event["event_name"])
-        + "</p>"
-        "<p><strong>Date:</strong> "
-        + html.escape(event["event_date"])
-        + "</p>"
-        "<h2>Current selected lineup</h2>"
-        "<ul>"
-        + selected_rows
-        + "</ul>"
-        "<h2>Available standby/reserve performers</h2>"
-        "<form method='post'>"
-        "<input type='hidden' name='token' value='"
-        + html.escape(raw_token, quote=True)
-        + "'>"
-        + backup_rows
-        + "<button type='submit'>Promote standby performer</button>"
-        "</form>"
-        "</div>"
-    )
-    return render_token_page(
-        title="Standby selection",
-        content_html=content_html,
-        layout_class="token-layout token-layout--default",
     )
 
 

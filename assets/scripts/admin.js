@@ -409,31 +409,224 @@
 
   async function loadEvents(node) {
     const [data, session] = await Promise.all([
-      api("/api/v1/admin/events"),
+      api("/api/v1/admin/events?scope=all"),
       api("/api/v1/admin/session"),
     ]);
-    node.innerHTML = data.events.length
-      ? `<div class="admin-list">${data.events.map((event) => `
-          <article class="admin-event-card">
-            <h2>${escapeHtml(event.type_description)}: ${escapeHtml(event.event_name)}</h2>
-            <p>${escapeHtml(event.event_date)}${event.location_name ? ` · ${escapeHtml(event.location_name)}` : ""}</p>
-            <p>${escapeHtml(event.event_description)}</p>
-            <div class="admin-actions">
-              ${session.is_admin ? `<a href="/admin/events/${event.event_id}/edit/">Edit event</a>
-              <a href="/admin/events/${event.event_id}/lineup/">Edit lineup</a>` : ""}
-              <a href="/admin/events/${event.event_id}/standby/">Standby performers</a>
-            </div>
-            ${session.is_admin && event.can_delete ? `<button type="button" class="admin-event-delete" data-delete-event="${event.event_id}" aria-label="Delete ${escapeHtml(event.event_name)}" title="Delete event">&#128465;</button>` : ""}
-          </article>`).join("")}</div>`
-      : "<p>No upcoming Open Mic events.</p>";
-    node.querySelectorAll("[data-delete-event]").forEach((button) => button.addEventListener("click", async () => {
-      const eventName = button.getAttribute("aria-label").replace(/^Delete /, "");
+    const events = data.events || [];
+    const params = new URLSearchParams(window.location.search);
+    const stateKeys = ["scope", "q", "type", "location", "gallery", "sort", "direction"];
+    const hasUrlState = stateKeys.some((key) => params.has(key));
+    let savedState = {};
+    if (!hasUrlState) {
+      try {
+        const parsedState = JSON.parse(window.sessionStorage.getItem("emom-admin-events-state") || "{}");
+        savedState = parsedState && typeof parsedState === "object" ? parsedState : {};
+      } catch {
+        savedState = {};
+      }
+    }
+    const selectedState = hasUrlState ? {
+      scope: params.get("scope"),
+      query: params.get("q"),
+      type: params.get("type"),
+      location: params.get("location"),
+      gallery: params.get("gallery"),
+      sort: params.get("sort"),
+      direction: params.get("direction"),
+    } : savedState;
+    const state = {
+      scope: ["future", "past", "all"].includes(selectedState.scope) ? selectedState.scope : "future",
+      query: typeof selectedState.query === "string" ? selectedState.query : "",
+      type: typeof selectedState.type === "string" ? selectedState.type : "",
+      location: typeof selectedState.location === "string" ? selectedState.location : "",
+      gallery: ["published", "unpublished"].includes(selectedState.gallery) ? selectedState.gallery : "",
+      sort: ["name", "date", "type", "location", "time", "slots", "gallery"].includes(selectedState.sort) ? selectedState.sort : "date",
+      direction: selectedState.direction === "descending" ? "descending" : "ascending",
+    };
+    const eventTypes = Array.from(new Map(events.map((item) => [String(item.type_id), item.type_description])).entries())
+      .sort((left, right) => left[1].localeCompare(right[1], undefined, { sensitivity: "base" }));
+    const locations = Array.from(new Map(events.filter((item) => item.location_id).map((item) => [String(item.location_id), item.location_name])).entries())
+      .sort((left, right) => left[1].localeCompare(right[1], undefined, { sensitivity: "base" }));
+
+    node.innerHTML = `
+      <div class="admin-event-toolbar" aria-label="Event filters">
+        <label>View
+          <select data-event-filter="scope">
+            <option value="future">Future events</option>
+            <option value="past">Past events</option>
+            <option value="all">All events</option>
+          </select>
+        </label>
+        <label class="admin-event-toolbar__search">Search
+          <input type="search" data-event-filter="query" placeholder="Name, type, location or date">
+        </label>
+        <label>Type
+          <select data-event-filter="type"><option value="">All types</option>${eventTypes.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("")}</select>
+        </label>
+        <label>Location
+          <select data-event-filter="location"><option value="">All locations</option>${locations.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("")}</select>
+        </label>
+        <label>Gallery
+          <select data-event-filter="gallery">
+            <option value="">Any status</option>
+            <option value="published">Published</option>
+            <option value="unpublished">Not published</option>
+          </select>
+        </label>
+        <button type="button" class="admin-filter-clear" data-clear-event-filters>Clear filters</button>
+      </div>
+      <p class="admin-result-count" role="status" aria-live="polite" data-event-result-count></p>
+      <div class="admin-table-wrap" data-event-table-wrap>
+        <table class="admin-events-table">
+          <thead><tr>
+            <th aria-sort="none"><button type="button" class="admin-table-sort" data-event-sort="name">Event<span aria-hidden="true"></span></button></th>
+            <th aria-sort="none"><button type="button" class="admin-table-sort" data-event-sort="date">Date<span aria-hidden="true"></span></button></th>
+            <th aria-sort="none"><button type="button" class="admin-table-sort" data-event-sort="type">Type<span aria-hidden="true"></span></button></th>
+            <th aria-sort="none"><button type="button" class="admin-table-sort" data-event-sort="location">Location<span aria-hidden="true"></span></button></th>
+            <th aria-sort="none"><button type="button" class="admin-table-sort" data-event-sort="time">Time<span aria-hidden="true"></span></button></th>
+            <th aria-sort="none"><button type="button" class="admin-table-sort" data-event-sort="slots">Slots<span aria-hidden="true"></span></button></th>
+            <th aria-sort="none"><button type="button" class="admin-table-sort" data-event-sort="gallery">Gallery<span aria-hidden="true"></span></button></th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody data-event-rows></tbody>
+        </table>
+      </div>
+      <p class="admin-events-empty" data-event-empty hidden></p>`;
+
+    const controls = Object.fromEntries(Array.from(node.querySelectorAll("[data-event-filter]")).map((control) => [control.dataset.eventFilter, control]));
+    controls.scope.value = state.scope;
+    controls.query.value = state.query;
+    controls.type.value = state.type;
+    controls.location.value = state.location;
+    controls.gallery.value = state.gallery;
+    state.type = controls.type.value;
+    state.location = controls.location.value;
+
+    function formatDate(value) {
+      const parsed = new Date(`${value}T00:00:00`);
+      return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", year: "numeric" }).format(parsed);
+    }
+
+    function formatTime(event) {
+      if (!event.starts_at) return "—";
+      try {
+        const formatter = new Intl.DateTimeFormat("en-AU", { hour: "numeric", minute: "2-digit", timeZone: event.timezone || "Australia/Sydney" });
+        const start = formatter.format(new Date(event.starts_at));
+        return event.ends_at ? `${start}–${formatter.format(new Date(event.ends_at))}` : start;
+      } catch {
+        return "—";
+      }
+    }
+
+    function sortValue(event, key) {
+      return {
+        name: event.event_name,
+        date: event.event_date,
+        type: event.type_description,
+        location: event.location_name,
+        time: event.starts_at || "",
+        slots: Number(event.performance_slots),
+        gallery: event.gallery_url ? 1 : 0,
+      }[key];
+    }
+
+    function syncUrl() {
+      const next = new URLSearchParams();
+      if (state.scope !== "future") next.set("scope", state.scope);
+      if (state.query) next.set("q", state.query);
+      if (state.type) next.set("type", state.type);
+      if (state.location) next.set("location", state.location);
+      if (state.gallery) next.set("gallery", state.gallery);
+      if (state.sort !== "date") next.set("sort", state.sort);
+      if (state.direction !== "ascending") next.set("direction", state.direction);
+      const query = next.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+      try {
+        window.sessionStorage.setItem("emom-admin-events-state", JSON.stringify(state));
+      } catch {
+        // URL state still works when session storage is unavailable.
+      }
+    }
+
+    function renderEvents() {
+      const query = state.query.trim().toLocaleLowerCase();
+      const filtered = events.filter((event) => {
+        if (state.scope === "future" && !event.is_upcoming) return false;
+        if (state.scope === "past" && event.is_upcoming) return false;
+        if (state.type && String(event.type_id) !== state.type) return false;
+        if (state.location && String(event.location_id) !== state.location) return false;
+        if (state.gallery === "published" && !event.gallery_url) return false;
+        if (state.gallery === "unpublished" && event.gallery_url) return false;
+        if (!query) return true;
+        return [event.event_name, event.type_description, event.location_name, event.event_date]
+          .some((value) => String(value || "").toLocaleLowerCase().includes(query));
+      }).sort((left, right) => {
+        const leftValue = sortValue(left, state.sort);
+        const rightValue = sortValue(right, state.sort);
+        const result = typeof leftValue === "number"
+          ? leftValue - rightValue
+          : String(leftValue || "").localeCompare(String(rightValue || ""), undefined, { numeric: true, sensitivity: "base" });
+        return state.direction === "descending" ? -result : result;
+      });
+
+      node.querySelectorAll("[data-event-sort]").forEach((button) => {
+        const active = button.dataset.eventSort === state.sort;
+        button.dataset.sortDirection = active ? state.direction : "none";
+        button.closest("th").setAttribute("aria-sort", active ? state.direction : "none");
+      });
+      node.querySelector("[data-event-rows]").innerHTML = filtered.map((event) => `
+        <tr>
+          <td class="admin-event-name">${session.is_admin ? `<a href="/admin/events/${event.event_id}/edit/">${escapeHtml(event.event_name)}</a>` : escapeHtml(event.event_name)}${event.event_description ? `<small title="${escapeHtml(event.event_description)}">${escapeHtml(event.event_description)}</small>` : ""}</td>
+          <td data-sort-value="${escapeHtml(event.event_date)}"><time datetime="${escapeHtml(event.event_date)}">${escapeHtml(formatDate(event.event_date))}</time></td>
+          <td>${escapeHtml(event.type_description)}</td>
+          <td>${escapeHtml(event.location_name || "—")}</td>
+          <td>${escapeHtml(formatTime(event))}</td>
+          <td>${escapeHtml(event.performance_slots)}</td>
+          <td><span class="admin-status-pill ${event.gallery_url ? "is-published" : ""}">${event.gallery_url ? "Published" : "Not published"}</span></td>
+          <td><div class="admin-row-actions">
+            ${session.is_admin ? `<a href="/admin/events/${event.event_id}/edit/">Edit</a><a href="/admin/events/${event.event_id}/lineup/">Lineup</a>` : ""}
+            ${session.is_admin && event.can_delete ? `<button type="button" data-delete-event="${event.event_id}" data-event-name="${escapeHtml(event.event_name)}">Delete</button>` : ""}
+          </div></td>
+        </tr>`).join("");
+
+      const empty = node.querySelector("[data-event-empty]");
+      empty.textContent = events.length ? "No events match these filters." : "No events have been added yet.";
+      empty.hidden = filtered.length > 0;
+      node.querySelector("[data-event-table-wrap]").hidden = filtered.length === 0;
+      node.querySelector("[data-event-result-count]").textContent = `${filtered.length} event${filtered.length === 1 ? "" : "s"}`;
+      syncUrl();
+    }
+
+    node.querySelectorAll("[data-event-filter]").forEach((control) => control.addEventListener(control.type === "search" ? "input" : "change", () => {
+      state[control.dataset.eventFilter] = control.value;
+      renderEvents();
+    }));
+    node.querySelector("[data-clear-event-filters]").addEventListener("click", () => {
+      Object.assign(state, { scope: "future", query: "", type: "", location: "", gallery: "" });
+      Object.entries(controls).forEach(([key, control]) => { control.value = state[key]; });
+      renderEvents();
+      controls.query.focus();
+    });
+    node.querySelectorAll("[data-event-sort]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.eventSort;
+      state.direction = state.sort === key && state.direction === "ascending" ? "descending" : "ascending";
+      state.sort = key;
+      renderEvents();
+    }));
+    node.addEventListener("click", async (clickEvent) => {
+      const button = clickEvent.target.closest("[data-delete-event]");
+      if (!button || !node.contains(button)) return;
+      const eventName = button.dataset.eventName;
       if (!window.confirm(`Delete ${eventName}? This cannot be undone.`)) return;
       try {
         await api(`/api/v1/admin/events/${button.dataset.deleteEvent}`, { method: "DELETE" });
-        await loadEvents(node);
+        const index = events.findIndex((event) => String(event.event_id) === button.dataset.deleteEvent);
+        if (index !== -1) events.splice(index, 1);
+        renderEvents();
+        window.showToast?.(`${eventName} deleted.`, { kind: "success" });
       } catch (error) { window.showToast?.(error.message, { kind: "error" }); }
-    }));
+    });
+    renderEvents();
   }
 
   async function loadLocations(node) {
@@ -484,7 +677,7 @@
     const [event, typeData, locationData] = await Promise.all([
       eventId
         ? api(`/api/v1/admin/events/${eventId}`)
-        : Promise.resolve({ event_date: "", type_id: 1, event_name: "", event_description: "", performance_slots: 7, starts_at: "", ends_at: "", timezone: "Australia/Sydney", location_id: null }),
+        : Promise.resolve({ event_date: "", type_id: 1, event_name: "", event_description: "", performance_slots: 7, starts_at: "", ends_at: "", timezone: "Australia/Sydney", location_id: null, gallery_url: "", youtube_embed_url: "" }),
       api("/api/v1/admin/event-types"),
       api("/api/v1/admin/locations"),
     ]);
@@ -507,6 +700,10 @@
         <div class="admin-event-edit__row">
           <label>Timezone <input name="timezone" value="${escapeHtml(event.timezone || "Australia/Sydney")}"></label>
           <label>Location <select name="location_id"><option value="">No location</option>${locationData.locations.map((location) => `<option value="${location.id}"${String(event.location_id) === String(location.id) ? " selected" : ""}>${escapeHtml(location.name)}${location.address ? ` — ${escapeHtml(location.address)}` : ""}</option>`).join("")}</select></label>
+        </div>
+        <div class="admin-event-edit__row">
+          <label class="admin-event-edit__url">Gallery URL <input name="gallery_url" value="${escapeHtml(event.gallery_url || "")}" placeholder="e.g. 2026-10-20"></label>
+          <label class="admin-event-edit__url">YouTube video <input name="youtube_embed_url" value="${escapeHtml(event.youtube_embed_url || "")}" placeholder="URL, video ID, or iframe HTML"></label>
         </div>
         <label class="admin-event-edit__description">Event description <textarea name="event_description" rows="6">${escapeHtml(event.event_description)}</textarea></label>
         <button type="submit">Save and close</button>
@@ -850,40 +1047,6 @@
     });
   }
 
-  async function loadStandby(node) {
-    const eventId = Number(node.dataset.eventId);
-    const data = await api(`/api/v1/admin/events/${eventId}/standby`);
-    node.innerHTML = `
-      <h2>${escapeHtml(data.event.event_name)} — ${escapeHtml(data.event.event_date)}</h2>
-      <h3>Current lineup</h3>
-      <ul>${data.current_lineup.map((item) => `<li>${escapeHtml(item.display_name)}</li>`).join("") || "<li>None</li>"}</ul>
-      <h3>Available standby/reserve performers</h3>
-      ${data.candidates.length ? `<form data-standby-form>
-        ${data.candidates.map((item) => `<label class="admin-choice">
-          <input type="radio" name="requested_date_id" value="${item.requested_date_id}" required>
-          ${escapeHtml(item.display_name)} (${escapeHtml(item.selection_status)})
-        </label>`).join("")}
-        <button type="submit">Promote performer</button>
-        <p role="status" data-standby-status></p>
-      </form>` : "<p>No standby performers are available.</p>"}`;
-    node.querySelector("[data-standby-form]")?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const form = new FormData(event.currentTarget);
-      const statusNode = node.querySelector("[data-standby-status]");
-      statusNode.textContent = "Promoting…";
-      try {
-        const result = await api(`/api/v1/admin/events/${eventId}/lineup/promotions`, {
-          method: "POST",
-          body: JSON.stringify({ requested_date_id: Number(form.get("requested_date_id")) }),
-        });
-        statusNode.textContent = `${result.promoted.display_name} was promoted.`;
-      } catch (error) {
-        statusNode.textContent = error.message;
-        statusNode.classList.add("is-error");
-      }
-    });
-  }
-
   async function loadProfiles(node) {
     const data = await api("/api/v1/admin/profiles/submissions?status=pending");
     node.innerHTML = data.submissions.length
@@ -969,7 +1132,6 @@
     ["[data-admin-locations]", loadLocations],
     ["[data-admin-event-edit]", loadEventEdit],
     ["[data-admin-lineup]", loadLineup],
-    ["[data-admin-standby]", loadStandby],
     ["[data-admin-profiles]", loadProfiles],
     ["[data-admin-submission]", loadSubmission],
   ];
