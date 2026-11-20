@@ -48,6 +48,12 @@ Errors use:
 Authentication:
 
 - `POST /api/v1/admin/login-links`
+- `POST /api/v1/admin/passkeys/login/options`
+- `POST /api/v1/admin/passkeys/login/verify`
+- `POST /api/v1/admin/passkeys/registration/options`
+- `POST /api/v1/admin/passkeys/registration/verify`
+- `GET /api/v1/admin/passkeys`
+- `DELETE /api/v1/admin/passkeys/<credential_id>`
 - `GET /api/v1/admin/session`
 - `DELETE /api/v1/admin/session`
 

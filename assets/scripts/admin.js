@@ -314,10 +314,77 @@
     }
   });
 
+  document.querySelector("[data-admin-passkey-login]")?.addEventListener("click", async () => {
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      status("Passkeys are not supported by this browser. Use the email login instead.", true);
+      return;
+    }
+    const button = document.querySelector("[data-admin-passkey-login]");
+    button.disabled = true;
+    try {
+      const next = document.querySelector("[data-admin-login] input[name=next]")?.value || "/admin/";
+      const optionsResponse = await fetch("/api/v1/admin/passkeys/login/options", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ next }) });
+      const optionsPayload = await optionsResponse.json();
+      if (!optionsResponse.ok) throw new Error(optionsPayload?.error?.message || "Unable to start passkey login.");
+      const options = optionsPayload.data;
+      options.challenge = decodeBase64Url(options.challenge);
+      const credential = await navigator.credentials.get({ publicKey: options });
+      const response = await fetch("/api/v1/admin/passkeys/login/verify", {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: credentialToJson(credential), next }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error?.message || "Passkey verification failed.");
+      }
+      window.location.assign(response.url || next);
+    } catch (error) {
+      status(error.name === "NotAllowedError" ? "Passkey login was cancelled." : error.message, true);
+      button.disabled = false;
+    }
+  });
+
+  function decodeBase64Url(value) {
+    const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===";
+    const binary = atob(padded.slice(0, padded.length - (padded.length % 4)));
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  }
+
+  function encodeBase64Url(value) {
+    return btoa(String.fromCharCode(...new Uint8Array(value))).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  }
+
+  function credentialToJson(credential) {
+    const response = credential.response;
+    const result = { id: credential.id, rawId: encodeBase64Url(credential.rawId), type: credential.type, response: {} };
+    if (response.clientDataJSON) result.response.clientDataJSON = encodeBase64Url(response.clientDataJSON);
+    if (response.authenticatorData) result.response.authenticatorData = encodeBase64Url(response.authenticatorData);
+    if (response.signature) result.response.signature = encodeBase64Url(response.signature);
+    if (response.userHandle) result.response.userHandle = encodeBase64Url(response.userHandle);
+    if (response.attestationObject) result.response.attestationObject = encodeBase64Url(response.attestationObject);
+    return result;
+  }
+
   document.querySelector("[data-admin-logout]")?.addEventListener("click", async () => {
     try {
       await api("/api/v1/admin/session", { method: "DELETE" });
       window.location.assign("/admin/login/");
+    } catch (error) {
+      window.showToast?.(error.message, { kind: "error" });
+    }
+  });
+
+  document.querySelector("[data-admin-passkey-register]")?.addEventListener("click", async () => {
+    try {
+      const options = await api("/api/v1/admin/passkeys/registration/options", { method: "POST", body: "{}" });
+      options.challenge = decodeBase64Url(options.challenge);
+      options.user.id = decodeBase64Url(options.user.id);
+      const credential = await navigator.credentials.create({ publicKey: options });
+      await api("/api/v1/admin/passkeys/registration/verify", {
+        method: "POST",
+        body: JSON.stringify({ credential: credentialToJson(credential), label: "Passkey" }),
+      });
+      window.showToast?.("Passkey registered.");
     } catch (error) {
       window.showToast?.(error.message, { kind: "error" });
     }

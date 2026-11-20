@@ -16,7 +16,7 @@ export default function(lightbox){
         <div class="sp-lightbox-modal-content">
           ${lightbox.imgPath.map((path, index, array) => `<div class="sp-lightbox-slides"><span class="sp-lightbox-numbertext">${index + 1} / ${array.length} </span>            
           <img class="sp-lightbox-slide-img" src="${path}">
-          <p class="sp-lightbox-caption-container">${lightbox.caption[index]}</p>        
+          <p class="sp-lightbox-caption-container">${lightbox.caption[index]} <button type="button" class="sp-lightbox-copy-url" title="Copy original image URL" aria-label="Copy original image URL" data-original-url="${encodeURIComponent(path)}" onclick="copyImageUrl(event, this)"><img src="/assets/img/icons/copylink_icon.png" alt=""></button></p>
           </div>`).join('')}
           <button id="sp-lightbox-prev" onclick="plusSlides(-1)">&#10094;</button>
           <button id="sp-lightbox-next" onclick="plusSlides(1)">&#10095;</button>

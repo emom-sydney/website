@@ -461,7 +461,7 @@ def render_html_page(*, title, heading, message, extra_html=None):
         "<body class='newsletter-confirm-page'>"
         "<div class='newsletter-confirm-layout'>"
         "<div class='page_header'>"
-        "<a href='/'><img src='/assets/img/new_site_logo.png' alt='EMOM Sydney logo'></a>"
+        "<a href='/'><img src='/assets/img/site_logo.png' alt='EMOM Sydney logo'></a>"
         "</div>"
         "<div class='newsletter-confirm-card'>"
         f"<h1>{safe_heading}</h1>"

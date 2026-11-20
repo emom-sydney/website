@@ -57,6 +57,8 @@ The nginx production contract proxies `/api/v1/`, `/admin/`,
 - `SMTP_PORT`
 - `STAFF_LOGIN_TOKEN_TTL_MINUTES` (default `15`)
 - `STAFF_SESSION_TTL_HOURS` (default `12`)
+- `PASSKEY_RP_ID` (default `emom.me`)
+- `PASSKEY_ORIGINS` (comma-separated HTTPS origins; defaults to `PUBLIC_SITE_BASE_URL`)
 - `LINEUP_SELECTION_LOCK_MINUTES` (default `30`)
 - `app_settings.qr_tracking_retention_days` controls QR event retention (default `90` days)
 - Keila variables documented in `deploy/etc/emom/backend.env.example`
@@ -71,6 +73,10 @@ session-bound CSRF token.
 Staff eligibility is checked on every request. Administrators receive all
 capabilities; moderators receive profile-moderation and standby-promotion
 capabilities. Staff must retain a person profile and volunteer role.
+
+Staff can register one or more WebAuthn passkeys from the admin header and use
+them for routine login. Email links remain available for recovery. Passkey
+challenges are single-use and expire after five minutes.
 
 Profile moderation decisions can include an edited approval or denial message
 and a subset of requested dates. Social links and previous performance titles

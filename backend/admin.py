@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import secrets
+import base64
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import quote
@@ -11,10 +12,17 @@ from flask import Response, g, jsonify, make_response, redirect, render_template
 import backend.performer_workflow as workflow
 from backend.db import connect
 from backend.mailer import send_mail
+from webauthn import generate_authentication_options, generate_registration_options
+from webauthn import verify_authentication_response, verify_registration_response
+from webauthn.helpers import options_to_json
+from webauthn.helpers.parse_authentication_credential_json import parse_authentication_credential_json
+from webauthn.helpers.parse_registration_credential_json import parse_registration_credential_json
+from webauthn.helpers.structs import AuthenticatorSelectionCriteria, ResidentKeyRequirement, UserVerificationRequirement
 
 STAFF_LOGIN_ACTION = "staff_login"
 SESSION_COOKIE = "emom_staff_session"
 CSRF_COOKIE = "emom_staff_csrf"
+PASSKEY_CHALLENGE_COOKIE = "emom_staff_passkey_challenge"
 
 # TODO Split into multiple files. This one is way too big.
 # TODO Move database queries into their own library files.
@@ -61,6 +69,66 @@ def positive_int_env(name, default):
     if value <= 0:
         raise ValueError(f"{name} must be a positive integer.")
     return value
+
+
+def get_passkey_rp_id():
+    return (os.getenv("PASSKEY_RP_ID") or "emom.me").strip()
+
+
+def get_passkey_origins():
+    configured = os.getenv("PASSKEY_ORIGINS") or os.getenv("PUBLIC_SITE_BASE_URL") or "https://sydney.emom.me"
+    return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+
+
+def b64url(value):
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def raw_b64url(value):
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def create_staff_session(cursor, profile_id):
+    raw_session = secrets.token_urlsafe(32)
+    raw_csrf = secrets.token_urlsafe(32)
+    expires_at = now_utc() + timedelta(hours=get_staff_session_ttl_hours())
+    cursor.execute(
+        """INSERT INTO staff_sessions
+           (session_token_hash, csrf_token_hash, profile_id, expires_at)
+           VALUES (%s, %s, %s, %s)""",
+        (hash_secret(raw_session), hash_secret(raw_csrf), profile_id, expires_at),
+    )
+    return raw_session, raw_csrf, expires_at
+
+
+def session_response(raw_session, raw_csrf, expires_at, next_path):
+    response = make_response(redirect(next_path))
+    max_age = max(1, int((expires_at - now_utc()).total_seconds()))
+    response.set_cookie(SESSION_COOKIE, raw_session, max_age=max_age, secure=True, httponly=True, samesite="Lax", path="/")
+    response.set_cookie(CSRF_COOKIE, raw_csrf, max_age=max_age, secure=True, httponly=False, samesite="Lax", path="/")
+    return response
+
+
+def store_passkey_challenge(cursor, challenge, purpose, profile_id=None):
+    value = b64url(challenge)
+    cursor.execute(
+        "INSERT INTO staff_passkey_challenges (challenge, purpose, profile_id, expires_at) VALUES (%s, %s, %s, %s)",
+        (value, purpose, profile_id, now_utc() + timedelta(minutes=5)),
+    )
+    return value
+
+
+def consume_passkey_challenge(cursor, value, purpose):
+    cursor.execute(
+        """UPDATE staff_passkey_challenges SET used_at = now()
+           WHERE challenge = %s AND purpose = %s AND used_at IS NULL AND expires_at > now()
+           RETURNING profile_id""",
+        (value, purpose),
+    )
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("This passkey challenge is invalid, expired, or already used.")
+    return row[0]
 
 
 def find_staff_by_email(cursor, email):
@@ -227,6 +295,148 @@ def require_csrf():
 
 
 def register_admin_routes(app):
+    @app.post("/api/v1/admin/passkeys/login/options")
+    def passkey_login_options():
+        payload = request.get_json(silent=True) or {}
+        next_path = normalize_next_path(payload.get("next"))
+        options = generate_authentication_options(
+            rp_id=get_passkey_rp_id(),
+            user_verification=UserVerificationRequirement.PREFERRED,
+        )
+        challenge = b64url(options.challenge)
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                store_passkey_challenge(cursor, options.challenge, "authentication")
+        response = make_response(jsonify({"data": json.loads(options_to_json(options))}), 200)
+        response.delete_cookie(PASSKEY_CHALLENGE_COOKIE, path="/admin/")
+        response.set_cookie(PASSKEY_CHALLENGE_COOKIE, challenge, max_age=300, secure=True, httponly=True, samesite="Lax", path="/")
+        response.headers["X-Admin-Next"] = next_path
+        return response
+
+    @app.post("/api/v1/admin/passkeys/login/verify")
+    def passkey_login_verify():
+        payload = request.get_json(silent=True) or {}
+        challenge = request.cookies.get(PASSKEY_CHALLENGE_COOKIE)
+        next_path = normalize_next_path(payload.get("next"))
+        if not challenge or not payload.get("credential"):
+            return api_error("invalid_passkey_request", "A passkey challenge and credential are required.")
+        try:
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    consume_passkey_challenge(cursor, challenge, "authentication")
+                    credential = parse_authentication_credential_json(payload["credential"])
+                    cursor.execute(
+                        """SELECT id, profile_id, public_key, sign_count FROM staff_passkey_credentials
+                           WHERE credential_id = %s AND revoked_at IS NULL""",
+                        (b64url(credential.raw_id),),
+                    )
+                    row = cursor.fetchone()
+                    if not row:
+                        raise ValueError("This passkey is not registered.")
+                    verification = verify_authentication_response(
+                        credential=credential,
+                        expected_challenge=raw_b64url(challenge),
+                        expected_rp_id=get_passkey_rp_id(),
+                        expected_origin=get_passkey_origins(),
+                        credential_public_key=raw_b64url(row[2]),
+                        credential_current_sign_count=row[3],
+                        require_user_verification=False,
+                    )
+                    cursor.execute(
+                        "UPDATE staff_passkey_credentials SET sign_count = %s, last_used_at = now() WHERE id = %s",
+                        (verification.new_sign_count, row[0]),
+                    )
+                    raw_session, raw_csrf, expires_at = create_staff_session(cursor, row[1])
+            response = session_response(raw_session, raw_csrf, expires_at, next_path)
+            response.delete_cookie(PASSKEY_CHALLENGE_COOKIE, path="/")
+            return response
+        except ValueError as exc:
+            return api_error("passkey_verification_failed", str(exc), 400)
+        except Exception:
+            app.logger.exception("Passkey authentication failed")
+            return api_error("passkey_verification_failed", "The passkey could not be verified.", 400)
+
+    @app.post("/api/v1/admin/passkeys/registration/options")
+    @require_staff()
+    def passkey_registration_options():
+        options = generate_registration_options(
+            rp_id=get_passkey_rp_id(),
+            rp_name="sydney.emom",
+            user_id=str(g.staff["profile_id"]).encode("utf-8"),
+            user_name=g.staff["email"],
+            user_display_name=g.staff["display_name"],
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                resident_key=ResidentKeyRequirement.REQUIRED,
+                user_verification=UserVerificationRequirement.PREFERRED,
+            ),
+        )
+        challenge = b64url(options.challenge)
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                store_passkey_challenge(cursor, options.challenge, "registration", g.staff["profile_id"])
+        response = make_response(jsonify({"data": json.loads(options_to_json(options))}), 200)
+        response.delete_cookie(PASSKEY_CHALLENGE_COOKIE, path="/admin/")
+        response.set_cookie(PASSKEY_CHALLENGE_COOKIE, challenge, max_age=300, secure=True, httponly=True, samesite="Lax", path="/")
+        return response
+
+    @app.post("/api/v1/admin/passkeys/registration/verify")
+    @require_staff()
+    def passkey_registration_verify():
+        payload = request.get_json(silent=True) or {}
+        challenge = request.cookies.get(PASSKEY_CHALLENGE_COOKIE)
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        try:
+            credential = parse_registration_credential_json(payload["credential"])
+            with connect() as connection:
+                with connection.cursor() as cursor:
+                    profile_id = consume_passkey_challenge(cursor, challenge, "registration")
+                    if profile_id != g.staff["profile_id"]:
+                        raise ValueError("This passkey challenge belongs to another staff session.")
+                    verification = verify_registration_response(
+                        credential=credential,
+                        expected_challenge=raw_b64url(challenge),
+                        expected_rp_id=get_passkey_rp_id(),
+                        expected_origin=get_passkey_origins(),
+                        require_user_verification=False,
+                    )
+                    cursor.execute(
+                        """INSERT INTO staff_passkey_credentials
+                           (profile_id, credential_id, public_key, sign_count, transports, label)
+                           VALUES (%s, %s, %s, %s, %s, %s)""",
+                        (g.staff["profile_id"], b64url(verification.credential_id), b64url(verification.credential_public_key), verification.sign_count, json.dumps(payload.get("transports") or []), str(payload.get("label") or "Passkey")[:100]),
+                    )
+            response = make_response(jsonify({"data": {"message": "Passkey registered."}}), 201)
+            response.delete_cookie(PASSKEY_CHALLENGE_COOKIE, path="/")
+            return response
+        except (KeyError, TypeError, ValueError) as exc:
+            return api_error("passkey_registration_failed", str(exc), 400)
+
+    @app.get("/api/v1/admin/passkeys")
+    @require_staff()
+    def list_passkeys():
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id, label, created_at, last_used_at FROM staff_passkey_credentials WHERE profile_id = %s AND revoked_at IS NULL ORDER BY created_at", (g.staff["profile_id"],))
+                return api_data([{"id": row[0], "label": row[1], "created_at": row[2].isoformat(), "last_used_at": row[3].isoformat() if row[3] else None} for row in cursor.fetchall()])
+
+    @app.delete("/api/v1/admin/passkeys/<int:credential_id>")
+    @require_staff()
+    def revoke_passkey(credential_id):
+        csrf_error = require_csrf()
+        if csrf_error:
+            return csrf_error
+        with connect() as connection:
+            with connection.cursor() as cursor:
+                if g.staff["is_admin"]:
+                    cursor.execute("UPDATE staff_passkey_credentials SET revoked_at = now() WHERE id = %s AND revoked_at IS NULL", (credential_id,))
+                else:
+                    cursor.execute("UPDATE staff_passkey_credentials SET revoked_at = now() WHERE id = %s AND profile_id = %s AND revoked_at IS NULL", (credential_id, g.staff["profile_id"]))
+                if cursor.rowcount != 1:
+                    return api_error("passkey_not_found", "Passkey not found.", 404)
+        return "", 204
+
     @app.get("/admin/login/")
     def admin_login_page():
         return render_template(
