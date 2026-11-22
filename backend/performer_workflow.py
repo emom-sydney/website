@@ -972,6 +972,8 @@ def normalize_profile_submission_payload(payload, email, *, require_requested_ev
     contact_phone = normalize_text(payload.get("contact_phone"))
     artist_bio = normalize_text(payload.get("artist_bio"))
     additional_info = normalize_text(payload.get("additional_info"))
+    suburb = normalize_text(payload.get("suburb"))
+    is_location_public = normalize_boolean(payload.get("is_location_public"), default=False)
     show_tribuo_link = normalize_boolean(payload.get("show_tribuo_link"), default=False)
     social_links = payload.get("social_links") or []
     requested_event_ids = payload.get("requested_event_ids") or []
@@ -1033,6 +1035,8 @@ def normalize_profile_submission_payload(payload, email, *, require_requested_ev
         "artist_bio": artist_bio,
         "is_artist_bio_public": True,
         "additional_info": additional_info,
+        "suburb": suburb,
+        "is_location_public": is_location_public,
         "social_links": normalized_social_links,
         "requested_event_ids": normalized_event_ids,
     }
@@ -1424,7 +1428,9 @@ def get_existing_profile_by_email(cursor, email):
             FROM profile_roles pr
             WHERE pr.profile_id = p.id
               AND pr.role = 'artist'
-          ) AS has_artist_role
+          ) AS has_artist_role,
+          p.suburb,
+          p.is_location_public
         FROM profiles p
         LEFT JOIN profile_roles artist_role
           ON artist_role.profile_id = p.id
@@ -1465,6 +1471,8 @@ def get_existing_profile_by_email(cursor, email):
         "artist_bio": row[13],
         "is_artist_bio_public": row[14],
         "additional_info": None,
+        "suburb": row[16],
+        "is_location_public": row[17],
         "has_artist_role": row[15],
         "social_links": [],
     }
@@ -1637,7 +1645,9 @@ def get_existing_profile_by_id(cursor, profile_id):
             FROM profile_roles pr
             WHERE pr.profile_id = p.id
               AND pr.role = 'artist'
-          ) AS has_artist_role
+          ) AS has_artist_role,
+          p.suburb,
+          p.is_location_public
         FROM profiles p
         LEFT JOIN profile_roles artist_role
           ON artist_role.profile_id = p.id
@@ -1667,6 +1677,8 @@ def get_existing_profile_by_id(cursor, profile_id):
         "artist_bio": row[13],
         "is_artist_bio_public": row[14],
         "additional_info": None,
+        "suburb": row[16],
+        "is_location_public": row[17],
         "has_artist_role": row[15],
         "social_links": [],
     }
@@ -1722,6 +1734,8 @@ def serialize_profile(profile):
         "artist_bio": profile["artist_bio"],
         "is_artist_bio_public": profile["is_artist_bio_public"],
         "additional_info": profile.get("additional_info"),
+        "suburb": profile.get("suburb"),
+        "is_location_public": profile.get("is_location_public"),
         "has_artist_role": profile["has_artist_role"],
         "social_links": profile["social_links"],
         "requested_event_ids": profile.get("requested_event_ids", []),
@@ -1745,6 +1759,8 @@ def serialize_prefill_profile(draft):
         "artist_bio": draft["artist_bio"],
         "is_artist_bio_public": draft["is_artist_bio_public"],
         "additional_info": draft.get("additional_info"),
+        "suburb": draft.get("suburb"),
+        "is_location_public": draft.get("is_location_public"),
         "has_artist_role": True,
         "social_links": draft["social_links"],
         "requested_event_ids": draft["requested_event_ids"],
@@ -1899,10 +1915,12 @@ def insert_profile_submission_draft(*, cursor, profile, email, draft_payload):
           artist_bio,
           is_artist_bio_public,
           additional_info,
+          suburb,
+          is_location_public,
           show_tribuo_link,
           submitted_by_email
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -1918,6 +1936,8 @@ def insert_profile_submission_draft(*, cursor, profile, email, draft_payload):
             draft_payload["artist_bio"],
             draft_payload["is_artist_bio_public"],
             draft_payload["additional_info"],
+            draft_payload["suburb"],
+            draft_payload["is_location_public"],
             draft_payload["show_tribuo_link"],
             email,
         ),
@@ -2134,6 +2154,8 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
           artist_bio,
           is_artist_bio_public,
           additional_info,
+          suburb,
+          is_location_public,
           show_tribuo_link,
           status
         FROM profile_submission_drafts
@@ -2159,8 +2181,10 @@ def get_profile_submission_draft(cursor, draft_id, *, include_date_summary=False
         "artist_bio": row[10],
         "is_artist_bio_public": row[11],
         "additional_info": row[12],
-        "show_tribuo_link": row[13],
-        "status": row[14],
+        "suburb": row[13],
+        "is_location_public": row[14],
+        "show_tribuo_link": row[15],
+        "status": row[16],
         "social_links": [],
         "requested_event_ids": [],
         "requested_events": [],
@@ -2335,6 +2359,8 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
               contact_phone,
               is_email_public,
               is_name_public,
+              suburb,
+              is_location_public,
               is_profile_approved,
               is_profile_index_visible,
               profile_visible_from,
@@ -2342,7 +2368,7 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
               approved_at,
               approved_by_profile_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, true, NULL, CURRENT_DATE + INTERVAL '100 years', now(), %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, true, true, NULL, CURRENT_DATE + INTERVAL '100 years', now(), %s)
             RETURNING id
             """,
             (
@@ -2354,6 +2380,8 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
                 draft["contact_phone"],
                 draft["is_email_public"],
                 draft["is_name_public"],
+                draft["suburb"],
+                draft["is_location_public"],
                 approved_by_profile_id,
             ),
         )
@@ -2372,6 +2400,8 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
               contact_phone = %s,
               is_email_public = %s,
               is_name_public = %s,
+              suburb = %s,
+              is_location_public = %s,
               is_profile_approved = true,
               is_profile_index_visible = true,
               approved_at = now(),
@@ -2387,6 +2417,8 @@ def apply_approved_draft(cursor, draft, approved_by_profile_id):
                 draft["contact_phone"],
                 draft["is_email_public"],
                 draft["is_name_public"],
+                draft["suburb"],
+                draft["is_location_public"],
                 approved_by_profile_id,
                 profile_id,
             ),
@@ -4060,6 +4092,8 @@ def send_moderation_emails(
             f"First name: {draft_payload['first_name'] or ''}\n"
             f"Last name: {draft_payload['last_name'] or ''}\n"
             f"Contact phone: {draft_payload['contact_phone']}\n"
+            f"Suburb: {draft_payload.get('suburb') or ''}\n"
+            f"Location public: {'yes' if draft_payload.get('is_location_public') else 'no'}\n"
             f"Email public: {'yes' if draft_payload['is_email_public'] else 'no'}\n"
             f"Name public: {'yes' if draft_payload['is_name_public'] else 'no'}\n"
             f"Show Tribuo link: {'yes' if draft_payload.get('show_tribuo_link') else 'no'}\n"
@@ -4091,6 +4125,8 @@ def format_existing_profile_for_moderation(existing_profile, matched_by):
         f"Existing first name: {existing_profile['first_name'] or ''}\n"
         f"Existing last name: {existing_profile['last_name'] or ''}\n"
         f"Existing contact phone: {existing_profile['contact_phone'] or ''}\n"
+        f"Existing suburb: {existing_profile.get('suburb') or ''}\n"
+        f"Existing location public: {'yes' if existing_profile.get('is_location_public') else 'no'}\n"
         f"Existing email public: {'yes' if existing_profile['is_email_public'] else 'no'}\n"
         f"Existing name public: {'yes' if existing_profile['is_name_public'] else 'no'}\n"
         f"Existing bio:\n{existing_profile['artist_bio'] or '(none)'}\n"

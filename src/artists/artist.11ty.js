@@ -1,6 +1,7 @@
 import {
   escapeHtml,
   renderContactLine,
+  renderLocationLine,
   renderProfileIntro,
   renderPublicBio,
   renderSocialLinks,
@@ -51,6 +52,7 @@ export default async function render(data) {
     missingImageThumbnailUrl: data.missingImageThumbnailUrl
   });
   html += renderPublicBio(artist);
+  html += renderLocationLine(artist);
 
   // Performances
   if (performances.length) {

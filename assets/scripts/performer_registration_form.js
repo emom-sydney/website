@@ -16,6 +16,8 @@ if (appNode) {
   const additionalInfoField = document.getElementById("performer-additional-info");
   const isEmailPublicField = document.getElementById("performer-is-email-public");
   const isNamePublicField = document.getElementById("performer-is-name-public");
+  const suburbField = document.getElementById("performer-suburb");
+  const isLocationPublicField = document.getElementById("performer-is-location-public");
   const subscribeAlumniField = document.getElementById("performer-subscribe-alumni");
   const subscribeAlumniContainer = document.getElementById("performer-subscribe-alumni-row");
   const socialLinksNode = document.getElementById("performer-social-links");
@@ -296,6 +298,8 @@ if (appNode) {
     additionalInfoField.value = profile?.additional_info || "";
     isEmailPublicField.checked = Boolean(profile?.is_email_public);
     isNamePublicField.checked = Boolean(profile?.is_name_public);
+    suburbField.value = profile?.suburb || "";
+    isLocationPublicField.checked = Boolean(profile?.is_location_public);
     populateSocialLinks(profile?.social_links || []);
   }
 
@@ -474,6 +478,8 @@ if (appNode) {
       contact_phone: String(contactPhoneField.value || "").trim(),
       is_email_public: isEmailPublicField.checked,
       is_name_public: isNamePublicField.checked,
+      suburb: String(suburbField.value || "").trim() || null,
+      is_location_public: isLocationPublicField.checked,
       show_tribuo_link: Boolean(showTribuoLinkField?.checked),
       subscribe_alumni: Boolean(subscribeAlumniField?.checked && !subscribeAlumniField?.disabled),
       artist_bio: String(bioField.value || "").trim() || null,
