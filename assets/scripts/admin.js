@@ -31,43 +31,6 @@
     return payload.data;
   }
 
-  async function saveLineupWithProgress(eventId, statuses, onSent) {
-    const response = await fetch(`/api/v1/admin/events/${eventId}/lineup`, {
-      method: "PUT",
-      credentials: "same-origin",
-      headers: {
-        Accept: "application/x-ndjson",
-        "Content-Type": "application/json",
-        "X-CSRF-Token": readCookie("emom_staff_csrf"),
-      },
-      body: JSON.stringify({ statuses, progress: true }),
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload?.error?.message || `Request failed (${response.status}).`);
-    }
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("Unable to read notification progress.");
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let completeMessage = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line) continue;
-        const progress = JSON.parse(line);
-        if (progress.type === "sent") onSent(progress.email);
-        if (progress.type === "error") throw new Error(`Unable to send confirmation to ${progress.email}.`);
-        if (progress.type === "complete") completeMessage = progress.message;
-      }
-      if (done) break;
-    }
-    return completeMessage || "Lineup saved.";
-  }
-
   function status(message, isError = false) {
     const node = document.querySelector("[data-admin-status]");
     if (!node) return;
@@ -84,6 +47,17 @@
     }
     if (needsApproval) return "Awaiting profile approval";
     return "Awaiting availability confirmation";
+  }
+
+  function formatAvailabilityEmailSent(epoch) {
+    const sentAt = new Date(Number(epoch));
+    if (Number.isNaN(sentAt.getTime())) return "";
+    const day = String(sentAt.getDate()).padStart(2, "0");
+    const month = String(sentAt.getMonth() + 1).padStart(2, "0");
+    const hours = String(sentAt.getHours()).padStart(2, "0");
+    const minutes = String(sentAt.getMinutes()).padStart(2, "0");
+    const elapsedHours = Math.max(0, Math.floor((Date.now() - sentAt.getTime()) / 3600000));
+    return `${day}/${month} ${hours}:${minutes} (${elapsedHours}h ago)`;
   }
 
   function lineupStatusLabel(status) {
@@ -515,7 +489,7 @@
     });
   }
 
-  async function loadLineup(node) {
+  async function loadLineup(node, restoreSelectedIds = []) {
     const eventId = Number(node.dataset.eventId);
     const eventDetails = await api(`/api/v1/admin/events/${eventId}`);
     if (eventDetails.type_id === 2) {
@@ -584,18 +558,14 @@
       ? ` ${frequentNewFaceCount} of those have requested to play more than twice already.`
       : "";
     function renderLineupStatusCell(item) {
-      const sortValue = item.availability_status === "availability_cancelled" ? "cancelled" : lineupEffectiveStatus(item);
-      if (item.availability_status === "availability_cancelled") {
-        return `<td data-status-cell data-sort-value="${escapeHtml(sortValue)}"><small>Cancelled</small></td>`;
+      const status = item.availability_status === "availability_cancelled" ? "cancelled" : lineupEffectiveStatus(item);
+      const label = status === "cancelled" ? "Cancelled" : lineupStatusLabel(status);
+      let extra = "";
+      if (item.availability_email_sent_at_epoch) {
+        const when = formatAvailabilityEmailSent(item.availability_email_sent_at_epoch);
+        if (when) extra = `<br><small class="admin-last-sent">Reminder sent ${escapeHtml(when)}</small>`;
       }
-      const options = ["requested", "availability_confirmed", "selected", "standby", "reserve", "cancelled", "declined"]
-        .map((value) => {
-          const current = lineupEffectiveStatus(item);
-          return `<option value="${value}"${current === value ? " selected" : ""}>${lineupStatusLabel(value)}</option>`;
-        }).join("");
-      return `<td data-status-cell data-sort-value="${escapeHtml(sortValue)}">
-          <select name="status_${item.requested_date_id}"${item.is_profile_approved ? "" : " disabled"}>${options}</select>${item.is_profile_approved ? "" : "<small>Awaiting profile approval</small>"}
-        </td>`;
+      return `<td data-status-cell data-sort-value="${escapeHtml(status)}">${escapeHtml(label)}${extra}</td>`;
     }
 
     const lineupColumns = [
@@ -619,7 +589,7 @@
     node.innerHTML = `
       <h2>${escapeHtml(data.event.event_name)} — ${escapeHtml(data.event.event_date)}</h2>
       <p><span data-interest-count>${data.candidates.length}</span> performers have expressed interest in this date, ${newFaceCount} of whom haven't played before.${frequentNewFaceNote}</p>
-      <form data-lineup-form>
+      <div class="admin-lineup-container">
         <div class="admin-lineup-toolbar">
           <div class="admin-lineup-toolbar-left">
             <p><strong><span data-selected-slots>0</span>/${escapeHtml(data.event.performance_slots)} slots selected</strong></p>
@@ -633,8 +603,15 @@
             <div class="admin-actions-menu" data-actions-menu>
               <button type="button" class="admin-actions-toggle" data-actions-toggle disabled>Actions <span aria-hidden="true">▾</span></button>
               <ul class="admin-actions-list" data-actions-list hidden>
-                <li><button type="button" data-action="remove" disabled>Remove from lineup</button></li>
+                <li class="admin-actions-group-label">Set status</li>
+                <li><button type="button" data-action="set-status" data-status="selected" disabled>Selected</button></li>
+                <li><button type="button" data-action="set-status" data-status="standby" disabled>Standby</button></li>
+                <li><button type="button" data-action="set-status" data-status="reserve" disabled>Reserve</button></li>
+                <li><button type="button" data-action="set-status" data-status="cancelled" disabled>Cancelled</button></li>
+                <li><button type="button" data-action="set-status" data-status="declined" disabled>Declined</button></li>
+                <li class="admin-actions-separator" aria-hidden="true"></li>
                 <li><button type="button" data-action="send" disabled>Send email</button></li>
+                <li><button type="button" data-action="remove" disabled>Remove from lineup</button></li>
               </ul>
             </div>
           </div>
@@ -643,9 +620,8 @@
           <thead><tr>${lineupHeaderHtml}</tr></thead>
           <tbody>${lineupBodyHtml}</tbody>
         </table></div>
-        <button type="submit">Continue</button>
         <p role="status" data-lineup-status></p>
-      </form>`;
+      </div>`;
 
     setupSortableTable(node.querySelector("[data-sortable-table]"));
     setupInfoTooltips(node);
@@ -687,19 +663,27 @@
       }, 250);
     });
 
+    const performanceSlots = Number(data.event.performance_slots);
+
+    function effectiveStatus(item) {
+      return item.availability_status === "availability_cancelled" ? "cancelled" : lineupEffectiveStatus(item);
+    }
     const EMAILABLE_STATUSES = new Set(["requested", "selected", "standby", "reserve"]);
 
     function itemForId(id) {
       return data.candidates.find((candidate) => candidate.requested_date_id === id) || null;
     }
     function rowStatus(row) {
-      const select = row?.querySelector("select[name^='status_']");
-      return select ? select.value : "cancelled";
+      const cell = row?.querySelector("[data-status-cell]");
+      return cell?.dataset.sortValue || "requested";
     }
     function selectedRows() {
       return [...node.querySelectorAll("input[data-select-row]:checked")]
         .map((checkbox) => checkbox.closest("tr"))
         .filter(Boolean);
+    }
+    function selectedIdSet() {
+      return new Set(selectedRows().map((row) => Number(row.querySelector("input[data-select-row]").dataset.selectRow)));
     }
     function updateSelectAll() {
       const checkboxes = node.querySelectorAll("input[data-select-row]");
@@ -709,14 +693,35 @@
       selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
       selectAll.indeterminate = checked.length > 0 && checked.length < checkboxes.length;
     }
+    function updateSelectedSlotsCount() {
+      const count = data.candidates.filter((candidate) => effectiveStatus(candidate) === "selected").length;
+      const slotsNode = node.querySelector("[data-selected-slots]");
+      if (slotsNode) slotsNode.textContent = String(count);
+    }
     function updateActionsMenu() {
       const rows = selectedRows();
       const count = rows.length;
-      const removeButton = node.querySelector('[data-action="remove"]');
-      const sendButton = node.querySelector('[data-action="send"]');
       const toggle = node.querySelector("[data-actions-toggle]");
       if (toggle) toggle.disabled = count === 0;
+      const selectedIds = selectedIdSet();
+      node.querySelectorAll('[data-action="set-status"]').forEach((button) => {
+        const status = button.dataset.status;
+        let disabled = count === 0;
+        button.title = "";
+        if (!disabled && status === "selected") {
+          const prospective = data.candidates.filter((candidate) =>
+            selectedIds.has(candidate.requested_date_id) ? true : effectiveStatus(candidate) === "selected"
+          ).length;
+          if (prospective > performanceSlots) {
+            disabled = true;
+            button.title = `Would exceed ${performanceSlots} selected slots`;
+          }
+        }
+        button.disabled = disabled;
+      });
+      const removeButton = node.querySelector('[data-action="remove"]');
       if (removeButton) removeButton.disabled = count === 0;
+      const sendButton = node.querySelector('[data-action="send"]');
       if (sendButton) {
         const statuses = new Set(rows.map(rowStatus));
         const uniform = statuses.size === 1;
@@ -747,6 +752,28 @@
       if (countNode) countNode.textContent = String(node.querySelectorAll("tbody tr").length);
       updateSelectAll();
       updateActionsMenu();
+    }
+
+    async function setSelectedStatus(status) {
+      const rows = selectedRows();
+      if (!rows.length) return;
+      const selectedIds = selectedIdSet();
+      const statuses = {};
+      for (const candidate of data.candidates) {
+        statuses[candidate.requested_date_id] = selectedIds.has(candidate.requested_date_id)
+          ? status
+          : effectiveStatus(candidate);
+      }
+      try {
+        await api(`/api/v1/admin/events/${eventId}/lineup`, {
+          method: "PUT",
+          body: JSON.stringify({ statuses, notify: false }),
+        });
+        window.showToast?.(`Status set to "${lineupStatusLabel(status)}" for ${rows.length} performer${rows.length > 1 ? "s" : ""}.`, { kind: "success" });
+        await loadLineup(node, [...selectedIds]);
+      } catch (error) {
+        window.showToast?.(error.message, { kind: "error" });
+      }
     }
 
     async function sendSelected() {
@@ -806,13 +833,6 @@
       });
       updateActionsMenu();
     });
-    node.querySelectorAll("tbody tr").forEach((row) => {
-      row.querySelector("select[name^='status_']")?.addEventListener("change", (event) => {
-        const statusCell = row.querySelector("[data-status-cell]");
-        if (statusCell) statusCell.dataset.sortValue = event.currentTarget.value;
-        updateActionsMenu();
-      });
-    });
 
     const actionsMenu = node.querySelector("[data-actions-menu]");
     const actionsToggle = node.querySelector("[data-actions-toggle]");
@@ -835,93 +855,19 @@
         actionsList.hidden = true;
         if (button.dataset.action === "remove") removeSelected();
         else if (button.dataset.action === "send") sendSelected();
+        else if (button.dataset.action === "set-status") setSelectedStatus(button.dataset.status);
       });
     }
 
-    const statusSelects = Array.from(node.querySelectorAll("select[name^='status_']"));
-    const selectedSlotsNode = node.querySelector("[data-selected-slots]");
-    const performanceSlots = Number(data.event.performance_slots);
-    const updateSelectedSlots = (changedSelect) => {
-      const selectedCount = statusSelects.filter((select) => select.value === "selected").length;
-      if (selectedCount > performanceSlots && changedSelect) {
-        if (changedSelect) changedSelect.value = changedSelect.dataset.previousValue || "standby";
-        window.showToast?.(`You can select at most ${performanceSlots} performers.`, { kind: "error" });
-        return updateSelectedSlots();
-      }
-      if (selectedSlotsNode) selectedSlotsNode.textContent = String(selectedCount);
-    };
-    statusSelects.forEach((select) => {
-      select.dataset.previousValue = select.value;
-      select.addEventListener("change", () => {
-        updateSelectedSlots(select);
-        select.dataset.previousValue = select.value;
+    updateSelectedSlotsCount();
+    if (Array.isArray(restoreSelectedIds) && restoreSelectedIds.length) {
+      const restore = new Set(restoreSelectedIds);
+      node.querySelectorAll("input[data-select-row]").forEach((checkbox) => {
+        if (restore.has(Number(checkbox.dataset.selectRow))) checkbox.checked = true;
       });
-    });
-    updateSelectedSlots();
-
-    node.querySelector("[data-lineup-form]")?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const statuses = {};
-      new FormData(form).forEach((value, key) => {
-        if (key.startsWith("status_")) statuses[key.slice(7)] = value;
-      });
-      try {
-        const preview = await api(`/api/v1/admin/events/${eventId}/lineup/preview`, {
-          method: "POST",
-          body: JSON.stringify({ statuses }),
-        });
-        const confirmation = document.createElement("div");
-        confirmation.innerHTML = `<h3>Continue and notify</h3>
-          <p>The following performers will be notified:</p>
-          ${preview.recipients.length ? `<ul>${preview.recipients.map((item) => `<li>${escapeHtml(item.display_name)} — ${escapeHtml(item.email)}</li>`).join("")}</ul>` : "<p>No new selection notifications will be sent.</p>"}
-          <p><strong>Not selected:</strong> ${preview.unselected_emails.length ? escapeHtml(preview.unselected_emails.join(", ")) : "None"}</p>
-          <button type="button" data-confirm-lineup>Save</button>
-          <button type="button" data-save-lineup-without-notifying>Save but don't notify</button>
-          <button type="button" data-cancel-lineup>Go back</button>
-          <button type="button" data-exit-lineup>Exit without saving</button>`;
-        form.replaceWith(confirmation);
-        confirmation.querySelector("[data-cancel-lineup]").addEventListener("click", () => confirmation.replaceWith(form));
-        confirmation.querySelector("[data-exit-lineup]").addEventListener("click", () => {
-          window.location.assign("/admin/events/");
-        });
-        confirmation.querySelector("[data-save-lineup-without-notifying]").addEventListener("click", async () => {
-          const saveButton = confirmation.querySelector("[data-save-lineup-without-notifying]");
-          saveButton.disabled = true;
-          saveButton.textContent = "Saving lineup…";
-          try {
-            const result = await api(`/api/v1/admin/events/${eventId}/lineup`, {
-              method: "PUT",
-              body: JSON.stringify({ statuses, notify: false }),
-            });
-            window.showToast?.(result.message, { kind: "success" });
-            window.location.assign("/admin/events/");
-          } catch (error) {
-            window.showToast?.(error.message, { kind: "error" });
-            saveButton.disabled = false;
-            saveButton.textContent = "Save but don't notify";
-          }
-        });
-        confirmation.querySelector("[data-confirm-lineup]").addEventListener("click", async () => {
-          const confirmButton = confirmation.querySelector("[data-confirm-lineup]");
-          confirmButton.disabled = true;
-          confirmButton.textContent = "Saving lineup…";
-          try {
-            const message = await saveLineupWithProgress(eventId, statuses, (email) => {
-              window.showToast?.(`Confirmation sent to ${email}.`, { kind: "success" });
-            });
-            window.showToast?.(message, { kind: "success" });
-            window.location.assign("/admin/events/");
-          } catch (error) {
-            window.showToast?.(error.message, { kind: "error" });
-            confirmButton.disabled = false;
-            confirmButton.textContent = "Continue";
-          }
-        });
-      } catch (error) {
-        window.showToast?.(error.message, { kind: "error" });
-      }
-    });
+    }
+    updateSelectAll();
+    updateActionsMenu();
 
     const heartbeat = window.setInterval(() => {
       api(`/api/v1/admin/events/${eventId}/lineup/lock`, { method: "POST" }).catch(() => {

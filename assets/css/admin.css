@@ -427,3 +427,20 @@
 .admin-select-cell input[type="checkbox"] {
   margin: 0;
 }
+
+.admin-actions-group-label {
+  padding: .4rem .6rem .2rem;
+  font-size: .75em;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #888;
+}
+
+.admin-actions-separator {
+  border-top: 1px solid #ddd;
+  margin: .3rem 0;
+}
+
+.admin-last-sent {
+  color: #777;
+}
