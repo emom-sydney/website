@@ -334,3 +334,96 @@
   gap: .5rem;
   align-items: center;
 }
+
+.admin-lineup-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.admin-lineup-toolbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+
+.admin-lineup-toolbar-right {
+  display: flex;
+  align-items: flex-start;
+}
+
+.admin-actions-menu {
+  position: relative;
+}
+
+.admin-actions-toggle {
+  background: #007bff;
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 10px 20px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.admin-actions-toggle:hover:not(:disabled) {
+  background: #0069d9;
+}
+
+.admin-actions-toggle:disabled {
+  background: #999;
+  cursor: not-allowed;
+}
+
+.admin-actions-list {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  margin: .25rem 0 0;
+  padding: .35rem;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #555;
+  border-radius: 6px;
+  min-width: 16rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+}
+
+.admin-actions-list li {
+  margin: 0;
+}
+
+.admin-actions-list button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: .5rem .6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  color: #333;
+}
+
+.admin-actions-list button:hover:not(:disabled) {
+  background: #eef3fb;
+}
+
+.admin-actions-list button:disabled {
+  color: #999;
+  cursor: not-allowed;
+}
+
+.admin-select-cell {
+  width: 2.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.admin-select-cell input[type="checkbox"] {
+  margin: 0;
+}
