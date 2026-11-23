@@ -996,11 +996,36 @@ def register_admin_api_routes(app):
                     if found != set(profile_ids):
                         return api_error("invalid_performers", "One or more performers were not found.")
                 cursor.execute("DELETE FROM performances WHERE event_id = %s AND profile_id IS NOT NULL", (event_id,))
+                staff_profile_id = g.staff["profile_id"]
                 for sort_order, profile_id in enumerate(profile_ids):
                     cursor.execute(
                         """INSERT INTO performances (event_id, profile_id, performer_display_name, sort_order)
                            SELECT %s, id, display_name, %s FROM profiles WHERE id = %s""",
                         (event_id, sort_order, profile_id),
+                    )
+                    # Showcase lineups (type 2) are curated, so an act goes live on
+                    # the artist index as soon as they are added to the lineup,
+                    # without waiting for event-day stage-manager check-in.
+                    cursor.execute(
+                        """INSERT INTO profile_roles (profile_id, role)
+                           VALUES (%s, 'artist')
+                           ON CONFLICT (profile_id, role) DO NOTHING""",
+                        (profile_id,),
+                    )
+                    cursor.execute(
+                        """UPDATE profiles
+                           SET is_profile_approved = true,
+                               is_profile_index_visible = true,
+                               profile_visible_from = CASE
+                                 WHEN profile_visible_from IS NULL OR profile_visible_from > CURRENT_DATE
+                                   THEN CURRENT_DATE
+                                 ELSE profile_visible_from
+                               END,
+                               profile_expires_on = GREATEST(profile_expires_on, CURRENT_DATE),
+                               approved_at = COALESCE(approved_at, now()),
+                               approved_by_profile_id = COALESCE(approved_by_profile_id, %s)
+                           WHERE id = %s""",
+                        (staff_profile_id, profile_id),
                     )
         return api_data({"message": "Performers saved."})
 
